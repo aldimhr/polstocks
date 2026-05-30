@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_FILE = PROJECT_ROOT / "dashboard.html"
 WATCHLIST_FILE = PROJECT_ROOT / "watchlist.json"
+COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
 
 APP_TITLE = "Indonesia Political-Stock Impact System"
 CACHE_TTL_SECONDS = 300
@@ -323,6 +324,7 @@ WATCHLIST_LOCK = threading.Lock()
 CACHE_LOCK = threading.Lock()
 WATCHLIST_STATE = list(DEFAULT_WATCHLIST)
 CACHE: dict[str, Any] = {}
+COMPANY_KNOWLEDGE: dict[str, dict[str, Any]] = {}
 
 
 class RefreshRequest(BaseModel):
@@ -463,6 +465,49 @@ def normalize_watchlist_values(raw: Any) -> list[str]:
     return values
 
 
+def normalize_company_knowledge(raw: Any) -> dict[str, dict[str, Any]]:
+    records = raw.get("companies", []) if isinstance(raw, dict) else raw
+    if not isinstance(records, list):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        ticker = normalize_ticker(str(record.get("ticker", "")))
+        policy_exposures = [str(item).strip() for item in record.get("policy_exposures", []) if str(item).strip()]
+        policy_channels = [str(item).strip() for item in record.get("policy_channels", []) if str(item).strip()]
+        evidence = [
+            item for item in record.get("evidence", [])
+            if isinstance(item, dict) and str(item.get("url", "")).startswith(("http://", "https://"))
+        ]
+        if not ticker or not policy_exposures or not policy_channels or not evidence:
+            continue
+        normalized[ticker] = {
+            **record,
+            "ticker": ticker,
+            "policy_exposures": policy_exposures,
+            "policy_channels": policy_channels,
+            "business_lines": [str(item).strip() for item in record.get("business_lines", []) if str(item).strip()],
+            "aliases": [str(item).strip().lower() for item in record.get("aliases", []) if str(item).strip()],
+            "evidence": evidence,
+        }
+    return normalized
+
+
+def load_company_knowledge_from_disk() -> dict[str, dict[str, Any]]:
+    if not COMPANY_KNOWLEDGE_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(COMPANY_KNOWLEDGE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return normalize_company_knowledge(raw)
+
+
+def company_knowledge_for_ticker(ticker: str) -> dict[str, Any]:
+    return COMPANY_KNOWLEDGE.get(normalize_ticker(ticker), {})
+
+
 def load_watchlist_from_disk() -> list[str]:
     if not WATCHLIST_FILE.exists():
         return list(DEFAULT_WATCHLIST)
@@ -500,6 +545,7 @@ def set_watchlist(tickers: list[str]) -> list[str]:
 # Load persisted watchlist after helper definitions are available.
 with WATCHLIST_LOCK:
     WATCHLIST_STATE[:] = load_watchlist_from_disk()
+COMPANY_KNOWLEDGE.update(load_company_knowledge_from_disk())
 
 
 # ---------------------------------------------------------------------------
@@ -879,38 +925,45 @@ def build_stock_relationships(
         if not info:
             continue
 
-        alias_hits = [alias for alias in info["aliases"] if alias in text]
+        knowledge = company_knowledge_for_ticker(ticker)
+        knowledge_alias_hits = [alias for alias in knowledge.get("aliases", []) if alias in text]
+        alias_hits = [alias for alias in info["aliases"] if alias in text] + knowledge_alias_hits
         direct_alias_hit = bool(alias_hits)
         sector_match = info["sector"] in sector_hits
         adjacent_match = info["sector"] in category_sectors
         profile = TICKER_EXPOSURE_PROFILES.get(ticker, {"themes": [], "keywords": []})
         profile_theme_names = set(profile.get("themes", []))
         profile_keyword_hits = [keyword for keyword in profile.get("keywords", []) if keyword in text]
-        matched_themes = [theme for theme in themes if theme["name"] in profile_theme_names]
+        knowledge_theme_names = set(knowledge.get("policy_exposures", []))
+        knowledge_channel_hits = [channel for channel in knowledge.get("policy_channels", []) if any(token in text for token in channel.lower().split())]
+        matched_themes = [theme for theme in themes if theme["name"] in (profile_theme_names | knowledge_theme_names)]
+
+        if not knowledge and not direct_alias_hit:
+            continue
 
         transmission_clarity = 0.0
         if direct_alias_hit:
             transmission_clarity = 5.0
-        elif matched_themes and profile_keyword_hits:
-            transmission_clarity = 3.6 + min(1.0, 0.35 * len(matched_themes) + 0.15 * len(profile_keyword_hits))
-        elif matched_themes:
-            transmission_clarity = 3.0 + min(0.8, 0.35 * len(matched_themes))
-        elif sector_match and profile_keyword_hits:
-            transmission_clarity = 2.4
-        elif adjacent_match and profile_keyword_hits:
-            transmission_clarity = 1.6
+        elif matched_themes and (profile_keyword_hits or knowledge_channel_hits):
+            transmission_clarity = 3.7 + min(1.0, 0.35 * len(matched_themes) + 0.1 * len(profile_keyword_hits) + 0.1 * len(knowledge_channel_hits))
+        elif matched_themes and knowledge:
+            transmission_clarity = 3.2 + min(0.8, 0.3 * len(matched_themes))
+        elif knowledge and sector_match and (profile_keyword_hits or knowledge_channel_hits):
+            transmission_clarity = 2.5
+        elif knowledge and adjacent_match and (profile_keyword_hits or knowledge_channel_hits):
+            transmission_clarity = 1.7
 
         company_exposure = 0.0
         if direct_alias_hit:
             company_exposure = 5.0
-        elif matched_themes and profile_keyword_hits:
-            company_exposure = 3.5 + min(1.0, 0.3 * len(matched_themes) + 0.2 * len(profile_keyword_hits))
-        elif matched_themes:
-            company_exposure = 3.0 + min(0.7, 0.35 * len(matched_themes))
-        elif sector_match and profile_keyword_hits:
-            company_exposure = 2.2
-        elif adjacent_match and profile_keyword_hits:
-            company_exposure = 1.5
+        elif matched_themes and knowledge and (profile_keyword_hits or knowledge_channel_hits):
+            company_exposure = 3.7 + min(1.0, 0.25 * len(matched_themes) + 0.15 * len(knowledge.get("business_lines", [])))
+        elif matched_themes and knowledge:
+            company_exposure = 3.2 + min(0.7, 0.3 * len(matched_themes))
+        elif knowledge and sector_match and (profile_keyword_hits or knowledge_channel_hits):
+            company_exposure = 2.3
+        elif knowledge and adjacent_match and (profile_keyword_hits or knowledge_channel_hits):
+            company_exposure = 1.6
 
         if transmission_clarity <= 0.0 or company_exposure <= 0.0:
             continue
@@ -918,6 +971,8 @@ def build_stock_relationships(
         specificity = policy_specificity_score(categories, themes, text)
         timing = max(1.0, min(5.0, 5.0 - recency_hours / 6.0))
         evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit)
+        if knowledge.get("evidence"):
+            evidence_quality = min(5.0, evidence_quality + 0.5)
         relationship_type = relationship_type_for_link(direct_alias_hit, transmission_clarity, company_exposure)
         if relationship_type == "thematic":
             company_exposure = min(company_exposure, 2.6)
@@ -935,18 +990,22 @@ def build_stock_relationships(
             continue
 
         primary_theme = (matched_themes or themes or [{"channel": "broad sector sensitivity", "exposure_type": "sector"}])[0]
+        policy_channel = (knowledge.get("policy_channels") or [primary_theme["channel"]])[0]
+        summary = knowledge.get("summary") or ""
         rationale = (
-            f"{ticker} is linked via {primary_theme['channel']} for the {info['sector']} sector"
-            if not direct_alias_hit
-            else f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
+            f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
+            if direct_alias_hit
+            else f"{ticker} is linked via {policy_channel} based on company-specific exposure in {info['sector']}"
         )
         evidence = []
         if direct_alias_hit:
             evidence.append("company/entity mentioned in article")
         if matched_themes:
             evidence.append(f"matched policy theme: {matched_themes[0]['name'].replace('_', ' ').title()}")
-        if sector_match:
-            evidence.append(f"sector match: {info['sector']}")
+        if policy_channel:
+            evidence.append(f"policy channel: {policy_channel}")
+        for item in knowledge.get("evidence", [])[:2]:
+            evidence.append(f"{item.get('label', 'source')}: {item.get('url', '')}")
         if article.get("source"):
             evidence.append(f"source: {article['source']}")
 
@@ -964,9 +1023,11 @@ def build_stock_relationships(
                 "relevance_score": round(score, 2),
                 "confidence": round(confidence, 3),
                 "rationale": rationale,
-                "policy_channel": primary_theme["channel"],
+                "policy_channel": policy_channel,
                 "exposure_type": primary_theme["exposure_type"],
-                "evidence": evidence[:4],
+                "knowledge_summary": summary,
+                "company_evidence": knowledge.get("evidence", []),
+                "evidence": evidence[:5],
             }
         )
 
@@ -1115,6 +1176,7 @@ def build_refresh_payload(
         total_weight = sum(recency_weights) or 1.0
         impact_score = clamp(weighted_total / total_weight, -1.0, 1.0)
         strongest_link = max(related_links, key=lambda item: item[1].get("relevance_score", 0.0), default=None)
+        knowledge = company_knowledge_for_ticker(ticker)
         stocks.append(
             {
                 "ticker": ticker,
@@ -1132,6 +1194,8 @@ def build_refresh_payload(
                 "confidence": strongest_link[1].get("confidence") if strongest_link else 0.0,
                 "rationale": strongest_link[1].get("rationale") if strongest_link else "No evidence-backed political link in current batch.",
                 "policy_channel": strongest_link[1].get("policy_channel") if strongest_link else None,
+                "knowledge_summary": strongest_link[1].get("knowledge_summary") if strongest_link else knowledge.get("summary", ""),
+                "company_evidence": strongest_link[1].get("company_evidence") if strongest_link else knowledge.get("evidence", []),
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
@@ -1250,6 +1314,8 @@ def reset_runtime_state() -> None:
         save_watchlist_to_disk(WATCHLIST_STATE)
     except Exception:
         pass
+    COMPANY_KNOWLEDGE.clear()
+    COMPANY_KNOWLEDGE.update(load_company_knowledge_from_disk())
     with CACHE_LOCK:
         CACHE.clear()
 

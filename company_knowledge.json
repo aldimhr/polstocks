@@ -1,0 +1,765 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-30T11:15:00+07:00",
+  "companies": [
+    {
+      "ticker": "BBCA.JK",
+      "name": "Bank Central Asia",
+      "sector": "Financials",
+      "summary": "Large private bank with broad transaction banking, mortgage, and corporate lending exposure.",
+      "policy_exposures": [
+        "BANKING_LIQUIDITY",
+        "HOUSING",
+        "DIGITAL_PUBLIC",
+        "INFRASTRUCTURE"
+      ],
+      "business_lines": [
+        "transaction banking",
+        "consumer lending",
+        "mortgages",
+        "corporate loans"
+      ],
+      "policy_channels": [
+        "benefits from lower rates or stronger liquidity via credit growth",
+        "housing policy can lift mortgage demand",
+        "digital public-service expansion can increase payments and transaction activity"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/BBCA.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "BBRI.JK",
+      "name": "Bank Rakyat Indonesia",
+      "sector": "Financials",
+      "summary": "Large lender with heavy MSME and rural credit exposure.",
+      "policy_exposures": [
+        "BANKING_LIQUIDITY",
+        "FOOD_SECURITY",
+        "INFRASTRUCTURE"
+      ],
+      "business_lines": [
+        "microcredit",
+        "MSME lending",
+        "retail banking"
+      ],
+      "policy_channels": [
+        "community and food-security programs can increase MSME financing demand",
+        "rate and liquidity policy affects net interest and loan growth"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/BBRI.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "BMRI.JK",
+      "name": "Bank Mandiri",
+      "sector": "Financials",
+      "summary": "Large universal bank with meaningful state-linked corporate and infrastructure financing exposure.",
+      "policy_exposures": [
+        "BANKING_LIQUIDITY",
+        "INFRASTRUCTURE",
+        "DOWNSTREAMING"
+      ],
+      "business_lines": [
+        "corporate banking",
+        "project finance",
+        "consumer banking"
+      ],
+      "policy_channels": [
+        "state project acceleration can raise project-finance demand",
+        "downstreaming and industrial capex can increase corporate lending"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/BMRI.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "TLKM.JK",
+      "name": "Telkom Indonesia",
+      "sector": "Technology",
+      "summary": "Integrated telecom and digital infrastructure operator.",
+      "policy_exposures": [
+        "DIGITAL_PUBLIC"
+      ],
+      "business_lines": [
+        "mobile connectivity",
+        "fixed broadband",
+        "enterprise digital services",
+        "data centers"
+      ],
+      "policy_channels": [
+        "digital-government and connectivity programs can raise enterprise and infrastructure demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/TLKM.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "ASII.JK",
+      "name": "Astra International",
+      "sector": "Consumer Cyclicals",
+      "summary": "Diversified conglomerate with automotive, heavy equipment, and financial services exposure.",
+      "policy_exposures": [
+        "INFRASTRUCTURE",
+        "BANKING_LIQUIDITY",
+        "FOOD_SECURITY"
+      ],
+      "business_lines": [
+        "automotive distribution",
+        "heavy equipment",
+        "financial services"
+      ],
+      "policy_channels": [
+        "infrastructure and commodity investment can boost heavy-equipment demand",
+        "credit easing can support auto financing"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/ASII.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "GOTO.JK",
+      "name": "GoTo Gojek Tokopedia",
+      "sector": "Technology",
+      "summary": "Digital platform with payments, commerce, and on-demand services exposure.",
+      "policy_exposures": [
+        "DIGITAL_PUBLIC",
+        "FOOD_SECURITY"
+      ],
+      "business_lines": [
+        "digital payments",
+        "e-commerce",
+        "mobility",
+        "logistics"
+      ],
+      "policy_channels": [
+        "digitalization policy can support payment and platform adoption",
+        "distribution and food-commerce activity can benefit from consumer logistics programs"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/GOTO.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "BYAN.JK",
+      "name": "Bayan Resources",
+      "sector": "Energy",
+      "summary": "Coal producer with export and energy-policy sensitivity.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "coal mining",
+        "coal sales"
+      ],
+      "policy_channels": [
+        "export restrictions and quota policy directly affect realized volumes and pricing"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/BYAN.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "ADRO.JK",
+      "name": "Adaro Energy Indonesia",
+      "sector": "Energy",
+      "summary": "Diversified energy group with coal and industrial-energy exposure.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "DOWNSTREAMING",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "coal mining",
+        "energy services",
+        "industrial projects"
+      ],
+      "policy_channels": [
+        "energy quotas and export rules affect coal economics",
+        "industrial/downstreaming capex can affect energy demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/ADRO.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "UNVR.JK",
+      "name": "Unilever Indonesia",
+      "sector": "Consumer Non-Cyclicals",
+      "summary": "Consumer staples producer exposed to purchasing power and import/input policy.",
+      "policy_exposures": [
+        "FOOD_SECURITY",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "household products",
+        "personal care",
+        "consumer staples"
+      ],
+      "policy_channels": [
+        "trade restrictions and consumer policy can affect input costs and staple demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/UNVR.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "ICBP.JK",
+      "name": "Indofood CBP Sukses Makmur",
+      "sector": "Consumer Non-Cyclicals",
+      "summary": "Packaged-food producer exposed to staple demand and trade policy.",
+      "policy_exposures": [
+        "FOOD_SECURITY",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "packaged food",
+        "consumer staples",
+        "distribution"
+      ],
+      "policy_channels": [
+        "food-security programs can shift staple demand",
+        "import/export rules can affect raw material costs"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/ICBP.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "PTBA.JK",
+      "name": "Bukit Asam",
+      "sector": "Energy",
+      "summary": "Coal mining company with direct sensitivity to quota and export policy.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "coal mining",
+        "coal logistics"
+      ],
+      "policy_channels": [
+        "energy quotas, domestic market obligations, and export rules directly affect sales and pricing"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/PTBA.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "ANTM.JK",
+      "name": "Aneka Tambang",
+      "sector": "Basic Materials",
+      "summary": "State-linked miner with nickel, gold, and downstream mineral exposure.",
+      "policy_exposures": [
+        "DOWNSTREAMING",
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "nickel mining",
+        "gold",
+        "mineral processing"
+      ],
+      "policy_channels": [
+        "downstreaming policy directly affects nickel processing economics",
+        "trade and export policy can change mineral realizations"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/ANTM.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "INDF.JK",
+      "name": "Indofood Sukses Makmur",
+      "sector": "Consumer Non-Cyclicals",
+      "summary": "Diversified food producer with staple consumption exposure.",
+      "policy_exposures": [
+        "FOOD_SECURITY",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "consumer staples",
+        "food processing",
+        "distribution"
+      ],
+      "policy_channels": [
+        "food-security initiatives and import rules can affect staple volumes and input costs"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/INDF.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "SMGR.JK",
+      "name": "Semen Indonesia",
+      "sector": "Basic Materials",
+      "summary": "Major cement producer with housing and infrastructure demand exposure.",
+      "policy_exposures": [
+        "HOUSING",
+        "INFRASTRUCTURE"
+      ],
+      "business_lines": [
+        "cement",
+        "building materials",
+        "distribution"
+      ],
+      "policy_channels": [
+        "housing and public-works execution can drive cement demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/SMGR.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "KLBF.JK",
+      "name": "Kalbe Farma",
+      "sector": "Healthcare",
+      "summary": "Healthcare and nutrition group with public-health and nutrition sensitivity.",
+      "policy_exposures": [
+        "FOOD_SECURITY"
+      ],
+      "business_lines": [
+        "pharmaceuticals",
+        "nutrition",
+        "consumer health"
+      ],
+      "policy_channels": [
+        "public nutrition and health programs can affect demand mix in nutrition-related segments"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/KLBF.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "HMSP.JK",
+      "name": "H.M. Sampoerna",
+      "sector": "Consumer Non-Cyclicals",
+      "summary": "Tobacco producer with excise and trade-policy sensitivity.",
+      "policy_exposures": [
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "tobacco products",
+        "distribution"
+      ],
+      "policy_channels": [
+        "excise and trade rules can directly affect volumes, pricing, and margins"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/HMSP.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "PGAS.JK",
+      "name": "Perusahaan Gas Negara",
+      "sector": "Energy",
+      "summary": "Gas infrastructure operator with industrial-demand and energy-policy exposure.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "DOWNSTREAMING"
+      ],
+      "business_lines": [
+        "gas distribution",
+        "transmission infrastructure"
+      ],
+      "policy_channels": [
+        "industrial and downstreaming expansion can increase gas demand",
+        "energy pricing policy affects demand and margins"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/PGAS.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "JSMR.JK",
+      "name": "Jasa Marga",
+      "sector": "Infrastructures",
+      "summary": "Toll-road operator directly exposed to transport infrastructure policy.",
+      "policy_exposures": [
+        "INFRASTRUCTURE",
+        "HOUSING"
+      ],
+      "business_lines": [
+        "toll roads",
+        "transport infrastructure"
+      ],
+      "policy_channels": [
+        "road-building and regional-development policy can affect toll asset growth and traffic expectations"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/JSMR.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "EXCL.JK",
+      "name": "XL Axiata",
+      "sector": "Technology",
+      "summary": "Telecom operator exposed to connectivity and digitalization programs.",
+      "policy_exposures": [
+        "DIGITAL_PUBLIC"
+      ],
+      "business_lines": [
+        "mobile connectivity",
+        "broadband",
+        "enterprise services"
+      ],
+      "policy_channels": [
+        "digital public-service and connectivity buildout can support network demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/EXCL.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "INCO.JK",
+      "name": "Vale Indonesia",
+      "sector": "Basic Materials",
+      "summary": "Nickel producer with direct downstreaming and EV-chain sensitivity.",
+      "policy_exposures": [
+        "DOWNSTREAMING",
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "nickel mining",
+        "mineral production"
+      ],
+      "policy_channels": [
+        "downstreaming and processing policy directly affect project economics and realized value"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/INCO.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "TOWR.JK",
+      "name": "Sarana Menara Nusantara",
+      "sector": "Infrastructures",
+      "summary": "Tower infrastructure operator benefiting from telecom rollout.",
+      "policy_exposures": [
+        "DIGITAL_PUBLIC"
+      ],
+      "business_lines": [
+        "telecom towers",
+        "connectivity infrastructure"
+      ],
+      "policy_channels": [
+        "national connectivity and digital infrastructure programs can support tower demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/TOWR.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "MNCN.JK",
+      "name": "MNC Digital Entertainment",
+      "sector": "Technology",
+      "summary": "Media and digital content group with exposure to digital ecosystem growth.",
+      "policy_exposures": [
+        "DIGITAL_PUBLIC"
+      ],
+      "business_lines": [
+        "media",
+        "broadcast",
+        "digital content"
+      ],
+      "policy_channels": [
+        "digital adoption and public digital-services growth can support broader digital-media demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/MNCN.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "ITMG.JK",
+      "name": "Indo Tambangraya Megah",
+      "sector": "Energy",
+      "summary": "Coal producer exposed to export and energy policy.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "coal mining",
+        "coal exports"
+      ],
+      "policy_channels": [
+        "energy quotas and export restrictions directly affect coal sales"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/ITMG.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "HRUM.JK",
+      "name": "Harum Energy",
+      "sector": "Energy",
+      "summary": "Resource company with coal and nickel-linked policy exposure.",
+      "policy_exposures": [
+        "DOWNSTREAMING",
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "coal",
+        "nickel-related resources"
+      ],
+      "policy_channels": [
+        "mineral downstreaming and energy trade rules can alter project economics and realized pricing"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/HRUM.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "BSDE.JK",
+      "name": "Bumi Serpong Damai",
+      "sector": "Properties & Real Estate",
+      "summary": "Property developer with housing, township, and mortgage sensitivity.",
+      "policy_exposures": [
+        "HOUSING",
+        "BANKING_LIQUIDITY",
+        "INFRASTRUCTURE"
+      ],
+      "business_lines": [
+        "property development",
+        "townships",
+        "commercial real estate"
+      ],
+      "policy_channels": [
+        "housing stimulus and mortgage conditions can affect property demand",
+        "infrastructure expansion can improve township attractiveness"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/BSDE.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "CPIN.JK",
+      "name": "Charoen Pokphand Indonesia",
+      "sector": "Consumer Non-Cyclicals",
+      "summary": "Poultry and feed producer with food-security exposure.",
+      "policy_exposures": [
+        "FOOD_SECURITY",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "poultry",
+        "animal feed",
+        "food processing"
+      ],
+      "policy_channels": [
+        "food-security and agricultural-input policy can affect demand, margins, and feed costs"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/CPIN.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "JPFA.JK",
+      "name": "Japfa Comfeed Indonesia",
+      "sector": "Consumer Non-Cyclicals",
+      "summary": "Animal protein and feed producer exposed to food-security policy.",
+      "policy_exposures": [
+        "FOOD_SECURITY",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "animal feed",
+        "poultry",
+        "protein"
+      ],
+      "policy_channels": [
+        "food-security policy and feed/raw-material rules can affect volumes and costs"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/JPFA.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "ESSA.JK",
+      "name": "ESSA Industries Indonesia",
+      "sector": "Energy",
+      "summary": "Industrial energy and ammonia player with fertilizer-linked policy sensitivity.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "FOOD_SECURITY"
+      ],
+      "business_lines": [
+        "ammonia",
+        "energy-related industrial products"
+      ],
+      "policy_channels": [
+        "energy pricing and fertilizer-linked demand can affect industrial chemical economics"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/ESSA.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "BRPT.JK",
+      "name": "Barito Pacific",
+      "sector": "Basic Materials",
+      "summary": "Industrial group with petrochemical and energy-linked exposure.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "DOWNSTREAMING",
+        "INFRASTRUCTURE"
+      ],
+      "business_lines": [
+        "petrochemicals",
+        "industrial assets",
+        "energy-linked investments"
+      ],
+      "policy_channels": [
+        "industrial and downstreaming policy can influence petrochemical and industrial demand"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/BRPT.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    },
+    {
+      "ticker": "MEDC.JK",
+      "name": "Medco Energi Internasional",
+      "sector": "Energy",
+      "summary": "Oil and gas producer with direct energy-policy exposure.",
+      "policy_exposures": [
+        "ENERGY_TRANSITION",
+        "TRADE_RESTRICTION"
+      ],
+      "business_lines": [
+        "oil",
+        "gas",
+        "energy production"
+      ],
+      "policy_channels": [
+        "oil and gas pricing, quotas, and energy policy directly affect realized economics"
+      ],
+      "evidence": [
+        {
+          "label": "Yahoo Finance profile",
+          "url": "https://finance.yahoo.com/quote/MEDC.JK/profile/",
+          "note": "Public company profile and business description."
+        }
+      ]
+    }
+  ]
+}

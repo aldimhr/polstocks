@@ -920,9 +920,10 @@
       const linkMeta = stock.relationship_type
         ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
         : 'No strong policy link';
+      const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
-          <td><div class="ticker-name">${escapeHtml(stock.ticker || '')}</div><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div></td>
+          <td><div class="ticker-name">${escapeHtml(stock.ticker || '')}</div><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
           <td class="price-cell">${formatPrice(stock.price)}</td>
           <td class="change-cell ${changeClass}">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
@@ -943,6 +944,7 @@
       const themes = (event.policy_themes || []).slice(0, 2).map((t) => `<span class="cat-tag">${escapeHtml(String(t).replaceAll('_', ' '))}</span>`).join(' ');
       const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
       const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
+      const policyLine = topLink?.policy_channel ? `Channel: ${topLink.policy_channel}` : 'No strong policy channel yet';
       return `
         <div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" title="${escapeHtml(topLink?.rationale || '')}">
           <div class="event-headline">${escapeHtml(event.headline || '')}</div>
@@ -953,6 +955,7 @@
           </div>
           <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
           <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>
+          <div class="footer-note">${escapeHtml(policyLine)}</div>
         </div>
       `;
     }).join('');

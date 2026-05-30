@@ -33,6 +33,15 @@ VAGUE_ARTICLE = {
     "source_weight": 0.2,
 }
 
+HOUSING_ARTICLE = {
+    "source": "Setkab",
+    "headline": "Pemerintah percepat program rumah subsidi dan KPR",
+    "url": "https://example.com/article-4",
+    "published_at": appmod.now_wib(),
+    "summary": "Program housing, perumahan, mortgage, dan public works dipercepat untuk mendorong pembangunan rumah.",
+    "source_weight": 1.0,
+}
+
 
 def fake_news_fetcher():
     return [FAKE_ARTICLE], []
@@ -118,6 +127,15 @@ def test_watchlist_persists_to_disk(tmp_path, monkeypatch):
     assert reloaded == ["BBCA.JK", "TLKM.JK"]
 
 
+def test_company_knowledge_loaded_and_valid():
+    bbca = appmod.company_knowledge_for_ticker("BBCA")
+    assert bbca["ticker"] == "BBCA.JK"
+    assert bbca["policy_exposures"]
+    assert bbca["policy_channels"]
+    assert bbca["evidence"]
+    assert bbca["evidence"][0]["url"].startswith("https://")
+
+
 def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
     monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
@@ -171,7 +189,7 @@ def test_refresh_endpoint_returns_json_shape(monkeypatch):
     assert isinstance(data["stocks"], list)
     assert len(data["sector_summary"]) == len(appmod.SECTORS)
     assert {"policy_themes", "stock_relationships"}.issubset(data["events"][0])
-    assert {"rationale", "relationship_type", "confidence"}.issubset(data["stocks"][0])
+    assert {"rationale", "relationship_type", "confidence", "knowledge_summary", "company_evidence"}.issubset(data["stocks"][0])
 
 
 def test_article_analysis_requires_evidence_backed_relationships():
@@ -182,6 +200,13 @@ def test_article_analysis_requires_evidence_backed_relationships():
     assert antm_link["relevance_score"] >= appmod.MIN_RELATIONSHIP_SCORE
     assert antm_link["rationale"]
     assert antm_link["evidence"]
+    assert antm_link["company_evidence"]
+
+    housing = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK", "BBCA.JK", "TLKM.JK"])
+    housing_tickers = set(housing["impacted_tickers"])
+    assert "BSDE.JK" in housing_tickers
+    assert "BBCA.JK" in housing_tickers
+    assert "TLKM.JK" not in housing_tickers
 
     vague = appmod.analyze_article(VAGUE_ARTICLE, ["BBCA.JK", "TLKM.JK", "ANTM.JK"])
     assert vague["impacted_tickers"] == []

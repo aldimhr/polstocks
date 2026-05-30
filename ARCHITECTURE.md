@@ -56,6 +56,7 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 | RSS Fetcher | `requests` + XML parsing | Pulls latest political news from free RSS feeds |
 | Stock Fetcher | Yahoo Finance chart endpoint | Gets current prices for IDX tickers (`.JK`) and IHSG |
 | NLP Engine | Heuristic rules (v1 fallback) | Sentiment + sector classification in Bahasa Indonesia |
+| Company Knowledge Layer | `company_knowledge.json` | Stores company-specific policy channels and evidence URLs |
 | In-Memory Cache | Python `dict` | Stores last fetch result; avoids redundant calls |
 
 ---
@@ -99,6 +100,7 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 project/
 ├── backend/
 │   └── main.py              # FastAPI app + fetch/analyze endpoints
+├── company_knowledge.json   # Company-level exposure facts and evidence URLs
 ├── dashboard.html           # Static dashboard UI served at /
 ├── watchlist.json           # Persisted watchlist state
 ├── tests/
