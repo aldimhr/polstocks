@@ -1,0 +1,137 @@
+# ARCHITECTURE.md
+# Indonesia Political-Stock Impact System (Simplified)
+
+## Overview
+
+A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fetches Indonesian political news and current IDX stock prices when the user clicks "Update", then analyzes the political impact on stocks using NLP. No streaming, no message queues, no external databases.
+
+---
+
+## System Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────┐
+│             DASHBOARD (static HTML + JS)             │
+│                                                     │
+│   [ Update Button ] ──► triggers API call           │
+│   [ Stock Cards   ] ◄── renders impact results      │
+│   [ Event Feed    ] ◄── renders political events    │
+└─────────────────────┬───────────────────────────────┘
+                      │  HTTP POST /api/refresh
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│                  BACKEND (FastAPI)                   │
+│                                                     │
+│  ┌─────────────┐   ┌─────────────┐                 │
+│  │ RSS Fetcher │   │  yfinance   │                 │
+│  │ (news feed) │   │ (stock data)│                 │
+│  └──────┬──────┘   └──────┬──────┘                 │
+│         └────────┬─────────┘                       │
+│                  ▼                                  │
+│         ┌────────────────┐                         │
+│         │  NLP Engine    │                         │
+│         │  (IndoBERT)    │                         │
+│         │  sentiment +   │                         │
+│         │  sector map    │                         │
+│         └───────┬────────┘                         │
+│                 ▼                                   │
+│         ┌────────────────┐                         │
+│         │  In-Memory     │                         │
+│         │  Cache (dict)  │  ← stores last result   │
+│         └───────┬────────┘                         │
+└─────────────────┼───────────────────────────────────┘
+                  │  JSON response
+                  ▼
+            Frontend renders
+```
+
+---
+
+## Component Breakdown
+
+| Component | Technology | Responsibility |
+|---|---|---|
+| Dashboard | Static HTML + vanilla JS | UI, Update button, watchlist editor, renders results |
+| Backend | FastAPI (Python) | Serves dashboard, orchestrates fetch → NLP → response |
+| RSS Fetcher | `requests` + XML parsing | Pulls latest political news from free RSS feeds |
+| Stock Fetcher | Yahoo Finance chart endpoint | Gets current prices for IDX tickers (`.JK`) and IHSG |
+| NLP Engine | Heuristic rules (v1 fallback) | Sentiment + sector classification in Bahasa Indonesia |
+| In-Memory Cache | Python `dict` | Stores last fetch result; avoids redundant calls |
+
+---
+
+## Request Flow
+
+```
+1. User clicks "Update" on the dashboard
+
+2. Dashboard sends:
+   POST /api/refresh
+   Body: { tickers: ["BBCA.JK", "TLKM.JK", ...] }
+
+3. Backend checks cache:
+   - If last fetch < 5 minutes ago → return cached result immediately
+   - Otherwise → proceed to fetch
+
+4. RSS Fetcher pulls latest articles from configured news sources
+
+5. yfinance fetches current OHLCV for requested tickers
+
+6. NLP Engine processes each article:
+   - Sentiment score (-1.0 to +1.0)
+   - Political category (e.g. ENERGY_POLICY, CORRUPTION_CASE)
+   - Impacted sectors + tickers
+
+7. Impact scores computed per (event, ticker) pair
+
+8. Result stored in memory cache with timestamp
+
+9. JSON response returned to frontend
+
+10. Dashboard renders updated stock cards + event feed
+```
+
+---
+
+## Folder Structure
+
+```
+project/
+├── backend/
+│   └── main.py              # FastAPI app + fetch/analyze endpoints
+├── dashboard.html           # Static dashboard UI served at /
+├── watchlist.json           # Persisted watchlist state
+├── tests/
+│   └── test_app.py          # API and UI contract tests
+├── SPEC.md
+├── ARCHITECTURE.md
+└── README.md
+```
+
+---
+
+## Infrastructure
+
+Single-process deployment is enough for the current implementation:
+
+```
+[FastAPI]
+  └── serves dashboard.html + JSON API on port 8000
+```
+
+No Kafka. No Flink. No database. No Redis.
+
+---
+
+## Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Language | Python 3.11+ (backend), TypeScript (frontend) |
+| Backend Framework | FastAPI |
+| News Fetching | `feedparser`, `httpx` |
+| Stock Data | Yahoo Finance chart endpoint via `requests` |
+| NLP | Heuristic rules (current implementation) |
+| Frontend | Static HTML, CSS, vanilla JS |
+| Cache | Python in-memory dict (no external store) |
+| Containerization | Optional; single service is sufficient |

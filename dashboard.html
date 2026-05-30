@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolStock — Indonesia Political Market Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0d0f;
+    --surface: #141517;
+    --surface2: #1c1e21;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #f0ede8;
+    --muted: #6b6f78;
+    --muted2: #9499a3;
+    --accent: #d4f060;
+    --accent-dim: rgba(212,240,96,0.12);
+    --red: #ff5c5c;
+    --red-dim: rgba(255,92,92,0.12);
+    --green: #4ddb8e;
+    --green-dim: rgba(77,219,142,0.12);
+    --amber: #f5a623;
+    --amber-dim: rgba(245,166,35,0.1);
+    --blue: #60a8f0;
+    --blue-dim: rgba(96,168,240,0.1);
+    --purple: #b87ef5;
+    --purple-dim: rgba(184,126,245,0.1);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .layout {
+    position: relative;
+    z-index: 1;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 24px 48px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .logo-mark {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+
+  .logo-sub {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.05em;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .status-dot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .btn-update {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 20px;
+    background: var(--accent);
+    color: #0c0d0f;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.01em;
+  }
+
+  .btn-update:hover { background: #c8e050; transform: translateY(-1px); }
+  .btn-update:active { transform: translateY(0); }
+  .btn-update.loading { opacity: 0.6; pointer-events: none; }
+
+  .btn-icon {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #0c0d0f;
+    border-top-color: transparent;
+    border-radius: 50%;
+  }
+
+  .spinning { animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Metrics row ── */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .metric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .metric:hover { border-color: var(--border2); }
+
+  .metric-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: 'DM Mono', monospace;
+    margin-bottom: 10px;
+  }
+
+  .metric-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .metric-sub {
+    font-size: 12px;
+    color: var(--muted2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .metric-accent {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    opacity: 0.06;
+    transform: translate(20px, 20px);
+  }
+
+  /* ── Main grid ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 22px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--border2); }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .card-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--surface2);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+
+  /* ── Stock table ── */
+  .stock-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .stock-table th {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0 0 12px 0;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  .stock-table th:not(:first-child) { text-align: right; }
+
+  .stock-table td {
+    padding: 13px 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .stock-table tr:last-child td { border-bottom: none; }
+
+  .stock-table tr { transition: background 0.15s; }
+  .stock-table tr:hover td { background: var(--surface2); }
+  .stock-table tr:hover td:first-child { border-radius: 8px 0 0 8px; padding-left: 8px; }
+  .stock-table tr:hover td:last-child { border-radius: 0 8px 8px 0; padding-right: 8px; }
+
+  .ticker-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .company-name {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .price-cell {
+    text-align: right;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .change-cell {
+    text-align: right;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .change-cell.up { color: var(--green); }
+  .change-cell.down { color: var(--red); }
+  .change-cell.flat { color: var(--muted); }
+
+  .impact-cell {
+    text-align: right;
+  }
+
+  .impact-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .impact-pill.neg { background: var(--red-dim); color: var(--red); }
+  .impact-pill.pos { background: var(--green-dim); color: var(--green); }
+  .impact-pill.neu { background: var(--surface2); color: var(--muted); }
+
+  .impact-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .neg .impact-dot { background: var(--red); }
+  .pos .impact-dot { background: var(--green); }
+  .neu .impact-dot { background: var(--muted); }
+
+  /* ── Event feed ── */
+  .event-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .event-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: default;
+    transition: border-color 0.2s, transform 0.15s;
+  }
+
+  .event-item:hover {
+    border-color: var(--border2);
+    transform: translateX(2px);
+  }
+
+  .event-item.high-impact {
+    border-left: 3px solid var(--red);
+    border-radius: 0 10px 10px 0;
+    padding-left: 13px;
+  }
+
+  .event-item.positive {
+    border-left: 3px solid var(--green);
+    border-radius: 0 10px 10px 0;
+    padding-left: 13px;
+  }
+
+  .event-headline {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1.45;
+    margin-bottom: 8px;
+  }
+
+  .event-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .cat-tag {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  .cat-energy { background: var(--amber-dim); color: var(--amber); }
+  .cat-corrupt { background: var(--red-dim); color: var(--red); }
+  .cat-cabinet { background: var(--blue-dim); color: var(--blue); }
+  .cat-invest { background: var(--green-dim); color: var(--green); }
+  .cat-monetary { background: var(--purple-dim); color: var(--purple); }
+  .cat-trade { background: rgba(212,240,96,0.1); color: var(--accent); }
+
+  .event-source {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .event-tickers {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .tick-tag {
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+
+  /* ── Sector heatmap ── */
+  .sector-card { margin-bottom: 16px; }
+
+  .sector-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .sector-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sector-name {
+    font-size: 12px;
+    color: var(--muted2);
+    width: 100px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sector-track {
+    flex: 1;
+    height: 5px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .sector-fill {
+    height: 100%;
+    border-radius: 3px;
+    position: absolute;
+    transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+
+  .sector-score {
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    min-width: 40px;
+    text-align: right;
+  }
+
+  .sector-score.neg { color: var(--red); }
+  .sector-score.pos { color: var(--green); }
+  .sector-score.flat { color: var(--muted); }
+
+  /* ── IHSG mini chart ── */
+  .chart-card { }
+
+  .ihsg-header {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .ihsg-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .ihsg-change {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--red);
+    padding-bottom: 3px;
+  }
+
+  .chart-area {
+    position: relative;
+    height: 80px;
+    margin: 0 -4px;
+  }
+
+  .chart-area svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* ── Footer ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer-note {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .footer-sources {
+    display: flex;
+    gap: 12px;
+  }
+
+  .src-tag {
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+
+
+  .watchlist-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 14px 0 0;
+    flex-wrap: wrap;
+  }
+
+  .watchlist-form {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .watchlist-input {
+    min-width: 160px;
+    padding: 8px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+  }
+
+  .watchlist-btn {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .watchlist-btn.primary {
+    background: var(--accent);
+    color: #0c0d0f;
+    border-color: transparent;
+    font-weight: 600;
+  }
+
+  .watchlist-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+
+  .watchlist-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+  }
+
+  .watchlist-chip button {
+    border: none;
+    background: transparent;
+    color: var(--muted2);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .watchlist-note {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .bottom-grid {
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:16px;
+    margin-bottom:28px;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .sector-grid { grid-template-columns: 1fr; }
+    .bottom-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 560px) {
+    .metrics { grid-template-columns: 1fr; }
+    .header-right .status-dot { display: none; }
+  }
+
+  /* ── Animate in ── */
+  .fade-in {
+    animation: fadeIn 0.4s ease both;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .card { animation: fadeIn 0.5s ease both; }
+  .card:nth-child(2) { animation-delay: 0.05s; }
+  .card:nth-child(3) { animation-delay: 0.1s; }
+  .metric:nth-child(1) { animation: fadeIn 0.4s ease 0.0s both; }
+  .metric:nth-child(2) { animation: fadeIn 0.4s ease 0.06s both; }
+  .metric:nth-child(3) { animation: fadeIn 0.4s ease 0.12s both; }
+  .metric:nth-child(4) { animation: fadeIn 0.4s ease 0.18s both; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <span class="logo-mark">PolStock</span>
+      <span class="logo-sub">IDX Political Tracker</span>
+    </div>
+    <div class="header-right">
+      <div class="status-dot">
+        <div class="dot"></div>
+        <span id="lastUpdated">Loading…</span>
+      </div>
+      <button class="btn-update" id="refreshBtn" onclick="triggerRefresh()">
+        <div class="btn-icon" id="btnIcon"></div>
+        <span id="btnText">Update</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Metrics -->
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-label">Events detected</div>
+      <div class="metric-value" id="m-events">—</div>
+      <div class="metric-sub">dalam 24 jam terakhir</div>
+      <div class="metric-accent" style="background:var(--accent);"></div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Stocks impacted</div>
+      <div class="metric-value" id="m-stocks">—</div>
+      <div class="metric-sub" id="m-stocks-sub" style="color:var(--muted2);">Loading live watchlist impact</div>
+      <div class="metric-accent" style="background:var(--red);"></div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Highest impact</div>
+      <div class="metric-value" id="m-highest" style="font-size:18px; padding-top:4px;">—</div>
+      <div class="metric-sub" id="m-highest-sub" style="color:var(--muted2);">No stock data yet</div>
+      <div class="metric-accent" style="background:var(--red);"></div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">IHSG hari ini</div>
+      <div class="metric-value" id="m-ihsg">—</div>
+      <div class="metric-sub" id="m-ihsg-sub" style="color:var(--muted2);">No market index data yet</div>
+      <div class="metric-accent" style="background:var(--blue);"></div>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- Watchlist -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Watchlist · Impact Politik</span>
+        <span class="card-badge" id="watchlistBadge">0 tickers</span>
+      </div>
+      <table class="stock-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Harga (IDR)</th>
+            <th>Hari ini</th>
+            <th>Impact score</th>
+          </tr>
+        </thead>
+        <tbody id="stockBody">
+          <tr>
+            <td colspan="4" style="padding:18px 0; color:var(--muted);">Loading live stock data…</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="watchlist-toolbar">
+        <div class="watchlist-form">
+          <input id="watchlistInput" class="watchlist-input" type="text" placeholder="Tambah ticker, mis. BBCA atau TLKM.JK">
+          <button class="watchlist-btn primary" type="button" onclick="addTicker()">Add ticker</button>
+          <button class="watchlist-btn" type="button" onclick="resetWatchlist()">Reset default</button>
+        </div>
+        <div class="watchlist-note">Tambah atau hapus ticker lalu data akan di-refresh.</div>
+      </div>
+      <div class="watchlist-chips" id="watchlistChips"></div>
+    </div>
+
+    <!-- Event feed -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Event Politik</span>
+        <span class="card-badge" id="eventBadge">0 events</span>
+      </div>
+      <div class="event-list" id="eventList">
+        <div class="event-item">Loading live events…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom row: IHSG chart + Sector heatmap -->
+  <div class="bottom-grid">
+
+    <!-- IHSG mini chart -->
+    <div class="card chart-card">
+      <div class="card-header">
+        <span class="card-title">IHSG — Intraday</span>
+        <span class="card-badge">IDX Composite</span>
+      </div>
+      <div class="ihsg-header">
+        <span class="ihsg-value" id="ihsgValue">—</span>
+        <span class="ihsg-change" id="ihsgChange">No market index data yet</span>
+      </div>
+      <div class="chart-area" id="ihsgChart">
+        <div class="footer-note" style="padding-top:10px;">Loading IHSG…</div>
+      </div>
+    </div>
+
+    <!-- Sector heatmap -->
+    <div class="card sector-card">
+      <div class="card-header">
+        <span class="card-title">Risiko Politik per Sektor</span>
+        <span class="card-badge">11 IDX sectors</span>
+      </div>
+      <div class="sector-grid" id="sectorGrid">
+        <div class="sector-row">
+          <span class="sector-name">Loading sectors</span>
+          <div class="sector-track"></div>
+          <span class="sector-score flat">0.00</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <span class="footer-note" id="footerNote">Waiting for live data</span>
+    <div class="footer-sources" id="sourceTags"></div>
+  </footer>
+
+</div>
+
+<script>
+  const state = { payload: null, loading: false, watchlist: [] };
+  const $ = (id) => document.getElementById(id);
+
+  function formatNumber(value, digits = 0) {
+    if (value === null || value === undefined || value === '') return '—';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(num);
+  }
+
+  function formatPrice(value) { return formatNumber(value, 0); }
+
+  function formatPct(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    return `${num > 0 ? '+' : ''}${num.toFixed(2)}%`;
+  }
+
+  function formatTime(value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short'
+    }).format(d) + ' WIB';
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function setBusy(message, busy) {
+    $('footerNote').textContent = message;
+    $('btnText').textContent = busy ? 'Updating…' : 'Update';
+    $('refreshBtn').classList.toggle('loading', busy);
+    $('btnIcon').classList.toggle('spinning', busy);
+  }
+
+  async function apiJson(url, options = {}) {
+    const resp = await fetch(url, { headers: { 'Content-Type': 'application/json' }, cache: 'no-store', ...options });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    return resp.json();
+  }
+
+
+  function normalizeTicker(value) {
+    const cleaned = String(value || '').trim().toUpperCase();
+    if (!cleaned) return '';
+    return cleaned.endsWith('.JK') ? cleaned : `${cleaned}.JK`;
+  }
+
+  function renderWatchlistEditor(tickers) {
+    state.watchlist = Array.isArray(tickers) ? [...tickers] : [];
+    $('watchlistBadge').textContent = `${state.watchlist.length} tickers`;
+    const root = $('watchlistChips');
+    root.innerHTML = state.watchlist.length
+      ? state.watchlist.map((ticker) => `<span class="watchlist-chip">${escapeHtml(ticker)} <button type="button" onclick="removeTicker('${escapeHtml(ticker)}')">×</button></span>`).join('')
+      : '<span class="watchlist-note">No tickers in watchlist.</span>';
+  }
+
+  async function persistWatchlist(nextTickers) {
+    const normalized = [...new Set((nextTickers || []).map(normalizeTicker).filter(Boolean))];
+    const payload = normalized.length ? normalized : [];
+    setBusy('Saving watchlist…', true);
+    try {
+      const result = await apiJson('/api/watchlist', { method: 'PUT', body: JSON.stringify({ tickers: payload }) });
+      renderWatchlistEditor(result.tickers || []);
+      await loadDashboard(true);
+    } catch (err) {
+      setBusy(String(err.message || err), false);
+      throw err;
+    }
+  }
+
+  async function addTicker() {
+    const input = $('watchlistInput');
+    const ticker = normalizeTicker(input.value);
+    if (!ticker) return;
+    input.value = '';
+    if (state.watchlist.includes(ticker)) return;
+    await persistWatchlist([...state.watchlist, ticker]);
+  }
+
+  async function removeTicker(ticker) {
+    await persistWatchlist(state.watchlist.filter((item) => item !== ticker));
+  }
+
+  async function resetWatchlist() {
+    await persistWatchlist([]);
+  }
+
+  function renderStocks(stocks) {
+    const body = $('stockBody');
+    const rows = Array.isArray(stocks) ? stocks : [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="4" style="padding:18px 0; color:var(--muted);">No live stock data yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((stock) => {
+      const change = Number(stock.change_pct);
+      const impact = Number(stock.impact_score);
+      const changeClass = Number.isFinite(change) && change > 0 ? 'up' : Number.isFinite(change) && change < 0 ? 'down' : 'flat';
+      const impactClass = impact > 0 ? 'pos' : impact < 0 ? 'neg' : 'neu';
+      return `
+        <tr>
+          <td><div class="ticker-name">${escapeHtml(stock.ticker || '')}</div><div class="company-name">${escapeHtml(stock.name || '')}</div></td>
+          <td class="price-cell">${formatPrice(stock.price)}</td>
+          <td class="change-cell ${changeClass}">${formatPct(stock.change_pct)}</td>
+          <td class="impact-cell"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function renderEvents(events) {
+    const root = $('eventList');
+    const rows = Array.isArray(events) ? events : [];
+    if (!rows.length) {
+      root.innerHTML = '<div class="event-item">No live events yet.</div>';
+      return;
+    }
+    root.innerHTML = rows.map((event) => {
+      const cats = (event.categories || []).slice(0, 3).map((c) => `<span class="cat-tag">${escapeHtml(String(c).replaceAll('_', ' '))}</span>`).join(' ');
+      const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
+      return `
+        <div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}">
+          <div class="event-headline">${escapeHtml(event.headline || '')}</div>
+          <div class="event-meta">
+            ${cats || '<span class="cat-tag">Uncategorized</span>'}
+            <span class="event-source">${escapeHtml(event.source || '')} · ${escapeHtml(formatTime(event.published_at))}</span>
+          </div>
+          <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderSectorGrid(summary) {
+    const root = $('sectorGrid');
+    const entries = Object.entries(summary || {});
+    if (!entries.length) {
+      root.innerHTML = '<div class="sector-row"><span class="sector-name">No sector data</span><div class="sector-track"></div><span class="sector-score flat">0.00</span></div>';
+      return;
+    }
+    const max = Math.max(0.01, ...entries.map(([, v]) => Math.abs(Number(v) || 0)));
+    root.innerHTML = entries.map(([sector, score]) => {
+      const num = Number(score) || 0;
+      const width = Math.max(2, Math.round((Math.abs(num) / max) * 100));
+      const cls = num > 0 ? 'pos' : num < 0 ? 'neg' : 'flat';
+      const fill = num === 0 ? '' : `<div class="sector-fill" style="width:${width}%; ${num > 0 ? 'left:0; background:var(--green);' : 'right:0; left:auto; background:var(--red);'}"></div>`;
+      return `
+        <div class="sector-row">
+          <span class="sector-name">${escapeHtml(sector)}</span>
+          <div class="sector-track">${fill}</div>
+          <span class="sector-score ${cls}">${num > 0 ? '+' : ''}${num.toFixed(2)}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderSources(sources, events) {
+    const root = $('sourceTags');
+    const list = Array.isArray(sources) && sources.length ? sources : [...new Set((events || []).map((e) => e.source).filter(Boolean))];
+    root.innerHTML = list.length ? list.map((src) => `<span class="src-tag">${escapeHtml(src)}</span>`).join('') : '<span class="src-tag">No sources</span>';
+  }
+
+  function sparklinePath(series, width = 560, height = 80) {
+    const points = (series || []).map(Number).filter(Number.isFinite);
+    if (!points.length) return '';
+    if (points.length === 1) return `M0,${height / 2} L${width},${height / 2}`;
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const range = max - min || 1;
+    return points.map((value, index) => {
+      const x = (index / (points.length - 1)) * width;
+      const y = height - ((value - min) / range) * (height - 16) - 8;
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+  }
+
+  function renderMarketIndex(market) {
+    const root = $('ihsgChart');
+    const series = Array.isArray(market?.series) ? market.series : [];
+    const path = sparklinePath(series);
+    const chgPct = Number(market?.change_pct);
+    const isUp = Number.isFinite(chgPct) && chgPct > 0;
+    const stroke = isUp ? '#4ddb8e' : '#ff5c5c';
+    root.innerHTML = path ? `
+      <svg viewBox="0 0 560 80" preserveAspectRatio="none" role="img" aria-label="IHSG chart">
+        <defs>
+          <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${stroke}" stop-opacity="0.2"/>
+            <stop offset="100%" stop-color="${stroke}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${path} L560,80 L0,80 Z" fill="url(#chartGrad)"/>
+        <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+      </svg>
+    ` : '<div class="footer-note" style="padding-top:10px;">No IHSG series yet.</div>';
+    $('m-ihsg').textContent = market?.value !== null && market?.value !== undefined ? formatNumber(market.value, 0) : '—';
+    $('ihsgValue').textContent = market?.value !== null && market?.value !== undefined ? formatNumber(market.value, 0) : '—';
+    const chgPts = Number(market?.change_points);
+    if (Number.isFinite(chgPct)) {
+      const summary = `${chgPct > 0 ? '+' : ''}${chgPct.toFixed(2)}% (${chgPts > 0 ? '+' : ''}${formatNumber(chgPts, 0)} pts)`;
+      $('m-ihsg-sub').textContent = summary;
+      $('ihsgChange').textContent = summary;
+      const color = chgPct > 0 ? 'var(--green)' : chgPct < 0 ? 'var(--red)' : 'var(--muted2)';
+      $('m-ihsg-sub').style.color = color;
+      $('ihsgChange').style.color = color;
+    } else {
+      $('m-ihsg-sub').textContent = 'No market index data yet';
+      $('ihsgChange').textContent = 'No market index data yet';
+      $('m-ihsg-sub').style.color = 'var(--muted2)';
+      $('ihsgChange').style.color = 'var(--muted2)';
+    }
+  }
+
+  function renderPayload(payload) {
+    state.payload = payload;
+    const events = payload.events || [];
+    const stocks = payload.stocks || [];
+    const highest = [...stocks].sort((a, b) => Math.abs(Number(b.impact_score) || 0) - Math.abs(Number(a.impact_score) || 0))[0];
+    const watchlist = payload.watchlist || [];
+    $('lastUpdated').textContent = formatTime(payload.fetched_at);
+    $('m-events').textContent = formatNumber(events.length, 0);
+    $('m-stocks').textContent = formatNumber(stocks.length, 0);
+    const positiveCount = stocks.filter((stock) => Number(stock.impact_score) > 0).length;
+    const negativeCount = stocks.filter((stock) => Number(stock.impact_score) < 0).length;
+    $('m-stocks-sub').textContent = stocks.length ? `↑ ${positiveCount} positif · ↓ ${negativeCount} negatif` : 'No stock data yet';
+    $('m-stocks-sub').style.color = negativeCount > positiveCount ? 'var(--red)' : positiveCount > negativeCount ? 'var(--green)' : 'var(--muted2)';
+    $('eventBadge').textContent = `${events.length} events`;
+    $('m-highest').textContent = highest ? highest.ticker : '—';
+    $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
+    $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
+    renderStocks(stocks);
+    renderEvents(events);
+    renderSectorGrid(payload.sector_summary || {});
+    renderSources(payload.sources || [], events);
+    renderMarketIndex(payload.market_index || {});
+    renderWatchlistEditor(watchlist);
+    $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · cache TTL 5 menit`;
+  }
+
+  async function loadDashboard(force = false) {
+    if (state.loading) return;
+    state.loading = true;
+    setBusy(force ? 'Refreshing live data…' : 'Loading dashboard…', true);
+    try {
+      const payload = force
+        ? await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true }) })
+        : (await apiJson('/api/dashboard')).payload;
+      renderPayload(payload);
+      setBusy('Ready', false);
+    } catch (err) {
+      setBusy(String(err.message || err), false);
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  function triggerRefresh() { loadDashboard(true); }
+  document.addEventListener('DOMContentLoaded', () => {
+    $('watchlistInput').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        addTicker();
+      }
+    });
+    loadDashboard(false);
+  });
+</script>
+</body>
+</html>
