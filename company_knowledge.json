@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updated_at": "2026-05-30T11:15:00+07:00",
+  "version": 2,
+  "updated_at": "2026-05-30T11:45:00+07:00",
   "companies": [
     {
       "ticker": "BBCA.JK",
@@ -28,7 +28,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/BBCA.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -55,7 +56,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/BBRI.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -82,7 +84,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/BMRI.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -107,7 +110,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/TLKM.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -134,7 +138,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/ASII.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -161,7 +166,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/GOTO.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -185,7 +191,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/BYAN.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -212,7 +219,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/ADRO.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -237,7 +245,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/UNVR.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -263,7 +272,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/ICBP.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -287,7 +297,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/PTBA.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -314,7 +325,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/ANTM.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -339,7 +351,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/INDF.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -364,7 +377,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/SMGR.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -388,7 +402,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/KLBF.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -411,7 +426,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/HMSP.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -436,7 +452,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/PGAS.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -460,7 +477,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/JSMR.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -484,7 +502,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/EXCL.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -509,7 +528,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/INCO.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -532,7 +552,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/TOWR.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -556,7 +577,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/MNCN.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -580,7 +602,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/ITMG.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -605,7 +628,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/HRUM.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -632,7 +656,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/BSDE.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -657,7 +682,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/CPIN.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -682,7 +708,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/JPFA.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -706,7 +733,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/ESSA.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -732,7 +760,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/BRPT.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     },
@@ -757,7 +786,8 @@
         {
           "label": "Yahoo Finance profile",
           "url": "https://finance.yahoo.com/quote/MEDC.JK/profile/",
-          "note": "Public company profile and business description."
+          "note": "Public company profile and business description.",
+          "source_type": "profile"
         }
       ]
     }

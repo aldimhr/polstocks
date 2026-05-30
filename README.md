@@ -9,6 +9,8 @@ A lightweight Indonesia political-stock impact dashboard that follows the simpli
 - source-backed company knowledge layer for stricter policy-to-stock matching
 - in-memory cache with 5 minute TTL
 - watchlist endpoints
+- selectable event windows (`24h`, `7d`, `30d`) with tracking summaries
+- evidence-hierarchy scoring across article and company sources
 - browser dashboard with update controls and summary panels
 
 ## Run locally
@@ -25,12 +27,15 @@ Then open `http://127.0.0.1:8000/`.
 - `GET /` – dashboard
 - `GET /healthz` – health check
 - `GET /api/watchlist` – current watchlist
+- `GET /api/dashboard` – consolidated dashboard payload (optional `?window=24h|7d|30d`)
 - `PUT /api/watchlist` – replace watchlist
-- `POST /api/refresh` – fetch + analyze + render-ready JSON
+- `POST /api/refresh` – fetch + analyze + render-ready JSON (`window` supports `24h`, `7d`, `30d`)
 
 ## Notes
 
 - The app uses live public sources and returns cached results for up to 5 minutes.
+- You can switch the dashboard between the last 24 hours, last 7 days, and last 30 days to track what happened over different windows.
+- Refresh payloads now include `tracking` aggregates (daily buckets, top themes, top sources) plus evidence-tier metadata for explainability.
 - If live sources fail, the UI keeps the last cached result and surfaces warnings instead of silently showing demo rows.
 - Watchlist state is persisted to `watchlist.json`; there is no database.
 - Company-specific policy context is seeded in `company_knowledge.json` and used to reject broad sector-only matches.

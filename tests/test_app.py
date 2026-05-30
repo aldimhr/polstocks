@@ -1,3 +1,4 @@
+from datetime import timedelta
 from fastapi.testclient import TestClient
 import json
 
@@ -13,6 +14,7 @@ FAKE_ARTICLE = {
     "published_at": appmod.now_wib(),
     "summary": "Investasi, hilirisasi, dan proyek infrastruktur memberi sinyal positif ke perbankan dan basic materials.",
     "source_weight": 1.0,
+    "source_type": "media",
 }
 
 DIRECT_MENTION_ARTICLE = {
@@ -22,6 +24,7 @@ DIRECT_MENTION_ARTICLE = {
     "published_at": appmod.now_wib(),
     "summary": "Agenda hilirisasi mineral dan smelter disebut langsung bersama Antam untuk mempercepat proyek nikel.",
     "source_weight": 1.0,
+    "source_type": "government",
 }
 
 VAGUE_ARTICLE = {
@@ -31,6 +34,7 @@ VAGUE_ARTICLE = {
     "published_at": appmod.now_wib(),
     "summary": "Tanpa kebijakan, regulasi, atau sektor spesifik. Hanya pandangan umum soal ekonomi.",
     "source_weight": 0.2,
+    "source_type": "other",
 }
 
 HOUSING_ARTICLE = {
@@ -40,11 +44,36 @@ HOUSING_ARTICLE = {
     "published_at": appmod.now_wib(),
     "summary": "Program housing, perumahan, mortgage, dan public works dipercepat untuk mendorong pembangunan rumah.",
     "source_weight": 1.0,
+    "source_type": "government",
+}
+
+OLDER_WEEK_ARTICLE = {
+    "source": "Antara News",
+    "headline": "DPR bahas kebijakan logistik pangan nasional",
+    "url": "https://example.com/article-5",
+    "published_at": appmod.now_wib() - timedelta(days=3),
+    "summary": "Pembahasan kebijakan pangan, logistik, dan distribusi nasional berlangsung pekan ini.",
+    "source_weight": 0.95,
+    "source_type": "media",
+}
+
+OLDER_MONTH_ARTICLE = {
+    "source": "OJK",
+    "headline": "OJK siapkan aturan pendanaan sektor prioritas",
+    "url": "https://example.com/article-6",
+    "published_at": appmod.now_wib() - timedelta(days=18),
+    "summary": "Regulator menyiapkan kebijakan pendanaan untuk proyek prioritas dan perumahan.",
+    "source_weight": 0.9,
+    "source_type": "regulator",
 }
 
 
 def fake_news_fetcher():
     return [FAKE_ARTICLE], []
+
+
+def fake_window_news_fetcher():
+    return [FAKE_ARTICLE, OLDER_WEEK_ARTICLE, OLDER_MONTH_ARTICLE], []
 
 
 def fake_stock_fetcher(tickers):
@@ -105,10 +134,15 @@ def test_dashboard_contains_runtime_hooks():
     for snippet in [
         'id="m-highest"',
         'id="m-highest-sub"',
+        'id="m-events-sub"',
         'id="stockBody"',
         'id="watchlistInput"',
         'id="watchlistChips"',
+        'id="windowSelect"',
         'id="eventBadge"',
+        'id="trackingSummary"',
+        'id="trackingThemes"',
+        'id="trackingTimeline"',
         'id="ihsgValue"',
         'id="ihsgChange"',
     ]:
@@ -134,13 +168,15 @@ def test_company_knowledge_loaded_and_valid():
     assert bbca["policy_channels"]
     assert bbca["evidence"]
     assert bbca["evidence"][0]["url"].startswith("https://")
+    assert bbca["evidence"][0]["source_type"]
+    assert bbca["evidence"][0]["quality_rank"] > 0
 
 
 def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
     monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
     monkeypatch.setattr(appmod, "fetch_market_index", fake_market_fetcher)
-    response = client.get("/api/dashboard")
+    response = client.get("/api/dashboard?window=7d")
     assert response.status_code == 200
     data = response.json()
     assert set(["watchlist", "payload"]).issubset(data)
@@ -148,6 +184,8 @@ def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
     assert data["payload"]["watchlist"] == appmod.get_watchlist()
     assert data["payload"]["events"]
     assert data["payload"]["stocks"]
+    assert data["payload"]["window"] == "7d"
+    assert data["payload"]["tracking"]["window"] == "7d"
     assert data["payload"]["market_index"]["value"] == 6847
     assert data["payload"]["market_index"]["series"]
     assert data["payload"]["sources"]
@@ -157,6 +195,7 @@ def test_refresh_builds_expected_payload_and_uses_cache():
     payload = appmod.build_refresh_payload(
         ["BBCA", "TLKM"],
         force=True,
+        window="7d",
         news_fetcher=fake_news_fetcher,
         stock_fetcher=fake_stock_fetcher,
         market_fetcher=fake_market_fetcher,
@@ -164,36 +203,62 @@ def test_refresh_builds_expected_payload_and_uses_cache():
     assert payload["from_cache"] is False
     assert payload["events"]
     assert payload["stocks"]
+    assert payload["window"] == "7d"
+    assert payload["tracking"]["window"] == "7d"
     assert "Financials" in payload["sector_summary"]
     assert payload["stocks"][0]["ticker"] in {"BBCA.JK", "TLKM.JK"}
 
     cached = appmod.build_refresh_payload(
         ["BBCA", "TLKM"],
         force=False,
+        window="7d",
         news_fetcher=lambda: (_ for _ in ()).throw(AssertionError("news should not be fetched")),
         stock_fetcher=lambda tickers: (_ for _ in ()).throw(AssertionError("stocks should not be fetched")),
         market_fetcher=lambda: (_ for _ in ()).throw(AssertionError("market should not be fetched")),
     )
     assert cached["from_cache"] is True
-    assert cached["cache_key"] == ["BBCA.JK", "TLKM.JK"]
+    assert cached["cache_key"] == ["7d", "BBCA.JK", "TLKM.JK"]
+
+
+def test_refresh_window_changes_article_set_and_tracking():
+    weekly = appmod.build_refresh_payload(
+        ["BBCA", "BSDE"],
+        force=True,
+        window="7d",
+        news_fetcher=fake_window_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    monthly = appmod.build_refresh_payload(
+        ["BBCA", "BSDE"],
+        force=True,
+        window="30d",
+        news_fetcher=fake_window_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    assert len(weekly["events"]) == 2
+    assert len(monthly["events"]) == 3
+    assert weekly["tracking"]["timeline"]
+    assert monthly["tracking"]["summary"]["strongest_day"]
 
 
 def test_refresh_endpoint_returns_json_shape(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
     monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
-    response = client.post("/api/refresh", json={"tickers": ["BBCA", "TLKM"], "force": True})
+    response = client.post("/api/refresh", json={"tickers": ["BBCA", "TLKM"], "force": True, "window": "30d"})
     assert response.status_code == 200
     data = response.json()
-    assert set(["fetched_at", "from_cache", "events", "stocks", "sector_summary", "warnings", "watchlist"]).issubset(data)
+    assert set(["fetched_at", "from_cache", "events", "stocks", "sector_summary", "warnings", "watchlist", "window", "window_label", "tracking"]).issubset(data)
     assert isinstance(data["events"], list)
     assert isinstance(data["stocks"], list)
     assert len(data["sector_summary"]) == len(appmod.SECTORS)
-    assert {"policy_themes", "stock_relationships"}.issubset(data["events"][0])
-    assert {"rationale", "relationship_type", "confidence", "knowledge_summary", "company_evidence"}.issubset(data["stocks"][0])
+    assert {"policy_themes", "stock_relationships", "source_type"}.issubset(data["events"][0])
+    assert {"rationale", "relationship_type", "confidence", "knowledge_summary", "company_evidence", "article_source_type", "article_evidence_rank", "company_evidence_rank"}.issubset(data["stocks"][0])
 
 
 def test_article_analysis_requires_evidence_backed_relationships():
-    direct = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK", "BBCA.JK"])
+    direct = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK", "BBCA.JK"], window="7d")
     assert "ANTM.JK" in direct["impacted_tickers"]
     antm_link = next(item for item in direct["stock_relationships"] if item["ticker"] == "ANTM.JK")
     assert antm_link["relationship_type"] == "direct"
@@ -201,16 +266,24 @@ def test_article_analysis_requires_evidence_backed_relationships():
     assert antm_link["rationale"]
     assert antm_link["evidence"]
     assert antm_link["company_evidence"]
+    assert antm_link["article_source_type"] == "government"
+    assert antm_link["company_evidence_rank"] > 0
 
-    housing = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK", "BBCA.JK", "TLKM.JK"])
+    housing = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK", "BBCA.JK", "TLKM.JK"], window="30d")
     housing_tickers = set(housing["impacted_tickers"])
     assert "BSDE.JK" in housing_tickers
     assert "BBCA.JK" in housing_tickers
     assert "TLKM.JK" not in housing_tickers
 
-    vague = appmod.analyze_article(VAGUE_ARTICLE, ["BBCA.JK", "TLKM.JK", "ANTM.JK"])
+    vague = appmod.analyze_article(VAGUE_ARTICLE, ["BBCA.JK", "TLKM.JK", "ANTM.JK"], window="7d")
     assert vague["impacted_tickers"] == []
     assert vague["stock_relationships"] == []
+
+
+def test_evidence_hierarchy_prefers_official_sources():
+    government_score = appmod.evidence_quality_score(DIRECT_MENTION_ARTICLE, [{"name": "DOWNSTREAMING"}], True, appmod.company_knowledge_for_ticker("ANTM").get("evidence", []))
+    profile_score = appmod.evidence_quality_score({**VAGUE_ARTICLE, "source_type": "profile", "source_weight": 0.3}, [{"name": "DOWNSTREAMING"}], False, [])
+    assert government_score > profile_score
 
 
 def test_empty_watchlist_request_resets_default():

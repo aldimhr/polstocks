@@ -681,6 +681,14 @@
         <div class="dot"></div>
         <span id="lastUpdated">Loading…</span>
       </div>
+      <label class="watchlist-note" for="windowSelect" style="display:flex; align-items:center; gap:8px;">
+        Window
+        <select id="windowSelect" class="watchlist-input" style="width:auto; min-width:150px;" onchange="handleWindowChange(this.value)">
+          <option value="24h">Last 24h</option>
+          <option value="7d">Last 7d</option>
+          <option value="30d">Last 30d</option>
+        </select>
+      </label>
       <button class="btn-update" id="refreshBtn" onclick="triggerRefresh()">
         <div class="btn-icon" id="btnIcon"></div>
         <span id="btnText">Update</span>
@@ -693,7 +701,7 @@
     <div class="metric">
       <div class="metric-label">Events detected</div>
       <div class="metric-value" id="m-events">—</div>
-      <div class="metric-sub">dalam 24 jam terakhir</div>
+      <div class="metric-sub" id="m-events-sub">dalam 24 jam terakhir</div>
       <div class="metric-accent" style="background:var(--accent);"></div>
     </div>
     <div class="metric">
@@ -757,6 +765,9 @@
         <span class="card-title">Event Politik</span>
         <span class="card-badge" id="eventBadge">0 events</span>
       </div>
+      <div class="footer-note" id="trackingSummary" style="padding-bottom:10px;">Loading tracking summary…</div>
+      <div class="footer-note" id="trackingThemes" style="padding-bottom:10px;">Loading top themes…</div>
+      <div class="footer-note" id="trackingTimeline" style="padding-bottom:12px;">Loading daily timeline…</div>
       <div class="event-list" id="eventList">
         <div class="event-item">Loading live events…</div>
       </div>
@@ -807,7 +818,7 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [] };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h' };
   const $ = (id) => document.getElementById(id);
 
   function formatNumber(value, digits = 0) {
@@ -905,6 +916,11 @@
     await persistWatchlist([]);
   }
 
+  async function handleWindowChange(value) {
+    state.window = value || '24h';
+    await loadDashboard(true);
+  }
+
   function renderStocks(stocks) {
     const body = $('stockBody');
     const rows = Array.isArray(stocks) ? stocks : [];
@@ -945,6 +961,7 @@
       const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
       const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
       const policyLine = topLink?.policy_channel ? `Channel: ${topLink.policy_channel}` : 'No strong policy channel yet';
+      const evidenceLine = topLink?.evidence_label ? `Evidence: ${topLink.evidence_label} · company rank ${Number(topLink.company_evidence_rank || 0).toFixed(2)}` : `Source tier: ${event.source_type || 'other'}`;
       return `
         <div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" title="${escapeHtml(topLink?.rationale || '')}">
           <div class="event-headline">${escapeHtml(event.headline || '')}</div>
@@ -956,9 +973,25 @@
           <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
           <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>
           <div class="footer-note">${escapeHtml(policyLine)}</div>
+          <div class="footer-note">${escapeHtml(evidenceLine)}</div>
         </div>
       `;
     }).join('');
+  }
+
+  function renderTracking(tracking) {
+    const timeline = Array.isArray(tracking?.timeline) ? tracking.timeline : [];
+    const topThemes = Array.isArray(tracking?.top_themes) ? tracking.top_themes : [];
+    const topSources = Array.isArray(tracking?.top_sources) ? tracking.top_sources : [];
+    const summary = tracking?.summary || {};
+    const strongestDay = summary?.strongest_day;
+    $('trackingSummary').textContent = `Window: ${tracking?.window_label || '24 jam terakhir'} · ${summary?.total_events || 0} events · avg significance ${Number(summary?.avg_significance || 0).toFixed(2)}${strongestDay ? ` · strongest day ${strongestDay.date} (${strongestDay.event_count} events)` : ''}`;
+    $('trackingThemes').textContent = topThemes.length
+      ? `Top themes: ${topThemes.map((item) => `${String(item.name).replaceAll('_', ' ')} (${item.count})`).join(' · ')}${topSources.length ? ` · Top sources: ${topSources.map((item) => `${item.name} (${item.count})`).join(' · ')}` : ''}`
+      : 'Top themes: none yet';
+    $('trackingTimeline').textContent = timeline.length
+      ? `Daily track: ${timeline.map((item) => `${item.date}=${item.event_count}`).join(' · ')}`
+      : 'Daily track: no events in this window';
   }
 
   function renderSectorGrid(summary) {
@@ -1043,28 +1076,32 @@
 
   function renderPayload(payload) {
     state.payload = payload;
+    state.window = payload.window || state.window || '24h';
+    $('windowSelect').value = state.window;
     const events = payload.events || [];
     const stocks = payload.stocks || [];
     const highest = [...stocks].sort((a, b) => Math.abs(Number(b.impact_score) || 0) - Math.abs(Number(a.impact_score) || 0))[0];
     const watchlist = payload.watchlist || [];
     $('lastUpdated').textContent = formatTime(payload.fetched_at);
     $('m-events').textContent = formatNumber(events.length, 0);
+    $('m-events-sub').textContent = payload.window_label || '24 jam terakhir';
     $('m-stocks').textContent = formatNumber(stocks.length, 0);
     const positiveCount = stocks.filter((stock) => Number(stock.impact_score) > 0).length;
     const negativeCount = stocks.filter((stock) => Number(stock.impact_score) < 0).length;
     $('m-stocks-sub').textContent = stocks.length ? `↑ ${positiveCount} positif · ↓ ${negativeCount} negatif` : 'No stock data yet';
     $('m-stocks-sub').style.color = negativeCount > positiveCount ? 'var(--red)' : positiveCount > negativeCount ? 'var(--green)' : 'var(--muted2)';
-    $('eventBadge').textContent = `${events.length} events`;
+    $('eventBadge').textContent = `${events.length} events · ${payload.window || '24h'}`;
     $('m-highest').textContent = highest ? highest.ticker : '—';
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
     renderStocks(stocks);
+    renderTracking(payload.tracking || {});
     renderEvents(events);
     renderSectorGrid(payload.sector_summary || {});
     renderSources(payload.sources || [], events);
     renderMarketIndex(payload.market_index || {});
     renderWatchlistEditor(watchlist);
-    $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · cache TTL 5 menit`;
+    $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || '24 jam terakhir'} · cache TTL 5 menit`;
   }
 
   async function loadDashboard(force = false) {
@@ -1073,8 +1110,8 @@
     setBusy(force ? 'Refreshing live data…' : 'Loading dashboard…', true);
     try {
       const payload = force
-        ? await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true }) })
-        : (await apiJson('/api/dashboard')).payload;
+        ? await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) })
+        : (await apiJson(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`)).payload;
       renderPayload(payload);
       setBusy('Ready', false);
     } catch (err) {
@@ -1086,6 +1123,7 @@
 
   function triggerRefresh() { loadDashboard(true); }
   document.addEventListener('DOMContentLoaded', () => {
+    $('windowSelect').value = state.window;
     $('watchlistInput').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();

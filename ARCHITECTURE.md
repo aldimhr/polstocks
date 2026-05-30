@@ -51,13 +51,14 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 
 | Component | Technology | Responsibility |
 |---|---|---|
-| Dashboard | Static HTML + vanilla JS | UI, Update button, watchlist editor, renders results |
+| Dashboard | Static HTML + vanilla JS | UI, Update button, window selector, watchlist editor, renders results |
 | Backend | FastAPI (Python) | Serves dashboard, orchestrates fetch → NLP → response |
 | RSS Fetcher | `requests` + XML parsing | Pulls latest political news from free RSS feeds |
 | Stock Fetcher | Yahoo Finance chart endpoint | Gets current prices for IDX tickers (`.JK`) and IHSG |
 | NLP Engine | Heuristic rules (v1 fallback) | Sentiment + sector classification in Bahasa Indonesia |
-| Company Knowledge Layer | `company_knowledge.json` | Stores company-specific policy channels and evidence URLs |
-| In-Memory Cache | Python `dict` | Stores last fetch result; avoids redundant calls |
+| Company Knowledge Layer | `company_knowledge.json` | Stores company-specific policy channels, evidence source types, and evidence URLs |
+| Event Tracking Layer | in-memory aggregation | Builds daily buckets and top themes/sources for 24h/7d/30d windows |
+| In-Memory Cache | Python `dict` | Stores last fetch result per watchlist + window; avoids redundant calls |
 
 ---
 
@@ -68,10 +69,10 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 
 2. Dashboard sends:
    POST /api/refresh
-   Body: { tickers: ["BBCA.JK", "TLKM.JK", ...] }
+   Body: { tickers: ["BBCA.JK", "TLKM.JK", ...], window: "24h" | "7d" | "30d" }
 
 3. Backend checks cache:
-   - If last fetch < 5 minutes ago → return cached result immediately
+   - If last fetch < 5 minutes ago for the same watchlist + window → return cached result immediately
    - Otherwise → proceed to fetch
 
 4. RSS Fetcher pulls latest articles from configured news sources
@@ -82,14 +83,17 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
    - Sentiment score (-1.0 to +1.0)
    - Political category (e.g. ENERGY_POLICY, CORRUPTION_CASE)
    - Impacted sectors + tickers
+   - Evidence tier (government / regulator / company / media / profile / other)
 
-7. Impact scores computed per (event, ticker) pair
+7. Event Tracking layer groups surviving events into daily buckets and top theme/source summaries for the selected window
 
-8. Result stored in memory cache with timestamp
+8. Impact scores computed per (event, ticker) pair
 
-9. JSON response returned to frontend
+9. Result stored in memory cache with timestamp
 
-10. Dashboard renders updated stock cards + event feed
+10. JSON response returned to frontend
+
+11. Dashboard renders updated stock cards + event feed + tracking summary
 ```
 
 ---

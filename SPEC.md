@@ -73,8 +73,8 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 
 | ID | Requirement |
 |---|---|
-| F-10 | On each non-cached refresh, the system SHALL fetch the latest 20 articles from each configured RSS source |
-| F-11 | Articles older than 24 hours SHALL be excluded from analysis |
+| F-10 | On each non-cached refresh, the system SHALL fetch up to the latest 80 articles from each configured RSS source |
+| F-11 | Articles older than the selected window (`24h`, `7d`, or `30d`) SHALL be excluded from analysis |
 | F-12 | Duplicate articles (same URL or >90% title similarity) SHALL be deduplicated |
 | F-13 | Fetch timeout per source SHALL be 5 seconds; failed sources SHALL be skipped gracefully |
 
@@ -104,10 +104,12 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 |---|---|
 | F-40 | Stock cards SHALL display: ticker, company name, current price, % change today, and political impact score |
 | F-41 | Impact score SHALL be color-coded: red (negative), green (positive), grey (neutral) |
-| F-42 | Event feed SHALL list the top 10 most politically significant articles from the current refresh |
-| F-43 | Each event SHALL show: headline, source, published time, political category badge, and impacted tickers |
+| F-42 | Event feed SHALL list the top 10 most politically significant articles from the current refresh and selected window |
+| F-43 | Each event SHALL show: headline, source, published time, political category badge, impacted tickers, and evidence context |
 | F-44 | A sector summary bar SHALL show average impact score per IDX sector |
 | F-45 | User SHALL be able to add/remove tickers from their watchlist |
+| F-46 | User SHALL be able to switch between `24h`, `7d`, and `30d` windows from the dashboard |
+| F-47 | Refresh payloads SHALL include daily event-tracking aggregates plus top themes and sources for the selected window |
 
 ---
 
@@ -166,7 +168,8 @@ Per-ticker score across all current articles = weighted average, heavier weight 
 ```json
 {
   "tickers": ["BBCA.JK", "TLKM.JK", "ASII.JK"],
-  "force": false
+  "force": false,
+  "window": "7d"
 }
 ```
 - `force: true` bypasses the 5-minute cache
@@ -176,6 +179,8 @@ Per-ticker score across all current articles = weighted average, heavier weight 
 {
   "fetched_at": "2025-05-30T09:15:00+07:00",
   "from_cache": false,
+  "window": "7d",
+  "window_label": "7 hari terakhir",
   "events": [
     {
       "id": "evt_001",

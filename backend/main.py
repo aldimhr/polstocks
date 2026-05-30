@@ -40,11 +40,24 @@ COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
 
 APP_TITLE = "Indonesia Political-Stock Impact System"
 CACHE_TTL_SECONDS = 300
-FRESH_ARTICLE_WINDOW = timedelta(hours=24)
+DEFAULT_EVENT_WINDOW = "24h"
+EVENT_WINDOWS = {
+    "24h": {"delta": timedelta(hours=24), "label": "24 jam terakhir", "days": 1},
+    "7d": {"delta": timedelta(days=7), "label": "7 hari terakhir", "days": 7},
+    "30d": {"delta": timedelta(days=30), "label": "30 hari terakhir", "days": 30},
+}
 SOURCE_TIMEOUT_SECONDS = 5
 WIB = timezone(timedelta(hours=7))
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Hermes Political-Stock Mapper; +https://hermes-agent.nousresearch.com)"
+}
+SOURCE_TYPE_RANKS = {
+    "government": 5.0,
+    "regulator": 4.8,
+    "company": 4.6,
+    "media": 3.6,
+    "profile": 2.7,
+    "other": 2.4,
 }
 
 POLITICAL_SIGNAL_KEYWORDS = [
@@ -330,6 +343,7 @@ COMPANY_KNOWLEDGE: dict[str, dict[str, Any]] = {}
 class RefreshRequest(BaseModel):
     tickers: list[str] = Field(default_factory=list)
     force: bool = False
+    window: str = DEFAULT_EVENT_WINDOW
 
 
 class WatchlistRequest(BaseModel):
@@ -408,14 +422,31 @@ def clamp(value: float, low: float = -1.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def normalize_event_window(value: str | None) -> str:
+    key = str(value or DEFAULT_EVENT_WINDOW).strip().lower()
+    return key if key in EVENT_WINDOWS else DEFAULT_EVENT_WINDOW
+
+
+def event_window_config(window: str | None) -> dict[str, Any]:
+    return EVENT_WINDOWS[normalize_event_window(window)]
+
+
+def event_window_delta(window: str | None) -> timedelta:
+    return event_window_config(window)["delta"]
+
+
+def event_window_label(window: str | None) -> str:
+    return str(event_window_config(window)["label"])
+
+
 def text_similarity(left: str, right: str) -> float:
     return difflib.SequenceMatcher(None, left.lower().strip(), right.lower().strip()).ratio()
 
 
-def is_stale_article(published_at: datetime | None) -> bool:
+def is_stale_article(published_at: datetime | None, window: str | None = None) -> bool:
     if not published_at:
         return False
-    return now_wib() - published_at > FRESH_ARTICLE_WINDOW
+    return now_wib() - published_at > event_window_delta(window)
 
 
 def within_trading_hours(ts: datetime | None = None) -> bool:
@@ -451,6 +482,26 @@ def source_weight(source_name: str) -> float:
     return 0.7
 
 
+def infer_source_type(source_name: str = "", url: str = "") -> str:
+    source_name = (source_name or "").lower()
+    url = (url or "").lower()
+    if any(token in source_name or token in url for token in ["ojk", "kpk", "bank indonesia", "bi.go.id"]):
+        return "regulator"
+    if "idx.co.id" in url or any(token in source_name or token in url for token in ["investor", "/ir/", "annualreport", "sustainability-report", "corporate action"]):
+        return "company"
+    if any(token in source_name or token in url for token in ["setkab", "sekretariat kabinet", "presiden.go.id", ".go.id"]):
+        return "government"
+    if "finance.yahoo.com" in url or "profile" in url:
+        return "profile"
+    if any(token in source_name or token in url for token in ["antara", "cnbc", "cnn", "detik", "kompas", "tempo", "beritasatu"]):
+        return "media"
+    return "other"
+
+
+def source_type_rank(source_type: str | None) -> float:
+    return float(SOURCE_TYPE_RANKS.get(str(source_type or "other"), SOURCE_TYPE_RANKS["other"]))
+
+
 def normalize_watchlist_values(raw: Any) -> list[str]:
     values: list[str] = []
     if isinstance(raw, dict):
@@ -476,10 +527,19 @@ def normalize_company_knowledge(raw: Any) -> dict[str, dict[str, Any]]:
         ticker = normalize_ticker(str(record.get("ticker", "")))
         policy_exposures = [str(item).strip() for item in record.get("policy_exposures", []) if str(item).strip()]
         policy_channels = [str(item).strip() for item in record.get("policy_channels", []) if str(item).strip()]
-        evidence = [
-            item for item in record.get("evidence", [])
-            if isinstance(item, dict) and str(item.get("url", "")).startswith(("http://", "https://"))
-        ]
+        evidence = []
+        for item in record.get("evidence", []):
+            if not isinstance(item, dict) or not str(item.get("url", "")).startswith(("http://", "https://")):
+                continue
+            source_type = str(item.get("source_type") or infer_source_type(str(item.get("label", "")), str(item.get("url", ""))))
+            evidence.append(
+                {
+                    **item,
+                    "source_type": source_type,
+                    "source_date": str(item.get("source_date") or "").strip() or None,
+                    "quality_rank": round(source_type_rank(source_type), 2),
+                }
+            )
         if not ticker or not policy_exposures or not policy_channels or not evidence:
             continue
         normalized[ticker] = {
@@ -559,7 +619,7 @@ def parse_rss_items(source: dict[str, Any], xml_text: str) -> list[dict[str, Any
     items = list(root.findall(".//item"))
     if not items:
         items = list(root.findall(".//{*}item"))
-    for item in items[:20]:
+    for item in items[:80]:
         title = safe_text(item, "title")
         link = safe_text(item, "link")
         summary = safe_text(item, "description") or safe_text(item, "encoded")
@@ -574,6 +634,7 @@ def parse_rss_items(source: dict[str, Any], xml_text: str) -> list[dict[str, Any
                 "published_at": published_at or now_wib(),
                 "summary": strip_tags(summary),
                 "source_weight": float(source["weight"]),
+                "source_type": infer_source_type(source.get("name", ""), source.get("url", "")),
             }
         )
     return articles
@@ -624,6 +685,7 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
             "published_at": now_wib(),
             "summary": description or page_title or title,
             "source_weight": float(source["weight"]),
+            "source_type": infer_source_type(source.get("name", ""), href),
         }
         if is_relevant_article(item):
             candidates.append(item)
@@ -671,8 +733,8 @@ def fetch_news_bundle() -> tuple[list[dict[str, Any]], list[str]]:
     return articles, warnings
 
 
-def dedupe_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    filtered = [article for article in articles if not is_stale_article(article.get("published_at"))]
+def dedupe_articles(articles: list[dict[str, Any]], window: str = DEFAULT_EVENT_WINDOW) -> list[dict[str, Any]]:
+    filtered = [article for article in articles if not is_stale_article(article.get("published_at"), window)]
     filtered.sort(key=lambda article: article.get("published_at") or now_wib(), reverse=True)
     unique: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -880,23 +942,28 @@ def policy_specificity_score(categories: list[str], themes: list[dict[str, Any]]
     return min(5.0, score)
 
 
-def evidence_quality_score(article: dict[str, Any], themes: list[dict[str, Any]], direct_alias_hit: bool) -> float:
-    base = 1.2 + 2.8 * float(article.get("source_weight") or 0.0)
+def evidence_quality_score(article: dict[str, Any], themes: list[dict[str, Any]], direct_alias_hit: bool, company_evidence: list[dict[str, Any]] | None = None) -> float:
+    article_source_rank = source_type_rank(article.get("source_type"))
+    company_rank = max((float(item.get("quality_rank") or source_type_rank(item.get("source_type"))) for item in (company_evidence or [])), default=0.0)
+    base = 0.8 + 0.45 * article_source_rank + 0.2 * max(float(article.get("source_weight") or 0.0), 0.4)
     if article.get("url"):
         base += 0.2
     if len(themes) >= 2:
-        base += 0.2
+        base += 0.25
     if direct_alias_hit:
-        base += 0.4
+        base += 0.35
+    if company_rank:
+        base += min(0.9, 0.18 * company_rank)
     return min(5.0, base)
 
 
-def recency_weight_for_article(article: dict[str, Any]) -> tuple[float, float]:
+def recency_weight_for_article(article: dict[str, Any], window: str = DEFAULT_EVENT_WINDOW) -> tuple[float, float]:
     recency_hours = 0.0
     published_at = article.get("published_at") or now_wib()
     if isinstance(published_at, datetime):
         recency_hours = max(0.0, (now_wib() - published_at).total_seconds() / 3600.0)
-    recency_weight = max(0.25, 1.0 - recency_hours / 24.0)
+    window_hours = max(event_window_delta(window).total_seconds() / 3600.0, 1.0)
+    recency_weight = max(0.2, 1.0 - recency_hours / window_hours)
     return recency_hours, recency_weight
 
 
@@ -915,10 +982,11 @@ def build_stock_relationships(
     sector_hits: set[str],
     themes: list[dict[str, Any]],
     sentiment_confidence: float,
+    window: str = DEFAULT_EVENT_WINDOW,
 ) -> list[dict[str, Any]]:
     text = article_text(article)
     relationships: list[dict[str, Any]] = []
-    recency_hours, _ = recency_weight_for_article(article)
+    recency_hours, _ = recency_weight_for_article(article, window)
     category_sectors = {sector for category in categories for sector in CATEGORY_TO_SECTORS.get(category, [])}
     for ticker in watchlist:
         info = STOCK_MASTER.get(ticker)
@@ -969,10 +1037,8 @@ def build_stock_relationships(
             continue
 
         specificity = policy_specificity_score(categories, themes, text)
-        timing = max(1.0, min(5.0, 5.0 - recency_hours / 6.0))
-        evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit)
-        if knowledge.get("evidence"):
-            evidence_quality = min(5.0, evidence_quality + 0.5)
+        timing = max(1.0, min(5.0, 5.0 - recency_hours / max(6.0, event_window_delta(window).total_seconds() / 21600.0)))
+        evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit, knowledge.get("evidence", []))
         relationship_type = relationship_type_for_link(direct_alias_hit, transmission_clarity, company_exposure)
         if relationship_type == "thematic":
             company_exposure = min(company_exposure, 2.6)
@@ -992,6 +1058,10 @@ def build_stock_relationships(
         primary_theme = (matched_themes or themes or [{"channel": "broad sector sensitivity", "exposure_type": "sector"}])[0]
         policy_channel = (knowledge.get("policy_channels") or [primary_theme["channel"]])[0]
         summary = knowledge.get("summary") or ""
+        article_source_type = str(article.get("source_type") or infer_source_type(article.get("source", ""), article.get("url", "")))
+        article_evidence_rank = round(source_type_rank(article_source_type), 2)
+        company_evidence_rank = round(max((float(item.get("quality_rank") or source_type_rank(item.get("source_type"))) for item in knowledge.get("evidence", [])), default=0.0), 2)
+        evidence_label = f"{article_source_type} article"
         rationale = (
             f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
             if direct_alias_hit
@@ -1004,8 +1074,9 @@ def build_stock_relationships(
             evidence.append(f"matched policy theme: {matched_themes[0]['name'].replace('_', ' ').title()}")
         if policy_channel:
             evidence.append(f"policy channel: {policy_channel}")
+        evidence.append(f"article source tier: {article_source_type} ({article_evidence_rank:.2f})")
         for item in knowledge.get("evidence", [])[:2]:
-            evidence.append(f"{item.get('label', 'source')}: {item.get('url', '')}")
+            evidence.append(f"{item.get('label', 'source')} [{item.get('source_type', 'other')}]: {item.get('url', '')}")
         if article.get("source"):
             evidence.append(f"source: {article['source']}")
 
@@ -1020,6 +1091,10 @@ def build_stock_relationships(
                 "company_exposure": round(company_exposure, 2),
                 "timing": round(timing, 2),
                 "evidence_quality": round(evidence_quality, 2),
+                "article_source_type": article_source_type,
+                "article_evidence_rank": article_evidence_rank,
+                "company_evidence_rank": company_evidence_rank,
+                "evidence_label": evidence_label,
                 "relevance_score": round(score, 2),
                 "confidence": round(confidence, 3),
                 "rationale": rationale,
@@ -1027,7 +1102,7 @@ def build_stock_relationships(
                 "exposure_type": primary_theme["exposure_type"],
                 "knowledge_summary": summary,
                 "company_evidence": knowledge.get("evidence", []),
-                "evidence": evidence[:5],
+                "evidence": evidence[:6],
             }
         )
 
@@ -1038,7 +1113,7 @@ def build_stock_relationships(
     return relationships[:8]
 
 
-def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, Any]:
+def analyze_article(article: dict[str, Any], watchlist: list[str], window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     text = article_text(article)
     sentiment, sentiment_score, sentiment_confidence = analyze_sentiment(text)
     categories = classify_categories(text)
@@ -1057,6 +1132,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, 
         sector_hits=sector_hits,
         themes=themes,
         sentiment_confidence=sentiment_confidence,
+        window=window,
     )
     impacted_tickers = [item["ticker"] for item in stock_relationships]
 
@@ -1073,7 +1149,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, 
     if article.get("source_weight"):
         confidence = clamp(confidence * float(article["source_weight"]), 0.0, 1.0)
 
-    _, recency_weight = recency_weight_for_article(article)
+    _, recency_weight = recency_weight_for_article(article, window)
     avg_relevance = sum(link["relevance_score"] for link in stock_relationships) / len(stock_relationships) if stock_relationships else 0.0
 
     return {
@@ -1089,6 +1165,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, 
         "stock_relationships": stock_relationships,
         "confidence": round(confidence, 3),
         "recency_weight": round(recency_weight, 3),
+        "window": normalize_event_window(window),
         "significance": round((abs(sentiment_score) + avg_relevance / 5.0) * confidence * recency_weight * 0.45, 3),
     }
 
@@ -1125,17 +1202,92 @@ def compute_sector_summary(stocks: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
+def build_event_tracking(events: list[dict[str, Any]], window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
+    normalized_window = normalize_event_window(window)
+    buckets: dict[str, dict[str, Any]] = {}
+    theme_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    category_counts: dict[str, int] = {}
+    for event in events:
+        published_at = event.get("published_at")
+        if isinstance(published_at, datetime):
+            bucket_key = published_at.astimezone(WIB).date().isoformat()
+        else:
+            bucket_key = str(published_at or now_iso())[:10]
+        bucket = buckets.setdefault(bucket_key, {"date": bucket_key, "event_count": 0, "total_significance": 0.0, "top_headline": event.get("headline", "")})
+        bucket["event_count"] += 1
+        bucket["total_significance"] += float(event.get("significance", 0.0))
+        if float(event.get("significance", 0.0)) >= float(bucket.get("max_significance", -1.0)):
+            bucket["max_significance"] = float(event.get("significance", 0.0))
+            bucket["top_headline"] = event.get("headline", "")
+        source = str(event.get("source", "")).strip()
+        if source:
+            source_counts[source] = source_counts.get(source, 0) + 1
+        for theme in event.get("policy_themes", []):
+            if theme:
+                theme_counts[theme] = theme_counts.get(theme, 0) + 1
+        for category in event.get("categories", []):
+            if category:
+                category_counts[category] = category_counts.get(category, 0) + 1
+
+    timeline = []
+    for day in sorted(buckets):
+        bucket = buckets[day]
+        count = max(int(bucket["event_count"]), 1)
+        timeline.append(
+            {
+                "date": day,
+                "event_count": bucket["event_count"],
+                "avg_significance": round(bucket["total_significance"] / count, 3),
+                "max_significance": round(float(bucket.get("max_significance", 0.0)), 3),
+                "top_headline": bucket.get("top_headline", ""),
+            }
+        )
+
+    top_sources = [
+        {"name": name, "count": count}
+        for name, count in sorted(source_counts.items(), key=lambda item: (item[1], item[0]), reverse=True)[:5]
+    ]
+    top_themes = [
+        {"name": name, "count": count}
+        for name, count in sorted(theme_counts.items(), key=lambda item: (item[1], item[0]), reverse=True)[:5]
+    ]
+    top_categories = [
+        {"name": name, "count": count}
+        for name, count in sorted(category_counts.items(), key=lambda item: (item[1], item[0]), reverse=True)[:5]
+    ]
+    strongest_day = max(timeline, key=lambda item: (item["event_count"], item["max_significance"]), default=None)
+    total_events = len(events)
+    avg_significance = round(sum(float(event.get("significance", 0.0)) for event in events) / total_events, 3) if total_events else 0.0
+    return {
+        "window": normalized_window,
+        "window_label": event_window_label(normalized_window),
+        "timeline": timeline,
+        "top_sources": top_sources,
+        "top_themes": top_themes,
+        "top_categories": top_categories,
+        "summary": {
+            "total_events": total_events,
+            "avg_significance": avg_significance,
+            "strongest_day": strongest_day,
+            "strongest_theme": top_themes[0] if top_themes else None,
+        },
+    }
+
+
 def build_refresh_payload(
     tickers: list[str],
     force: bool = False,
+    window: str = DEFAULT_EVENT_WINDOW,
     news_fetcher: Callable[[], tuple[list[dict[str, Any]], list[str]]] | None = None,
     stock_fetcher: Callable[[list[str]], tuple[dict[str, dict[str, Any]], list[str]]] | None = None,
     market_fetcher: Callable[[], tuple[dict[str, Any], list[str]]] | None = None,
 ) -> dict[str, Any]:
+    normalized_window = normalize_event_window(window)
     requested = [normalize_ticker(ticker) for ticker in tickers if normalize_ticker(ticker)]
     if not requested:
         requested = get_watchlist()
-    cache_key = tuple(sorted(requested))
+    cache_key = (normalized_window, *sorted(requested))
 
     with CACHE_LOCK:
         cached = CACHE.get(cache_key)
@@ -1145,6 +1297,8 @@ def build_refresh_payload(
                 payload = json.loads(json.dumps(cached["payload"], default=str))
                 payload["from_cache"] = True
                 payload["cache_key"] = list(cache_key)
+                payload["window"] = normalized_window
+                payload["window_label"] = event_window_label(normalized_window)
                 return payload
 
     news_fetcher = news_fetcher or fetch_news_bundle
@@ -1152,9 +1306,9 @@ def build_refresh_payload(
     market_fetcher = market_fetcher or fetch_market_index
 
     live_articles, news_warnings = news_fetcher()
-    articles = dedupe_articles(live_articles)
+    articles = dedupe_articles(live_articles, normalized_window)
     watchlist = list(dict.fromkeys(requested))
-    analyzed_articles = [analyze_article(article, watchlist) for article in articles]
+    analyzed_articles = [analyze_article(article, watchlist, normalized_window) for article in articles]
     analyzed_articles.sort(key=lambda article: (article.get("significance", 0.0), article.get("published_at") or now_wib()), reverse=True)
     meaningful_events = [article for article in analyzed_articles if float(article.get("significance", 0.0)) > 0.05]
     events = (meaningful_events or analyzed_articles)[:10]
@@ -1196,6 +1350,10 @@ def build_refresh_payload(
                 "policy_channel": strongest_link[1].get("policy_channel") if strongest_link else None,
                 "knowledge_summary": strongest_link[1].get("knowledge_summary") if strongest_link else knowledge.get("summary", ""),
                 "company_evidence": strongest_link[1].get("company_evidence") if strongest_link else knowledge.get("evidence", []),
+                "article_source_type": strongest_link[1].get("article_source_type") if strongest_link else None,
+                "article_evidence_rank": strongest_link[1].get("article_evidence_rank") if strongest_link else None,
+                "company_evidence_rank": strongest_link[1].get("company_evidence_rank") if strongest_link else max((item.get("quality_rank", 0.0) for item in knowledge.get("evidence", [])), default=0.0),
+                "evidence_label": strongest_link[1].get("evidence_label") if strongest_link else None,
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
@@ -1208,6 +1366,7 @@ def build_refresh_payload(
                 "id": event_id,
                 "headline": event.get("headline", ""),
                 "source": event.get("source", ""),
+                "source_type": event.get("source_type") or infer_source_type(event.get("source", ""), event.get("url", "")),
                 "url": event.get("url", ""),
                 "published_at": event.get("published_at").isoformat(timespec="seconds") if isinstance(event.get("published_at"), datetime) else str(event.get("published_at")),
                 "categories": event.get("categories", []),
@@ -1219,11 +1378,13 @@ def build_refresh_payload(
                 "policy_channels": event.get("policy_channels", []),
                 "stock_relationships": event.get("stock_relationships", []),
                 "confidence": event.get("confidence", 0.0),
+                "window": normalized_window,
                 "significance": event.get("significance", 0.0),
             }
         )
 
     sector_summary = compute_sector_summary(stocks)
+    tracking = build_event_tracking(events, normalized_window)
     warnings = news_warnings + stock_warnings + market_warnings
     if not articles:
         warnings.append("No live articles available.")
@@ -1235,10 +1396,13 @@ def build_refresh_payload(
         "fetched_at": now_iso(),
         "from_cache": False,
         "cache_key": list(cache_key),
+        "window": normalized_window,
+        "window_label": event_window_label(normalized_window),
         "watchlist": watchlist,
         "events": formatted_events,
         "stocks": stocks,
         "sector_summary": sector_summary,
+        "tracking": tracking,
         "market_index": market_index,
         "sources": sources,
         "warnings": warnings,
@@ -1284,9 +1448,9 @@ def api_get_watchlist() -> dict[str, Any]:
 
 
 @app.get("/api/dashboard")
-def api_dashboard() -> dict[str, Any]:
+def api_dashboard(window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     watchlist = get_watchlist()
-    payload = build_refresh_payload(watchlist, force=False)
+    payload = build_refresh_payload(watchlist, force=False, window=window)
     return {"watchlist": watchlist, "payload": payload}
 
 
@@ -1298,7 +1462,7 @@ def api_put_watchlist(payload: WatchlistRequest) -> dict[str, Any]:
 
 @app.post("/api/refresh")
 def api_refresh(payload: RefreshRequest) -> JSONResponse:
-    result = build_refresh_payload(payload.tickers, force=payload.force)
+    result = build_refresh_payload(payload.tickers, force=payload.force, window=payload.window)
     return JSONResponse(result)
 
 
