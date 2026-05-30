@@ -167,6 +167,39 @@ STOCK_MASTER = {
     for ticker, name, sector, aliases in STOCK_SEED
 }
 
+TICKER_EXPOSURE_PROFILES = {
+    "BBCA.JK": {"themes": ["BANKING_LIQUIDITY", "HOUSING", "INFRASTRUCTURE", "DIGITAL_PUBLIC"], "keywords": ["bank", "kredit", "mortgage", "transaction", "payment"]},
+    "BBRI.JK": {"themes": ["BANKING_LIQUIDITY", "FOOD_SECURITY", "INFRASTRUCTURE"], "keywords": ["micro", "umkm", "kredit", "bank"]},
+    "BMRI.JK": {"themes": ["BANKING_LIQUIDITY", "INFRASTRUCTURE", "DOWNSTREAMING"], "keywords": ["corporate", "bank", "loan", "project finance"]},
+    "TLKM.JK": {"themes": ["DIGITAL_PUBLIC"], "keywords": ["telecom", "broadband", "data center", "connectivity"]},
+    "ASII.JK": {"themes": ["INFRASTRUCTURE", "BANKING_LIQUIDITY", "FOOD_SECURITY"], "keywords": ["automotive", "heavy equipment", "distribution"]},
+    "GOTO.JK": {"themes": ["DIGITAL_PUBLIC", "FOOD_SECURITY"], "keywords": ["platform", "digital", "e-commerce", "payments"]},
+    "BYAN.JK": {"themes": ["ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["coal", "energy", "mining"]},
+    "ADRO.JK": {"themes": ["ENERGY_TRANSITION", "DOWNSTREAMING", "TRADE_RESTRICTION"], "keywords": ["coal", "energy", "smelter"]},
+    "UNVR.JK": {"themes": ["FOOD_SECURITY", "TRADE_RESTRICTION"], "keywords": ["consumer", "household", "fmcg"]},
+    "ICBP.JK": {"themes": ["FOOD_SECURITY", "TRADE_RESTRICTION"], "keywords": ["food", "consumer", "staple"]},
+    "PTBA.JK": {"themes": ["ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["coal", "energy", "mining"]},
+    "ANTM.JK": {"themes": ["DOWNSTREAMING", "ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["nickel", "mineral", "smelter", "gold"]},
+    "INDF.JK": {"themes": ["FOOD_SECURITY", "TRADE_RESTRICTION"], "keywords": ["food", "staple", "consumer"]},
+    "SMGR.JK": {"themes": ["HOUSING", "INFRASTRUCTURE"], "keywords": ["cement", "construction", "building materials"]},
+    "KLBF.JK": {"themes": ["FOOD_SECURITY"], "keywords": ["healthcare", "pharma", "nutrition"]},
+    "HMSP.JK": {"themes": ["TRADE_RESTRICTION"], "keywords": ["tobacco", "excise", "consumer"]},
+    "PGAS.JK": {"themes": ["ENERGY_TRANSITION", "DOWNSTREAMING"], "keywords": ["gas", "pipeline", "energy"]},
+    "JSMR.JK": {"themes": ["INFRASTRUCTURE", "HOUSING"], "keywords": ["toll", "road", "traffic"]},
+    "EXCL.JK": {"themes": ["DIGITAL_PUBLIC"], "keywords": ["telecom", "connectivity", "broadband"]},
+    "INCO.JK": {"themes": ["DOWNSTREAMING", "ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["nickel", "mining", "smelter"]},
+    "TOWR.JK": {"themes": ["DIGITAL_PUBLIC"], "keywords": ["tower", "telecom", "connectivity"]},
+    "MNCN.JK": {"themes": ["DIGITAL_PUBLIC"], "keywords": ["media", "broadcast", "digital"]},
+    "ITMG.JK": {"themes": ["ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["coal", "energy", "mining"]},
+    "HRUM.JK": {"themes": ["DOWNSTREAMING", "ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["nickel", "coal", "mining"]},
+    "BSDE.JK": {"themes": ["HOUSING", "BANKING_LIQUIDITY", "INFRASTRUCTURE"], "keywords": ["property", "township", "real estate"]},
+    "CPIN.JK": {"themes": ["FOOD_SECURITY", "TRADE_RESTRICTION"], "keywords": ["poultry", "feed", "food"]},
+    "JPFA.JK": {"themes": ["FOOD_SECURITY", "TRADE_RESTRICTION"], "keywords": ["poultry", "feed", "food"]},
+    "ESSA.JK": {"themes": ["ENERGY_TRANSITION", "FOOD_SECURITY"], "keywords": ["ammonia", "fertilizer", "energy"]},
+    "BRPT.JK": {"themes": ["ENERGY_TRANSITION", "DOWNSTREAMING", "INFRASTRUCTURE"], "keywords": ["petrochemical", "industrial", "energy"]},
+    "MEDC.JK": {"themes": ["ENERGY_TRANSITION", "TRADE_RESTRICTION"], "keywords": ["oil", "gas", "energy"]},
+}
+
 SECTOR_KEYWORDS = {
     "Energy": ["energi", "energy", "minyak", "gas", "migas", "bbm", "coal", "batubara", "batu bara", "listrik", "geothermal", "renewable"],
     "Basic Materials": ["tambang", "mineral", "nikel", "nickel", "emas", "smelter", "pupuk", "semen", "copper", "baja", "komoditas", "hilirisasi"],
@@ -210,6 +243,66 @@ CATEGORY_TO_SECTORS = {
     "PARLIAMENT_SESSION": ["Financials", "Industrials", "Energy", "Basic Materials"],
     "PROTEST_UNREST": ["Consumer Cyclicals", "Industrials", "Infrastructures", "Transportation & Logistics"],
 }
+
+POLICY_THEMES = {
+    "HOUSING": {
+        "keywords": ["housing", "perumahan", "rumah subsidi", "properti", "mortgage", "kpr", "apartemen"],
+        "sectors": ["Properties & Real Estate", "Basic Materials", "Financials", "Industrials"],
+        "channel": "housing demand, mortgage flows, and building-material execution",
+        "exposure_type": "demand",
+    },
+    "INFRASTRUCTURE": {
+        "keywords": ["infrastruktur", "jalan tol", "public works", "pelabuhan", "bandara", "logistik", "proyek", "construction"],
+        "sectors": ["Infrastructures", "Industrials", "Basic Materials", "Transportation & Logistics", "Financials"],
+        "channel": "project execution, traffic growth, and construction-material demand",
+        "exposure_type": "project",
+    },
+    "FOOD_SECURITY": {
+        "keywords": ["pangan", "food security", "beras", "gula", "ayam", "poultry", "feed", "staple", "fertilizer"],
+        "sectors": ["Consumer Non-Cyclicals", "Transportation & Logistics", "Basic Materials"],
+        "channel": "staple demand, agricultural inputs, and distribution volumes",
+        "exposure_type": "supply_chain",
+    },
+    "ENERGY_TRANSITION": {
+        "keywords": ["energi", "oil", "gas", "renewable", "listrik", "bbm", "migas", "geothermal", "quota"],
+        "sectors": ["Energy", "Industrials", "Basic Materials"],
+        "channel": "energy pricing, quotas, and upstream/downstream project economics",
+        "exposure_type": "regulatory",
+    },
+    "DOWNSTREAMING": {
+        "keywords": ["hilirisasi", "smelter", "nikel", "nickel", "mineral", "downstreaming", "refinery"],
+        "sectors": ["Basic Materials", "Energy", "Industrials", "Infrastructures"],
+        "channel": "mineral processing, smelter buildout, and industrial-estate utilization",
+        "exposure_type": "asset",
+    },
+    "BANKING_LIQUIDITY": {
+        "keywords": ["bank indonesia", "bi rate", "suku bunga", "likuiditas", "kredit", "loan", "pinjaman", "inflasi"],
+        "sectors": ["Financials", "Properties & Real Estate", "Consumer Cyclicals"],
+        "channel": "funding costs, credit demand, and financing activity",
+        "exposure_type": "financing",
+    },
+    "DIGITAL_PUBLIC": {
+        "keywords": ["digital", "e-government", "telecom", "data center", "cloud", "internet", "platform"],
+        "sectors": ["Technology", "Infrastructures", "Financials"],
+        "channel": "digital infrastructure demand and public-service digitization spend",
+        "exposure_type": "demand",
+    },
+    "DEFENSE_PROCUREMENT": {
+        "keywords": ["defense", "pertahanan", "militer", "procurement", "pengadaan", "strategis"],
+        "sectors": ["Industrials", "Transportation & Logistics", "Basic Materials", "Financials"],
+        "channel": "state procurement, logistics support, and strategic industrial demand",
+        "exposure_type": "procurement",
+    },
+    "TRADE_RESTRICTION": {
+        "keywords": ["ekspor", "impor", "tarif", "bea masuk", "kuota", "larangan ekspor", "trade"],
+        "sectors": ["Basic Materials", "Consumer Non-Cyclicals", "Industrials", "Energy"],
+        "channel": "price realization, volume restrictions, and import-substitution effects",
+        "exposure_type": "regulatory",
+    },
+}
+
+MIN_RELATIONSHIP_SCORE = 3.0
+MIN_EVIDENCE_QUALITY = 2.0
 
 NEWS_SOURCES = [
     {"name": "Antara Terkini", "url": "https://www.antaranews.com/rss/terkini.xml", "kind": "rss", "weight": 1.0},
@@ -714,15 +807,174 @@ def sector_matches(text: str) -> set[str]:
     return matches
 
 
-def impacted_tickers_from_text(text: str, sector_hits: set[str]) -> list[str]:
-    tickers: list[str] = []
-    for ticker, info in STOCK_MASTER.items():
-        if any(alias in text for alias in info["aliases"]):
-            tickers.append(ticker)
+def detect_policy_themes(text: str) -> list[dict[str, Any]]:
+    themes: list[dict[str, Any]] = []
+    for name, config in POLICY_THEMES.items():
+        hit_count = sum(1 for keyword in config["keywords"] if keyword in text)
+        if hit_count:
+            themes.append(
+                {
+                    "name": name,
+                    "keyword_hits": hit_count,
+                    "sectors": list(config["sectors"]),
+                    "channel": config["channel"],
+                    "exposure_type": config["exposure_type"],
+                }
+            )
+    themes.sort(key=lambda item: item["keyword_hits"], reverse=True)
+    return themes[:4]
+
+
+def policy_specificity_score(categories: list[str], themes: list[dict[str, Any]], text: str) -> float:
+    score = 1.0
+    score += min(1.5, 0.55 * len(categories))
+    score += min(1.0, 0.35 * len(themes))
+    if any(keyword in text for keyword in ["perpres", "perppu", "ruu", "uu ", "apbn", "anggaran", "tarif", "kuota", "izin"]):
+        score += 0.8
+    return min(5.0, score)
+
+
+def evidence_quality_score(article: dict[str, Any], themes: list[dict[str, Any]], direct_alias_hit: bool) -> float:
+    base = 1.2 + 2.8 * float(article.get("source_weight") or 0.0)
+    if article.get("url"):
+        base += 0.2
+    if len(themes) >= 2:
+        base += 0.2
+    if direct_alias_hit:
+        base += 0.4
+    return min(5.0, base)
+
+
+def recency_weight_for_article(article: dict[str, Any]) -> tuple[float, float]:
+    recency_hours = 0.0
+    published_at = article.get("published_at") or now_wib()
+    if isinstance(published_at, datetime):
+        recency_hours = max(0.0, (now_wib() - published_at).total_seconds() / 3600.0)
+    recency_weight = max(0.25, 1.0 - recency_hours / 24.0)
+    return recency_hours, recency_weight
+
+
+def relationship_type_for_link(direct_alias_hit: bool, transmission_clarity: float, company_exposure: float) -> str:
+    if direct_alias_hit or (transmission_clarity >= 4.0 and company_exposure >= 4.0):
+        return "direct"
+    if transmission_clarity >= 3.0 and company_exposure >= 3.0:
+        return "indirect"
+    return "thematic"
+
+
+def build_stock_relationships(
+    article: dict[str, Any],
+    watchlist: list[str],
+    categories: list[str],
+    sector_hits: set[str],
+    themes: list[dict[str, Any]],
+    sentiment_confidence: float,
+) -> list[dict[str, Any]]:
+    text = article_text(article)
+    relationships: list[dict[str, Any]] = []
+    recency_hours, _ = recency_weight_for_article(article)
+    category_sectors = {sector for category in categories for sector in CATEGORY_TO_SECTORS.get(category, [])}
+    for ticker in watchlist:
+        info = STOCK_MASTER.get(ticker)
+        if not info:
             continue
-        if info["sector"] in sector_hits and len(tickers) < 8:
-            tickers.append(ticker)
-    return tickers[:8]
+
+        alias_hits = [alias for alias in info["aliases"] if alias in text]
+        direct_alias_hit = bool(alias_hits)
+        sector_match = info["sector"] in sector_hits
+        adjacent_match = info["sector"] in category_sectors
+        profile = TICKER_EXPOSURE_PROFILES.get(ticker, {"themes": [], "keywords": []})
+        profile_theme_names = set(profile.get("themes", []))
+        profile_keyword_hits = [keyword for keyword in profile.get("keywords", []) if keyword in text]
+        matched_themes = [theme for theme in themes if theme["name"] in profile_theme_names]
+
+        transmission_clarity = 0.0
+        if direct_alias_hit:
+            transmission_clarity = 5.0
+        elif matched_themes and profile_keyword_hits:
+            transmission_clarity = 3.6 + min(1.0, 0.35 * len(matched_themes) + 0.15 * len(profile_keyword_hits))
+        elif matched_themes:
+            transmission_clarity = 3.0 + min(0.8, 0.35 * len(matched_themes))
+        elif sector_match and profile_keyword_hits:
+            transmission_clarity = 2.4
+        elif adjacent_match and profile_keyword_hits:
+            transmission_clarity = 1.6
+
+        company_exposure = 0.0
+        if direct_alias_hit:
+            company_exposure = 5.0
+        elif matched_themes and profile_keyword_hits:
+            company_exposure = 3.5 + min(1.0, 0.3 * len(matched_themes) + 0.2 * len(profile_keyword_hits))
+        elif matched_themes:
+            company_exposure = 3.0 + min(0.7, 0.35 * len(matched_themes))
+        elif sector_match and profile_keyword_hits:
+            company_exposure = 2.2
+        elif adjacent_match and profile_keyword_hits:
+            company_exposure = 1.5
+
+        if transmission_clarity <= 0.0 or company_exposure <= 0.0:
+            continue
+
+        specificity = policy_specificity_score(categories, themes, text)
+        timing = max(1.0, min(5.0, 5.0 - recency_hours / 6.0))
+        evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit)
+        relationship_type = relationship_type_for_link(direct_alias_hit, transmission_clarity, company_exposure)
+        if relationship_type == "thematic":
+            company_exposure = min(company_exposure, 2.6)
+            transmission_clarity = min(transmission_clarity, 2.8)
+
+        score = (
+            0.25 * specificity
+            + 0.25 * transmission_clarity
+            + 0.25 * company_exposure
+            + 0.15 * timing
+            + 0.10 * evidence_quality
+        )
+        confidence = clamp((score / 5.0) * (0.7 + 0.3 * sentiment_confidence), 0.0, 1.0)
+        if evidence_quality < MIN_EVIDENCE_QUALITY or score < MIN_RELATIONSHIP_SCORE:
+            continue
+
+        primary_theme = (matched_themes or themes or [{"channel": "broad sector sensitivity", "exposure_type": "sector"}])[0]
+        rationale = (
+            f"{ticker} is linked via {primary_theme['channel']} for the {info['sector']} sector"
+            if not direct_alias_hit
+            else f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
+        )
+        evidence = []
+        if direct_alias_hit:
+            evidence.append("company/entity mentioned in article")
+        if matched_themes:
+            evidence.append(f"matched policy theme: {matched_themes[0]['name'].replace('_', ' ').title()}")
+        if sector_match:
+            evidence.append(f"sector match: {info['sector']}")
+        if article.get("source"):
+            evidence.append(f"source: {article['source']}")
+
+        relationships.append(
+            {
+                "ticker": ticker,
+                "company_name": company_name_for_ticker(ticker),
+                "sector": info["sector"],
+                "relationship_type": relationship_type,
+                "policy_specificity": round(specificity, 2),
+                "transmission_clarity": round(transmission_clarity, 2),
+                "company_exposure": round(company_exposure, 2),
+                "timing": round(timing, 2),
+                "evidence_quality": round(evidence_quality, 2),
+                "relevance_score": round(score, 2),
+                "confidence": round(confidence, 3),
+                "rationale": rationale,
+                "policy_channel": primary_theme["channel"],
+                "exposure_type": primary_theme["exposure_type"],
+                "evidence": evidence[:4],
+            }
+        )
+
+    relationships.sort(
+        key=lambda item: (item["relevance_score"], item["confidence"], item["relationship_type"] == "direct"),
+        reverse=True,
+    )
+    return relationships[:8]
 
 
 def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, Any]:
@@ -733,34 +985,35 @@ def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, 
     sector_hits = sector_matches(text)
     for category in categories:
         sector_hits.update(CATEGORY_TO_SECTORS.get(category, []))
+    themes = detect_policy_themes(text)
+    for theme in themes:
+        sector_hits.update(theme["sectors"])
 
-    impacted_tickers = impacted_tickers_from_text(text, sector_hits)
-    for ticker in watchlist:
-        info = STOCK_MASTER.get(ticker)
-        if not info:
-            continue
-        if ticker in impacted_tickers:
-            continue
-        if info["sector"] in sector_hits and len(impacted_tickers) < 10:
-            impacted_tickers.append(ticker)
+    stock_relationships = build_stock_relationships(
+        article=article,
+        watchlist=watchlist,
+        categories=categories or ["PARLIAMENT_SESSION"],
+        sector_hits=sector_hits,
+        themes=themes,
+        sentiment_confidence=sentiment_confidence,
+    )
+    impacted_tickers = [item["ticker"] for item in stock_relationships]
 
     confidence = clamp(
-        0.25
-        + 0.12 * len(categories)
-        + 0.1 * len(sector_hits)
+        0.2
+        + 0.1 * len(categories)
+        + 0.08 * len(sector_hits)
         + 0.08 * len(entities)
-        + 0.2 * sentiment_confidence,
+        + 0.12 * len(themes)
+        + 0.18 * sentiment_confidence,
         0.0,
         1.0,
     )
     if article.get("source_weight"):
         confidence = clamp(confidence * float(article["source_weight"]), 0.0, 1.0)
 
-    recency_hours = 0.0
-    published_at = article.get("published_at") or now_wib()
-    if isinstance(published_at, datetime):
-        recency_hours = max(0.0, (now_wib() - published_at).total_seconds() / 3600.0)
-    recency_weight = max(0.25, 1.0 - recency_hours / 24.0)
+    _, recency_weight = recency_weight_for_article(article)
+    avg_relevance = sum(link["relevance_score"] for link in stock_relationships) / len(stock_relationships) if stock_relationships else 0.0
 
     return {
         **article,
@@ -768,40 +1021,26 @@ def analyze_article(article: dict[str, Any], watchlist: list[str]) -> dict[str, 
         "sentiment_score": round(sentiment_score, 3),
         "categories": categories or ["PARLIAMENT_SESSION"],
         "entities": entities,
+        "policy_themes": [theme["name"] for theme in themes],
+        "policy_channels": [theme["channel"] for theme in themes],
         "impacted_sectors": sorted(sector_hits),
         "impacted_tickers": impacted_tickers,
+        "stock_relationships": stock_relationships,
         "confidence": round(confidence, 3),
         "recency_weight": round(recency_weight, 3),
-        "significance": round(abs(sentiment_score) * confidence * recency_weight * max(1, len(sector_hits)) * 0.6, 3),
+        "significance": round((abs(sentiment_score) + avg_relevance / 5.0) * confidence * recency_weight * 0.45, 3),
     }
 
 
 def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
-    info = STOCK_MASTER.get(ticker)
-    if not info:
+    relationship = next((item for item in article.get("stock_relationships", []) if item.get("ticker") == ticker), None)
+    if not relationship:
         return 0.0
-    text = article_text(article)
-    sector_hits = set(article.get("impacted_sectors", []))
-    category_sectors = set()
-    for category in article.get("categories", []):
-        category_sectors.update(CATEGORY_TO_SECTORS.get(category, []))
-    sector_relevance = 0.0
-    if info["sector"] in sector_hits:
-        sector_relevance = 1.0
-    elif info["sector"] in category_sectors:
-        sector_relevance = 0.5
-    elif any(keyword in text for keyword in SECTOR_KEYWORDS.get(info["sector"], [])):
-        sector_relevance = 1.0
-    else:
-        sector_relevance = 0.2 if ticker in article.get("impacted_tickers", []) else 0.0
-
-    entity_boost = 1.5 if any(alias in text for alias in info["aliases"]) else 1.0
-    if ticker in article.get("impacted_tickers", []):
-        entity_boost = max(entity_boost, 1.3)
-
-    model_confidence = float(article.get("confidence", 0.5))
     sentiment_score = float(article.get("sentiment_score", 0.0))
-    raw = sentiment_score * sector_relevance * entity_boost * model_confidence
+    relevance_factor = float(relationship.get("relevance_score", 0.0)) / 5.0
+    confidence = float(relationship.get("confidence", article.get("confidence", 0.5)))
+    relationship_multiplier = {"direct": 1.0, "indirect": 0.82, "thematic": 0.55}.get(relationship.get("relationship_type"), 0.5)
+    raw = sentiment_score * relevance_factor * confidence * relationship_multiplier
     return clamp(raw, -1.0, 1.0)
 
 
@@ -864,12 +1103,18 @@ def build_refresh_payload(
     stocks: list[dict[str, Any]] = []
     for ticker in watchlist:
         quote = quotes.get(ticker)
-        related_ids = [event_id for event_id, article in ((f"evt_{idx+1:03d}", event) for idx, event in enumerate(events)) if ticker in article.get("impacted_tickers", [])]
+        related_links = []
+        for idx, event in enumerate(events):
+            link = next((item for item in event.get("stock_relationships", []) if item.get("ticker") == ticker), None)
+            if link:
+                related_links.append((f"evt_{idx+1:03d}", link))
+        related_ids = [event_id for event_id, _ in related_links]
         score_inputs = [compute_ticker_score(event, ticker) for event in events]
         recency_weights = [float(event.get("recency_weight", 1.0)) for event in events]
         weighted_total = sum(score * weight for score, weight in zip(score_inputs, recency_weights))
         total_weight = sum(recency_weights) or 1.0
         impact_score = clamp(weighted_total / total_weight, -1.0, 1.0)
+        strongest_link = max(related_links, key=lambda item: item[1].get("relevance_score", 0.0), default=None)
         stocks.append(
             {
                 "ticker": ticker,
@@ -881,6 +1126,12 @@ def build_refresh_payload(
                 "after_hours": bool((quote or {}).get("after_hours")),
                 "impact_score": round(impact_score, 3),
                 "related_event_ids": related_ids,
+                "relationship_count": len(related_links),
+                "relationship_type": strongest_link[1].get("relationship_type") if strongest_link else None,
+                "relevance_score": strongest_link[1].get("relevance_score") if strongest_link else None,
+                "confidence": strongest_link[1].get("confidence") if strongest_link else 0.0,
+                "rationale": strongest_link[1].get("rationale") if strongest_link else "No evidence-backed political link in current batch.",
+                "policy_channel": strongest_link[1].get("policy_channel") if strongest_link else None,
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
@@ -900,6 +1151,9 @@ def build_refresh_payload(
                 "sentiment_score": event.get("sentiment_score", 0.0),
                 "impacted_sectors": event.get("impacted_sectors", []),
                 "impacted_tickers": event.get("impacted_tickers", []),
+                "policy_themes": event.get("policy_themes", []),
+                "policy_channels": event.get("policy_channels", []),
+                "stock_relationships": event.get("stock_relationships", []),
                 "confidence": event.get("confidence", 0.0),
                 "significance": event.get("significance", 0.0),
             }

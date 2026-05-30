@@ -15,6 +15,24 @@ FAKE_ARTICLE = {
     "source_weight": 1.0,
 }
 
+DIRECT_MENTION_ARTICLE = {
+    "source": "Setkab",
+    "headline": "Pemerintah dorong hilirisasi, Antam siapkan belanja smelter baru",
+    "url": "https://example.com/article-2",
+    "published_at": appmod.now_wib(),
+    "summary": "Agenda hilirisasi mineral dan smelter disebut langsung bersama Antam untuk mempercepat proyek nikel.",
+    "source_weight": 1.0,
+}
+
+VAGUE_ARTICLE = {
+    "source": "Opinion Blog",
+    "headline": "Ekonomi nasional diharapkan membaik tahun depan",
+    "url": "https://example.com/article-3",
+    "published_at": appmod.now_wib(),
+    "summary": "Tanpa kebijakan, regulasi, atau sektor spesifik. Hanya pandangan umum soal ekonomi.",
+    "source_weight": 0.2,
+}
+
 
 def fake_news_fetcher():
     return [FAKE_ARTICLE], []
@@ -152,6 +170,22 @@ def test_refresh_endpoint_returns_json_shape(monkeypatch):
     assert isinstance(data["events"], list)
     assert isinstance(data["stocks"], list)
     assert len(data["sector_summary"]) == len(appmod.SECTORS)
+    assert {"policy_themes", "stock_relationships"}.issubset(data["events"][0])
+    assert {"rationale", "relationship_type", "confidence"}.issubset(data["stocks"][0])
+
+
+def test_article_analysis_requires_evidence_backed_relationships():
+    direct = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK", "BBCA.JK"])
+    assert "ANTM.JK" in direct["impacted_tickers"]
+    antm_link = next(item for item in direct["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    assert antm_link["relationship_type"] == "direct"
+    assert antm_link["relevance_score"] >= appmod.MIN_RELATIONSHIP_SCORE
+    assert antm_link["rationale"]
+    assert antm_link["evidence"]
+
+    vague = appmod.analyze_article(VAGUE_ARTICLE, ["BBCA.JK", "TLKM.JK", "ANTM.JK"])
+    assert vague["impacted_tickers"] == []
+    assert vague["stock_relationships"] == []
 
 
 def test_empty_watchlist_request_resets_default():

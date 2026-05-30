@@ -917,9 +917,12 @@
       const impact = Number(stock.impact_score);
       const changeClass = Number.isFinite(change) && change > 0 ? 'up' : Number.isFinite(change) && change < 0 ? 'down' : 'flat';
       const impactClass = impact > 0 ? 'pos' : impact < 0 ? 'neg' : 'neu';
+      const linkMeta = stock.relationship_type
+        ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
+        : 'No strong policy link';
       return `
-        <tr>
-          <td><div class="ticker-name">${escapeHtml(stock.ticker || '')}</div><div class="company-name">${escapeHtml(stock.name || '')}</div></td>
+        <tr title="${escapeHtml(stock.rationale || '')}">
+          <td><div class="ticker-name">${escapeHtml(stock.ticker || '')}</div><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div></td>
           <td class="price-cell">${formatPrice(stock.price)}</td>
           <td class="change-cell ${changeClass}">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
@@ -937,15 +940,19 @@
     }
     root.innerHTML = rows.map((event) => {
       const cats = (event.categories || []).slice(0, 3).map((c) => `<span class="cat-tag">${escapeHtml(String(c).replaceAll('_', ' '))}</span>`).join(' ');
+      const themes = (event.policy_themes || []).slice(0, 2).map((t) => `<span class="cat-tag">${escapeHtml(String(t).replaceAll('_', ' '))}</span>`).join(' ');
       const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
+      const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
       return `
-        <div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}">
+        <div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" title="${escapeHtml(topLink?.rationale || '')}">
           <div class="event-headline">${escapeHtml(event.headline || '')}</div>
           <div class="event-meta">
             ${cats || '<span class="cat-tag">Uncategorized</span>'}
+            ${themes}
             <span class="event-source">${escapeHtml(event.source || '')} · ${escapeHtml(formatTime(event.published_at))}</span>
           </div>
           <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
+          <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>
         </div>
       `;
     }).join('');
