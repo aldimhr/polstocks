@@ -358,9 +358,26 @@
     transition: border-color 0.2s, transform 0.15s;
   }
 
+  .event-item.event-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .event-item.event-link:hover,
+  .event-item.event-link:focus-visible {
+    color: inherit;
+  }
+
   .event-item:hover {
     border-color: var(--border2);
     transform: translateX(2px);
+  }
+
+  .event-item.event-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .event-item.high-impact {
@@ -419,6 +436,47 @@
     gap: 5px;
     flex-wrap: wrap;
   }
+
+  .reasoning-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px 0 12px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .reasoning-summary-line {
+    font-size: 12px;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .reasoning-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .reasoning-chip {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .reasoning-chip.pos { background: var(--green-dim); color: var(--green); border-color: rgba(77,219,142,0.18); }
+  .reasoning-chip.neg { background: var(--red-dim); color: var(--red); border-color: rgba(255,92,92,0.18); }
+  .reasoning-chip.warn { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,166,35,0.18); }
+  .reasoning-chip.info { background: var(--blue-dim); color: var(--blue); border-color: rgba(96,168,240,0.18); }
+  .reasoning-chip.neu { background: var(--surface2); color: var(--muted2); border-color: var(--border); }
+  .reasoning-chip.muted { background: var(--surface); color: var(--muted); border-color: var(--border); }
 
   .tick-tag {
     font-size: 11px;
@@ -613,6 +671,23 @@
     font-size: 11px;
   }
 
+  .watchlist-chip-main {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    line-height: 1;
+  }
+
+  .watchlist-chip-main:hover,
+  .watchlist-chip-main:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
+    outline: none;
+  }
+
   .watchlist-chip button {
     border: none;
     background: transparent;
@@ -626,6 +701,142 @@
     font-size: 11px;
     color: var(--muted);
     font-family: 'DM Mono', monospace;
+  }
+
+  .ticker-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(8, 10, 16, 0.76);
+    backdrop-filter: blur(10px);
+  }
+
+  .ticker-modal-backdrop[hidden] {
+    display: none !important;
+  }
+
+  .ticker-modal {
+    width: min(720px, 100%);
+    max-height: min(88vh, 900px);
+    overflow: auto;
+    border-radius: 22px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(12, 15, 21, 0.98));
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+    padding: 20px;
+  }
+
+  .ticker-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .ticker-modal-kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted2);
+    margin-bottom: 6px;
+  }
+
+  .ticker-modal-title {
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+
+  .ticker-modal-sub {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .ticker-modal-close {
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  .ticker-modal-close:hover,
+  .ticker-modal-close:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(77, 211, 207, 0.15);
+  }
+
+  .ticker-modal-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .ticker-stat {
+    padding: 12px;
+    border-radius: 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
+  .ticker-stat .label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+
+  .ticker-stat .value {
+    display: block;
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .ticker-history-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .ticker-history-chart {
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .ticker-history-chart svg {
+    width: 100%;
+    height: 180px;
+    display: block;
+  }
+
+  .ticker-modal-note {
+    margin-top: 12px;
+    color: var(--muted2);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 720px) {
+    .ticker-modal-stats { grid-template-columns: 1fr; }
   }
 
   .bottom-grid {
@@ -689,6 +900,7 @@
           <option value="30d">Last 30d</option>
         </select>
       </label>
+      <span class="card-badge" id="windowBadge" style="font-size:12px; padding:6px 10px;">Showing 24h</span>
       <button class="btn-update" id="refreshBtn" onclick="triggerRefresh()">
         <div class="btn-icon" id="btnIcon"></div>
         <span id="btnText">Update</span>
@@ -765,9 +977,13 @@
         <span class="card-title">Event Politik</span>
         <span class="card-badge" id="eventBadge">0 events</span>
       </div>
+      <div class="footer-note" id="eventWindowHint" style="padding-bottom:10px; color:var(--text);">Loading window summary…</div>
       <div class="footer-note" id="trackingSummary" style="padding-bottom:10px;">Loading tracking summary…</div>
       <div class="footer-note" id="trackingThemes" style="padding-bottom:10px;">Loading top themes…</div>
       <div class="footer-note" id="trackingTimeline" style="padding-bottom:12px;">Loading daily timeline…</div>
+      <div class="reasoning-strip" id="reasoningStrip">
+        <div class="reasoning-summary-line">Loading reasoning summary…</div>
+      </div>
       <div class="event-list" id="eventList">
         <div class="event-item">Loading live events…</div>
       </div>
@@ -817,8 +1033,27 @@
 
 </div>
 
+<div class="ticker-modal-backdrop" id="tickerModalBackdrop" hidden onclick="handleTickerModalBackdrop(event)">
+  <div class="ticker-modal" role="dialog" aria-modal="true" aria-labelledby="tickerModalTitle" onclick="event.stopPropagation()">
+    <div class="ticker-modal-header">
+      <div>
+        <div class="ticker-modal-kicker">Watchlist detail</div>
+        <div class="ticker-modal-title" id="tickerModalTitle">Ticker detail</div>
+      </div>
+      <button class="ticker-modal-close" type="button" aria-label="Close ticker details" onclick="closeTickerModal()">×</button>
+    </div>
+    <div class="ticker-modal-sub" id="tickerModalSub">Click a ticker to load its history.</div>
+    <div class="ticker-modal-stats" id="tickerModalStats"></div>
+    <div class="ticker-history-chart" id="tickerModalChart">
+      <div class="footer-note">Select a ticker from the watchlist to view its chart.</div>
+    </div>
+    <div class="ticker-history-meta" id="tickerModalMeta"></div>
+    <div class="ticker-modal-note" id="tickerModalNote"></div>
+  </div>
+</div>
+
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h' };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tickerModal: { ticker: '', loading: false, data: null } };
   const $ = (id) => document.getElementById(id);
 
   function formatNumber(value, digits = 0) {
@@ -847,6 +1082,17 @@
     }).format(d) + ' WIB';
   }
 
+  function relativeTimeLabel(value) {
+    if (!value) return 'time unknown';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return 'time unknown';
+    const diffHours = Math.max(0, (Date.now() - d.getTime()) / 3600000);
+    if (diffHours < 1) return '<1h ago';
+    if (diffHours < 24) return `${Math.floor(diffHours)}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  }
+
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, '&amp;')
@@ -854,6 +1100,18 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function safeArticleUrl(url) {
+    const value = String(url || '').trim();
+    if (!value) return '';
+    try {
+      const parsed = new URL(value, window.location.origin);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+      return parsed.href;
+    } catch {
+      return '';
+    }
   }
 
   function setBusy(message, busy) {
@@ -876,13 +1134,192 @@
     return cleaned.endsWith('.JK') ? cleaned : `${cleaned}.JK`;
   }
 
+  function labelText(value) {
+    return String(value || '').replaceAll('_', ' ');
+  }
+
+  function reasoningChipClass(kind, value) {
+    const normalized = String(value || '').toLowerCase();
+    if (kind === 'validation') {
+      if (normalized === 'confirmed') return 'pos';
+      if (normalized === 'predicted_only') return 'warn';
+      if (normalized === 'rejected') return 'neg';
+      if (normalized === 'insufficient_data') return 'neu';
+      return 'muted';
+    }
+    if (kind === 'direction') {
+      if (normalized === 'positive') return 'pos';
+      if (normalized === 'negative') return 'neg';
+      if (normalized === 'mixed') return 'warn';
+      return 'neu';
+    }
+    if (kind === 'stage') {
+      if (['approved', 'effective', 'enforced'].includes(normalized)) return 'pos';
+      if (['proposal', 'debate'].includes(normalized)) return 'warn';
+      if (['delayed', 'revoked'].includes(normalized)) return 'neg';
+      return 'neu';
+    }
+    if (kind === 'thread') {
+      if (normalized === 'confirmed') return 'info';
+      if (normalized === 'contested') return 'warn';
+      if (normalized === 'reversed') return 'neg';
+      return 'neu';
+    }
+    if (kind === 'relevance') {
+      if (normalized === 'political') return 'info';
+      if (normalized === 'maybe') return 'warn';
+      return 'muted';
+    }
+    return 'neu';
+  }
+
+  function renderReasoningChip(label, value, kind) {
+    if (value === null || value === undefined || value === '') return '';
+    return `<span class="reasoning-chip ${reasoningChipClass(kind, value)}">${escapeHtml(label)}: ${escapeHtml(labelText(value))}</span>`;
+  }
+
+  function renderReasoningSummary(reasoning) {
+    const root = $('reasoningStrip');
+    if (!root) return;
+    const summaryLine = reasoning?.summary_line || 'No reasoning summary yet';
+    const relevance = Array.isArray(reasoning?.relevance_breakdown) ? reasoning.relevance_breakdown : [];
+    const stages = Array.isArray(reasoning?.stage_breakdown) ? reasoning.stage_breakdown : [];
+    const threads = Array.isArray(reasoning?.thread_breakdown) ? reasoning.thread_breakdown : [];
+    const validation = Array.isArray(reasoning?.validation_breakdown) ? reasoning.validation_breakdown : [];
+    const directions = Array.isArray(reasoning?.direction_breakdown) ? reasoning.direction_breakdown : [];
+    const chips = [
+      renderReasoningChip('Relevance', relevance[0] ? `${relevance[0].name} (${relevance[0].count})` : '', 'relevance'),
+      renderReasoningChip('Stage', stages[0] ? `${stages[0].name} (${stages[0].count})` : '', 'stage'),
+      renderReasoningChip('Validation', validation[0] ? `${validation[0].name} (${validation[0].count})` : '', 'validation'),
+      renderReasoningChip('Thread', threads[0] ? `${threads[0].name} (${threads[0].count})` : '', 'thread'),
+      renderReasoningChip('Direction', directions[0] ? `${directions[0].name} (${directions[0].count})` : '', 'direction'),
+    ].filter(Boolean).join('');
+    root.innerHTML = `
+      <div class="reasoning-summary-line">${escapeHtml(summaryLine)}</div>
+      <div class="reasoning-chips">${chips || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div>
+    `;
+  }
+
   function renderWatchlistEditor(tickers) {
     state.watchlist = Array.isArray(tickers) ? [...tickers] : [];
     $('watchlistBadge').textContent = `${state.watchlist.length} tickers`;
     const root = $('watchlistChips');
     root.innerHTML = state.watchlist.length
-      ? state.watchlist.map((ticker) => `<span class="watchlist-chip">${escapeHtml(ticker)} <button type="button" onclick="removeTicker('${escapeHtml(ticker)}')">×</button></span>`).join('')
+      ? state.watchlist.map((ticker) => `<span class="watchlist-chip"><button type="button" class="watchlist-chip-main" data-ticker="${escapeHtml(ticker)}">${escapeHtml(ticker)}</button><button type="button" data-remove-ticker="${escapeHtml(ticker)}">×</button></span>`).join('')
       : '<span class="watchlist-note">No tickers in watchlist.</span>';
+  }
+
+  function formatSignedNumber(value, digits = 2) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    return `${num > 0 ? '+' : ''}${num.toFixed(digits)}`;
+  }
+
+  function renderTickerModal(tickerPayload) {
+    const payload = tickerPayload || state.tickerModal.data || {};
+    const ticker = payload.ticker || state.tickerModal.ticker || '';
+    const title = [ticker, payload.name].filter(Boolean).join(' · ') || 'Ticker detail';
+    $('tickerModalTitle').textContent = title;
+    $('tickerModalSub').textContent = payload.window_label
+      ? `${payload.window_label} · ${payload.sector || 'Unknown sector'} · ${payload.source === 'yahoo-finance' ? 'Live market data' : 'No live history available'}`
+      : 'Click a ticker to load its history.';
+
+    const changePct = Number(payload.period_change_pct);
+    const dayChange = Number(payload.change_pct);
+    const currentPrice = payload.price;
+    const stats = [
+      { label: 'Harga terakhir', value: formatPrice(currentPrice) },
+      { label: 'Periode', value: Number.isFinite(changePct) ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—' },
+      { label: 'Hari ini', value: Number.isFinite(dayChange) ? `${dayChange > 0 ? '+' : ''}${dayChange.toFixed(2)}%` : '—' },
+    ];
+    $('tickerModalStats').innerHTML = stats.map((item) => `
+      <div class="ticker-stat">
+        <span class="label">${escapeHtml(item.label)}</span>
+        <span class="value">${escapeHtml(item.value)}</span>
+      </div>
+    `).join('');
+
+    const series = Array.isArray(payload.series) ? payload.series : [];
+    const path = sparklinePath(series, 620, 180);
+    const high = Number(payload.series_high);
+    const low = Number(payload.series_low);
+    const points = Number(payload.series_points || series.length || 0);
+    $('tickerModalChart').innerHTML = path ? `
+      <svg viewBox="0 0 620 180" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(title)} history chart">
+        <defs>
+          <linearGradient id="tickerGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${path} L620,180 L0,180 Z" fill="url(#tickerGrad)"/>
+        <path d="${path}" fill="none" stroke="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stroke-width="2"/>
+      </svg>
+    ` : '<div class="footer-note">No history available for this ticker in the selected window.</div>';
+
+    $('tickerModalMeta').textContent = [
+      payload.series_start ? `Start ${payload.series_start}` : null,
+      payload.series_end ? `End ${payload.series_end}` : null,
+      Number.isFinite(high) ? `High ${formatPrice(high)}` : null,
+      Number.isFinite(low) ? `Low ${formatPrice(low)}` : null,
+      points ? `${points} points` : null,
+    ].filter(Boolean).join(' · ');
+
+    $('tickerModalNote').textContent = (payload.warnings && payload.warnings.length)
+      ? payload.warnings.join(' · ')
+      : `History follows the dashboard window (${state.window || '24h'}). Use the top dropdown to switch 24h / 7d / 30d.`;
+  }
+
+  function openTickerModal(ticker) {
+    const normalized = normalizeTicker(ticker);
+    if (!normalized) return;
+    state.tickerModal.ticker = normalized;
+    state.tickerModal.loading = true;
+    state.tickerModal.data = null;
+    $('tickerModalBackdrop').hidden = false;
+    $('tickerModalSub').textContent = 'Loading ticker history…';
+    $('tickerModalTitle').textContent = `${normalized} · Loading…`;
+    $('tickerModalStats').innerHTML = '<div class="ticker-stat"><span class="label">Loading</span><span class="value">…</span></div>'.repeat(3);
+    $('tickerModalChart').innerHTML = '<div class="footer-note">Loading chart…</div>';
+    $('tickerModalMeta').textContent = '';
+    $('tickerModalNote').textContent = '';
+    loadTickerModal(normalized);
+  }
+
+  function closeTickerModal() {
+    $('tickerModalBackdrop').hidden = true;
+    state.tickerModal = { ticker: '', loading: false, data: null };
+  }
+
+  function handleTickerModalBackdrop(event) {
+    if (event.target === $('tickerModalBackdrop')) {
+      closeTickerModal();
+    }
+  }
+
+  async function loadTickerModal(ticker) {
+    const windowValue = state.window || '24h';
+    try {
+      const data = await apiJson(`/api/ticker/${encodeURIComponent(ticker)}?window=${encodeURIComponent(windowValue)}`);
+      if (state.tickerModal.ticker !== ticker) return;
+      state.tickerModal.loading = false;
+      state.tickerModal.data = data;
+      renderTickerModal(data);
+    } catch (err) {
+      if (state.tickerModal.ticker !== ticker) return;
+      state.tickerModal.loading = false;
+      state.tickerModal.data = {
+        ticker,
+        name: ticker,
+        source: 'unavailable',
+        warnings: [String(err.message || err)]
+      };
+      $('tickerModalSub').textContent = `${ticker} · history unavailable`;
+      $('tickerModalStats').innerHTML = '<div class="ticker-stat"><span class="label">Status</span><span class="value">Unavailable</span></div><div class="ticker-stat"><span class="label">Window</span><span class="value">' + escapeHtml(windowValue) + '</span></div><div class="ticker-stat"><span class="label">Action</span><span class="value">Try again</span></div>';
+      $('tickerModalChart').innerHTML = '<div class="footer-note">Could not load ticker history right now.</div>';
+      $('tickerModalMeta').textContent = '';
+      $('tickerModalNote').textContent = String(err.message || err);
+    }
   }
 
   async function persistWatchlist(nextTickers) {
@@ -919,6 +1356,9 @@
   async function handleWindowChange(value) {
     state.window = value || '24h';
     await loadDashboard(true);
+    if (state.tickerModal.ticker && !$('tickerModalBackdrop').hidden) {
+      await loadTickerModal(state.tickerModal.ticker);
+    }
   }
 
   function renderStocks(stocks) {
@@ -936,10 +1376,16 @@
       const linkMeta = stock.relationship_type
         ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
         : 'No strong policy link';
+      const directionChip = renderReasoningChip('Direction', stock.impact_direction || 'neutral', 'direction');
+      const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
+      const reasoningLine = [directionChip, validationChip].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
+      const validationMeta = stock.validation_status
+        ? `${escapeHtml(labelText(stock.validation_status))}${stock.validation_window ? ` · ${escapeHtml(stock.validation_window)}` : ''}${Number.isFinite(Number(stock.validation_score)) ? ` · score ${Number(stock.validation_score || 0).toFixed(2)}` : ''}`
+        : '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
-          <td><div class="ticker-name">${escapeHtml(stock.ticker || '')}</div><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
+          <td><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
           <td class="price-cell">${formatPrice(stock.price)}</td>
           <td class="change-cell ${changeClass}">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
@@ -960,21 +1406,41 @@
       const themes = (event.policy_themes || []).slice(0, 2).map((t) => `<span class="cat-tag">${escapeHtml(String(t).replaceAll('_', ' '))}</span>`).join(' ');
       const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
       const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
+      const eventUrl = safeArticleUrl(event.url || topLink?.url || '');
+      const eventTagOpen = eventUrl
+        ? `<a class="event-item event-link ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" href="${escapeHtml(eventUrl)}" aria-label="Open article: ${escapeHtml(event.headline || '')}" title="${escapeHtml(topLink?.rationale || '')}">`
+        : `<div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" title="${escapeHtml(topLink?.rationale || '')}">`;
+      const eventTagClose = eventUrl ? '</a>' : '</div>';
       const policyLine = topLink?.policy_channel ? `Channel: ${topLink.policy_channel}` : 'No strong policy channel yet';
       const evidenceLine = topLink?.evidence_label ? `Evidence: ${topLink.evidence_label} · company rank ${Number(topLink.company_evidence_rank || 0).toFixed(2)}` : `Source tier: ${event.source_type || 'other'}`;
+      const stageLabel = event.event_stage ? `Stage: ${labelText(event.event_stage)}` : 'Stage: unspecified';
+      const relevanceBadge = renderReasoningChip('Relevance', event.relevance_label || 'not_political', 'relevance');
+      const stageBadge = renderReasoningChip('Stage', event.event_stage || 'unspecified', 'stage');
+      const threadBadge = renderReasoningChip('Thread', event.thread_status || 'active', 'thread');
+      const directionBadge = renderReasoningChip('Direction', topLink?.impact_direction || 'neutral', 'direction');
+      const validationBadge = renderReasoningChip('Validation', topLink?.validation_status || 'unvalidated', 'validation');
+      const reasoningBadges = [relevanceBadge, stageBadge, threadBadge, directionBadge, validationBadge].filter(Boolean).join(' ');
+      const threadLine = event.thread_id
+        ? `Thread: ${event.thread_status || 'active'} · ${event.thread_id}${Number(event.thread_contradiction_count || 0) > 0 ? ` · contradictions ${Number(event.thread_contradiction_count || 0)}` : ''}`
+        : 'Thread: standalone coverage';
+      const ageLabel = relativeTimeLabel(event.published_at);
       return `
-        <div class="event-item ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" title="${escapeHtml(topLink?.rationale || '')}">
+        ${eventTagOpen}
           <div class="event-headline">${escapeHtml(event.headline || '')}</div>
           <div class="event-meta">
             ${cats || '<span class="cat-tag">Uncategorized</span>'}
             ${themes}
+            <span class="cat-tag">${escapeHtml(ageLabel)}</span>
             <span class="event-source">${escapeHtml(event.source || '')} · ${escapeHtml(formatTime(event.published_at))}</span>
           </div>
+          <div class="reasoning-chips">${reasoningBadges || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div>
           <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
           <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>
+          <div class="footer-note">${escapeHtml(stageLabel)}</div>
+          <div class="footer-note">${escapeHtml(threadLine)}</div>
           <div class="footer-note">${escapeHtml(policyLine)}</div>
           <div class="footer-note">${escapeHtml(evidenceLine)}</div>
-        </div>
+        ${eventTagClose}
       `;
     }).join('');
   }
@@ -985,7 +1451,10 @@
     const topSources = Array.isArray(tracking?.top_sources) ? tracking.top_sources : [];
     const summary = tracking?.summary || {};
     const strongestDay = summary?.strongest_day;
-    $('trackingSummary').textContent = `Window: ${tracking?.window_label || '24 jam terakhir'} · ${summary?.total_events || 0} events · avg significance ${Number(summary?.avg_significance || 0).toFixed(2)}${strongestDay ? ` · strongest day ${strongestDay.date} (${strongestDay.event_count} events)` : ''}`;
+    const threadCount = Number(summary?.thread_count || 0);
+    const contestedThreadCount = Number(summary?.contested_thread_count || 0);
+    const reversedThreadCount = Number(summary?.reversed_thread_count || 0);
+    $('trackingSummary').textContent = `Window: ${tracking?.window_label || '24 jam terakhir'} · ${summary?.total_events || 0} matched events · ${threadCount} active thread${threadCount === 1 ? '' : 's'}${contestedThreadCount ? ` · ${contestedThreadCount} contested/reversed` : ''}${reversedThreadCount ? ` · ${reversedThreadCount} fully reversed` : ''} · avg significance ${Number(summary?.avg_significance || 0).toFixed(2)}${strongestDay ? ` · strongest day ${strongestDay.date} (${strongestDay.event_count} events)` : ''}`;
     $('trackingThemes').textContent = topThemes.length
       ? `Top themes: ${topThemes.map((item) => `${String(item.name).replaceAll('_', ' ')} (${item.count})`).join(' · ')}${topSources.length ? ` · Top sources: ${topSources.map((item) => `${item.name} (${item.count})`).join(' · ')}` : ''}`
       : 'Top themes: none yet';
@@ -1082,20 +1551,26 @@
     const stocks = payload.stocks || [];
     const highest = [...stocks].sort((a, b) => Math.abs(Number(b.impact_score) || 0) - Math.abs(Number(a.impact_score) || 0))[0];
     const watchlist = payload.watchlist || [];
+    const displayedEventCount = Number(payload.displayed_event_count ?? events.length) || 0;
+    const totalEventCount = Number(payload.total_event_count ?? events.length) || 0;
+    const hiddenEventCount = Number(payload.hidden_event_count ?? Math.max(0, totalEventCount - displayedEventCount)) || 0;
     $('lastUpdated').textContent = formatTime(payload.fetched_at);
-    $('m-events').textContent = formatNumber(events.length, 0);
-    $('m-events-sub').textContent = payload.window_label || '24 jam terakhir';
+    $('windowBadge').textContent = `Showing ${payload.window || '24h'}`;
+    $('m-events').textContent = formatNumber(totalEventCount, 0);
+    $('m-events-sub').textContent = `${payload.window_label || '24 jam terakhir'} · showing top ${formatNumber(displayedEventCount, 0)}`;
     $('m-stocks').textContent = formatNumber(stocks.length, 0);
     const positiveCount = stocks.filter((stock) => Number(stock.impact_score) > 0).length;
     const negativeCount = stocks.filter((stock) => Number(stock.impact_score) < 0).length;
     $('m-stocks-sub').textContent = stocks.length ? `↑ ${positiveCount} positif · ↓ ${negativeCount} negatif` : 'No stock data yet';
     $('m-stocks-sub').style.color = negativeCount > positiveCount ? 'var(--red)' : positiveCount > negativeCount ? 'var(--green)' : 'var(--muted2)';
-    $('eventBadge').textContent = `${events.length} events · ${payload.window || '24h'}`;
+    $('eventBadge').textContent = `${formatNumber(displayedEventCount, 0)} / ${formatNumber(totalEventCount, 0)} events · ${payload.window || '24h'}`;
+    $('eventWindowHint').textContent = `${payload.window_label || '24 jam terakhir'} selected · showing ${formatNumber(displayedEventCount, 0)} of ${formatNumber(totalEventCount, 0)} matched events${hiddenEventCount > 0 ? ` · ${formatNumber(hiddenEventCount, 0)} more older/lower-ranked events hidden` : ''}`;
     $('m-highest').textContent = highest ? highest.ticker : '—';
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
     renderStocks(stocks);
     renderTracking(payload.tracking || {});
+    renderReasoningSummary(payload.reasoning_summary || {});
     renderEvents(events);
     renderSectorGrid(payload.sector_summary || {});
     renderSources(payload.sources || [], events);
@@ -1128,6 +1603,22 @@
       if (event.key === 'Enter') {
         event.preventDefault();
         addTicker();
+      }
+    });
+    $('watchlistChips').addEventListener('click', (event) => {
+      const tickerButton = event.target.closest('[data-ticker]');
+      if (tickerButton) {
+        openTickerModal(tickerButton.dataset.ticker || '');
+        return;
+      }
+      const removeButton = event.target.closest('[data-remove-ticker]');
+      if (removeButton) {
+        removeTicker(removeButton.dataset.removeTicker || '');
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !$('tickerModalBackdrop').hidden) {
+        closeTickerModal();
       }
     });
     loadDashboard(false);

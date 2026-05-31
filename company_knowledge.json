@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "updated_at": "2026-05-30T11:45:00+07:00",
+  "version": 3,
+  "updated_at": "2026-05-30T13:20:00+07:00",
   "companies": [
     {
       "ticker": "BBCA.JK",
@@ -31,7 +31,93 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "benefits from lower rates or stronger liquidity via credit growth",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "benefits",
+            "lower",
+            "rates",
+            "stronger",
+            "liquidity",
+            "credit"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "housing policy can lift mortgage demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "housing",
+            "policy",
+            "mortgage",
+            "demand"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "digital public-service expansion can increase payments and transaction activity",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "digital",
+            "public",
+            "service",
+            "expansion",
+            "increase",
+            "payments"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "BANKING_LIQUIDITY",
+          "HOUSING"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "medium",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "BBCA.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "BBRI.JK",
@@ -59,7 +145,70 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "community and food-security programs can increase MSME financing demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "community",
+            "security",
+            "programs",
+            "increase",
+            "financing",
+            "demand"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "rate and liquidity policy affects net interest and loan growth",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "liquidity",
+            "policy",
+            "affects",
+            "interest",
+            "growth"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "BANKING_LIQUIDITY",
+          "FOOD_SECURITY"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "medium",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "BBRI.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "BMRI.JK",
@@ -87,7 +236,71 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "state project acceleration can raise project-finance demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "state",
+            "project",
+            "acceleration",
+            "raise",
+            "project",
+            "finance"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "downstreaming and industrial capex can increase corporate lending",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "downstreaming",
+            "industrial",
+            "capex",
+            "increase",
+            "corporate",
+            "lending"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "BANKING_LIQUIDITY",
+          "INFRASTRUCTURE"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "medium",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "BMRI.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "TLKM.JK",
@@ -113,7 +326,46 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "digital-government and connectivity programs can raise enterprise and infrastructure demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "digital",
+            "government",
+            "connectivity",
+            "programs",
+            "raise",
+            "enterprise"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DIGITAL_PUBLIC"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "TLKM.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "ASII.JK",
@@ -141,7 +393,69 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "infrastructure and commodity investment can boost heavy-equipment demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "infrastructure",
+            "commodity",
+            "investment",
+            "boost",
+            "heavy",
+            "equipment"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "credit easing can support auto financing",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "credit",
+            "easing",
+            "support",
+            "financing"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "INFRASTRUCTURE",
+          "BANKING_LIQUIDITY"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "medium",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "ASII.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "GOTO.JK",
@@ -169,7 +483,71 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "digitalization policy can support payment and platform adoption",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "digitalization",
+            "policy",
+            "support",
+            "payment",
+            "platform",
+            "adoption"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "distribution and food-commerce activity can benefit from consumer logistics programs",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "distribution",
+            "commerce",
+            "activity",
+            "benefit",
+            "consumer",
+            "logistics"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DIGITAL_PUBLIC",
+          "FOOD_SECURITY"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "GOTO.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "BYAN.JK",
@@ -194,7 +572,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "export restrictions and quota policy directly affect realized volumes and pricing",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "export",
+            "restrictions",
+            "quota",
+            "policy",
+            "directly",
+            "affect"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "BYAN.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "ADRO.JK",
@@ -222,7 +640,71 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "energy quotas and export rules affect coal economics",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "energy",
+            "quotas",
+            "export",
+            "rules",
+            "affect",
+            "economics"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "industrial/downstreaming capex can affect energy demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "industrial",
+            "downstreaming",
+            "capex",
+            "affect",
+            "energy",
+            "demand"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "DOWNSTREAMING"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "ADRO.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "UNVR.JK",
@@ -248,7 +730,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "trade restrictions and consumer policy can affect input costs and staple demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "trade",
+            "restrictions",
+            "consumer",
+            "policy",
+            "affect",
+            "input"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "FOOD_SECURITY",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "UNVR.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "ICBP.JK",
@@ -275,7 +797,70 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "food-security programs can shift staple demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "security",
+            "programs",
+            "shift",
+            "staple",
+            "demand"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "import/export rules can affect raw material costs",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "import",
+            "export",
+            "rules",
+            "affect",
+            "material",
+            "costs"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "FOOD_SECURITY",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "ICBP.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "PTBA.JK",
@@ -300,7 +885,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "energy quotas, domestic market obligations, and export rules directly affect sales and pricing",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "energy",
+            "quotas,",
+            "domestic",
+            "market",
+            "obligations,",
+            "export"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "PTBA.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "ANTM.JK",
@@ -328,7 +953,71 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "downstreaming policy directly affects nickel processing economics",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "downstreaming",
+            "policy",
+            "directly",
+            "affects",
+            "nickel",
+            "processing"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "trade and export policy can change mineral realizations",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "trade",
+            "export",
+            "policy",
+            "change",
+            "mineral",
+            "realizations"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DOWNSTREAMING",
+          "ENERGY_TRANSITION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "ANTM.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "INDF.JK",
@@ -354,7 +1043,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "food-security initiatives and import rules can affect staple volumes and input costs",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "security",
+            "initiatives",
+            "import",
+            "rules",
+            "affect",
+            "staple"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "FOOD_SECURITY",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "INDF.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "SMGR.JK",
@@ -380,7 +1109,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "housing and public-works execution can drive cement demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "housing",
+            "public",
+            "works",
+            "execution",
+            "drive",
+            "cement"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "HOUSING",
+          "INFRASTRUCTURE"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "SMGR.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "KLBF.JK",
@@ -405,7 +1174,46 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "public nutrition and health programs can affect demand mix in nutrition-related segments",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "public",
+            "nutrition",
+            "health",
+            "programs",
+            "affect",
+            "demand"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "FOOD_SECURITY"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "KLBF.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "HMSP.JK",
@@ -429,7 +1237,46 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "excise and trade rules can directly affect volumes, pricing, and margins",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "excise",
+            "trade",
+            "rules",
+            "directly",
+            "affect",
+            "volumes,"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "HMSP.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "PGAS.JK",
@@ -455,7 +1302,70 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "industrial and downstreaming expansion can increase gas demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "industrial",
+            "downstreaming",
+            "expansion",
+            "increase",
+            "demand"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "energy pricing policy affects demand and margins",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "energy",
+            "pricing",
+            "policy",
+            "affects",
+            "demand",
+            "margins"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "DOWNSTREAMING"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "PGAS.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "JSMR.JK",
@@ -480,7 +1390,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "road-building and regional-development policy can affect toll asset growth and traffic expectations",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "building",
+            "regional",
+            "development",
+            "policy",
+            "affect",
+            "asset"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "INFRASTRUCTURE",
+          "HOUSING"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "JSMR.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "EXCL.JK",
@@ -505,7 +1455,46 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "digital public-service and connectivity buildout can support network demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "digital",
+            "public",
+            "service",
+            "connectivity",
+            "buildout",
+            "support"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DIGITAL_PUBLIC"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "EXCL.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "INCO.JK",
@@ -531,7 +1520,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "downstreaming and processing policy directly affect project economics and realized value",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "downstreaming",
+            "processing",
+            "policy",
+            "directly",
+            "affect",
+            "project"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DOWNSTREAMING",
+          "ENERGY_TRANSITION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "INCO.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "TOWR.JK",
@@ -555,7 +1584,46 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "national connectivity and digital infrastructure programs can support tower demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "national",
+            "connectivity",
+            "digital",
+            "infrastructure",
+            "programs",
+            "support"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DIGITAL_PUBLIC"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "TOWR.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "MNCN.JK",
@@ -580,7 +1648,46 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "digital adoption and public digital-services growth can support broader digital-media demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "digital",
+            "adoption",
+            "public",
+            "digital",
+            "services",
+            "growth"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DIGITAL_PUBLIC"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "MNCN.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "ITMG.JK",
@@ -605,7 +1712,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "energy quotas and export restrictions directly affect coal sales",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "energy",
+            "quotas",
+            "export",
+            "restrictions",
+            "directly",
+            "affect"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "ITMG.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "HRUM.JK",
@@ -631,7 +1778,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "mineral downstreaming and energy trade rules can alter project economics and realized pricing",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "mineral",
+            "downstreaming",
+            "energy",
+            "trade",
+            "rules",
+            "alter"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "DOWNSTREAMING",
+          "ENERGY_TRANSITION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "HRUM.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "BSDE.JK",
@@ -659,7 +1846,70 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "housing stimulus and mortgage conditions can affect property demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "housing",
+            "stimulus",
+            "mortgage",
+            "conditions",
+            "affect",
+            "property"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "channel": "infrastructure expansion can improve township attractiveness",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "infrastructure",
+            "expansion",
+            "improve",
+            "township",
+            "attractiveness"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "HOUSING",
+          "BANKING_LIQUIDITY"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "medium",
+        "regulatory_dependency": "medium",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "BSDE.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "CPIN.JK",
@@ -685,7 +1935,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "food-security and agricultural-input policy can affect demand, margins, and feed costs",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "security",
+            "agricultural",
+            "input",
+            "policy",
+            "affect",
+            "demand,"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "FOOD_SECURITY",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "CPIN.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "JPFA.JK",
@@ -711,7 +2001,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "food-security policy and feed/raw-material rules can affect volumes and costs",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "security",
+            "policy",
+            "material",
+            "rules",
+            "affect",
+            "volumes"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "FOOD_SECURITY",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "JPFA.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "ESSA.JK",
@@ -736,7 +2066,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "energy pricing and fertilizer-linked demand can affect industrial chemical economics",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "energy",
+            "pricing",
+            "fertilizer",
+            "linked",
+            "demand",
+            "affect"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "FOOD_SECURITY"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "low"
+      },
+      "market_validation_proxy": {
+        "symbol": "ESSA.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "BRPT.JK",
@@ -763,7 +2133,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "industrial and downstreaming policy can influence petrochemical and industrial demand",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "industrial",
+            "downstreaming",
+            "policy",
+            "influence",
+            "petrochemical",
+            "industrial"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "DOWNSTREAMING"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "BRPT.JK",
+        "kind": "ticker"
+      }
     },
     {
       "ticker": "MEDC.JK",
@@ -789,7 +2199,47 @@
           "note": "Public company profile and business description.",
           "source_type": "profile"
         }
-      ]
+      ],
+      "policy_channel_details": [
+        {
+          "channel": "oil and gas pricing, quotas, and energy policy directly affect realized economics",
+          "direction_map": {
+            "positive": [
+              "dorong",
+              "stimulus",
+              "percepat"
+            ],
+            "negative": [
+              "larang",
+              "batasi",
+              "turun"
+            ]
+          },
+          "keywords": [
+            "pricing,",
+            "quotas,",
+            "energy",
+            "policy",
+            "directly",
+            "affect"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "exposure_factors": {
+        "revenue_exposure": [
+          "ENERGY_TRANSITION",
+          "TRADE_RESTRICTION"
+        ],
+        "input_cost_exposure": [],
+        "financing_sensitivity": "low",
+        "regulatory_dependency": "high",
+        "export_import_dependency": "high"
+      },
+      "market_validation_proxy": {
+        "symbol": "MEDC.JK",
+        "kind": "ticker"
+      }
     }
   ]
 }

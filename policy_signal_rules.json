@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-30T13:20:00+07:00",
+  "political_relevance": {
+    "institution_terms": [
+      "presiden",
+      "wapres",
+      "menteri",
+      "kementerian",
+      "kabinet",
+      "dpr",
+      "pemerintah",
+      "bank indonesia",
+      "bi",
+      "ojk",
+      "kpk",
+      "setkab",
+      "mahkamah konstitusi",
+      "bpk"
+    ],
+    "legal_terms": [
+      "kebijakan",
+      "regulasi",
+      "peraturan",
+      "perpres",
+      "perppu",
+      "ruu",
+      "undang-undang",
+      "uu",
+      "aturan",
+      "tarif",
+      "kuota",
+      "izin",
+      "apbn",
+      "anggaran"
+    ],
+    "action_terms": [
+      "resmi",
+      "terbitkan",
+      "menerbitkan",
+      "tetapkan",
+      "menetapkan",
+      "sahkan",
+      "disahkan",
+      "umumkan",
+      "mengumumkan",
+      "larang",
+      "mendorong",
+      "cabut",
+      "mencabut",
+      "siapkan",
+      "mengatur"
+    ],
+    "weak_context_terms": [
+      "pengamat",
+      "optimistis",
+      "diharapkan",
+      "berpotensi",
+      "peluang",
+      "wacana",
+      "rumor",
+      "opini"
+    ],
+    "non_political_terms": [
+      "olahraga",
+      "pertandingan",
+      "gol",
+      "konser",
+      "gaya hidup",
+      "selebriti",
+      "hiburan",
+      "resep"
+    ]
+  },
+  "event_stage_rules": {
+    "proposal": ["wacana", "usulan", "mengusulkan", "rencana", "berencana"],
+    "debate": ["bahas", "membahas", "rapat", "sidang", "hearing"],
+    "approved": ["disetujui", "disahkan", "menyetujui", "ketok palu"],
+    "effective": ["berlaku", "mulai berlaku", "efektif", "per hari ini"],
+    "delayed": ["ditunda", "penundaan", "undur", "belum jadi"],
+    "revoked": ["dicabut", "mencabut", "dibatalkan", "batal"],
+    "enforced": ["penegakan", "pengawasan", "razia", "implementasi"]
+  },
+  "negation_terms": ["tidak", "bukan", "belum", "tanpa"],
+  "reversal_terms": ["dibatalkan", "batalkan", "dicabut", "mencabut", "ditunda", "dikoreksi", "klarifikasi"],
+  "thread_match_terms": ["peraturan", "kebijakan", "tarif", "kuota", "subsidi", "kredit", "ekspor", "impor"]
+}

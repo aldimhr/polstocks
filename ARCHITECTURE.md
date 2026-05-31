@@ -51,12 +51,14 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 
 | Component | Technology | Responsibility |
 |---|---|---|
-| Dashboard | Static HTML + vanilla JS | UI, Update button, window selector, watchlist editor, renders results |
+| Dashboard | Static HTML + vanilla JS | UI, Update button, window selector, watchlist editor, compact reasoning badges, renders results |
 | Backend | FastAPI (Python) | Serves dashboard, orchestrates fetch → NLP → response |
 | RSS Fetcher | `requests` + XML parsing | Pulls latest political news from free RSS feeds |
 | Stock Fetcher | Yahoo Finance chart endpoint | Gets current prices for IDX tickers (`.JK`) and IHSG |
-| NLP Engine | Heuristic rules (v1 fallback) | Sentiment + sector classification in Bahasa Indonesia |
-| Company Knowledge Layer | `company_knowledge.json` | Stores company-specific policy channels, evidence source types, and evidence URLs |
+| NLP Engine | Heuristic rules + scored relevance | Sentiment, political-relevance scoring, sector/theme classification, and transmission-path directionality in Bahasa Indonesia |
+| Company Knowledge Layer | `company_knowledge.json` | Stores company-specific policy channels, exposure factors, evidence source types, and evidence URLs |
+| Policy Rules Layer | `policy_signal_rules.json` | Institution/legal/action vocab used by the scored political relevance gate |
+| Market Validation Config | `market_validation_config.json` | Threshold scaffold for later predicted-vs-confirmed market validation |
 | Event Tracking Layer | in-memory aggregation | Builds daily buckets and top themes/sources for 24h/7d/30d windows |
 | In-Memory Cache | Python `dict` | Stores last fetch result per watchlist + window; avoids redundant calls |
 
@@ -80,12 +82,15 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 5. yfinance fetches current OHLCV for requested tickers
 
 6. NLP Engine processes each article:
+   - Political relevance score + label from institution/legal/action signals
+   - Event stage + reversal flags (proposal / approved / effective / revoked, etc.)
    - Sentiment score (-1.0 to +1.0)
    - Political category (e.g. ENERGY_POLICY, CORRUPTION_CASE)
-   - Impacted sectors + tickers
+   - Company linking through two strict paths only: direct mention or matched company-specific policy channel
+   - Transmission-path outputs such as matched policy channels, channel confidence, and per-company impact direction
    - Evidence tier (government / regulator / company / media / profile / other)
 
-7. Event Tracking layer groups surviving events into daily buckets and top theme/source summaries for the selected window
+7. Event Tracking layer groups surviving events into daily buckets and top theme/source summaries for the selected window, while the refresh payload also computes a compact `reasoning_summary` for relevance, stage, thread, direction, and validation breakdowns
 
 8. Impact scores computed per (event, ticker) pair
 
@@ -93,7 +98,7 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 
 10. JSON response returned to frontend
 
-11. Dashboard renders updated stock cards + event feed + tracking summary
+11. Dashboard renders updated stock cards + event feed + tracking summary + compact reasoning badges
 ```
 
 ---
@@ -104,7 +109,9 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 project/
 ├── backend/
 │   └── main.py              # FastAPI app + fetch/analyze endpoints
-├── company_knowledge.json   # Company-level exposure facts and evidence URLs
+├── company_knowledge.json   # Company-level exposure facts, channels, and evidence URLs
+├── policy_signal_rules.json # Political relevance and event-stage vocabulary
+├── market_validation_config.json # Thresholds for later market confirmation work
 ├── dashboard.html           # Static dashboard UI served at /
 ├── watchlist.json           # Persisted watchlist state
 ├── tests/
@@ -122,7 +129,7 @@ Single-process deployment is enough for the current implementation:
 
 ```
 [FastAPI]
-  └── serves dashboard.html + JSON API on port 8000
+  └── serves dashboard.html + JSON API on port 80
 ```
 
 No Kafka. No Flink. No database. No Redis.
@@ -133,7 +140,7 @@ No Kafka. No Flink. No database. No Redis.
 
 | Layer | Technology |
 |---|---|
-| Language | Python 3.11+ (backend), TypeScript (frontend) |
+| Language | Python 3.11+ (backend), HTML/CSS/vanilla JS (frontend) |
 | Backend Framework | FastAPI |
 | News Fetching | `feedparser`, `httpx` |
 | Stock Data | Yahoo Finance chart endpoint via `requests` |

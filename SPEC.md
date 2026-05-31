@@ -91,12 +91,15 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 
 | ID | Requirement |
 |---|---|
-| F-30 | Each article SHALL be scored for sentiment: positive / negative / neutral with a score of -1.0 to +1.0 |
-| F-31 | Each article SHALL be classified into one or more political categories (see Section 6) |
-| F-32 | Named entities SHALL be extracted: persons, organizations, commodities, laws |
-| F-33 | Each article SHALL be mapped to one or more IDX sectors based on content |
-| F-34 | An impact score SHALL be computed per (article, ticker) pair (see Section 7) |
-| F-35 | NLP processing SHALL complete within 10 seconds for a batch of 100 articles |
+| F-30 | Each article SHALL receive a political relevance score (`0.0-1.0`) and label (`political`, `maybe`, `not_political`) before downstream scoring |
+| F-31 | Each article SHALL be scored for sentiment: positive / negative / neutral with a score of -1.0 to +1.0 |
+| F-32 | Each article SHALL be assigned an event stage (`proposal`, `debate`, `approved`, `effective`, `delayed`, `revoked`, `enforced`, or `unspecified`) plus reversal/tentative flags when detectable |
+| F-33 | Each article SHALL be classified into one or more political categories (see Section 6) |
+| F-34 | Named entities SHALL be extracted: persons, organizations, commodities, laws |
+| F-35 | Each article SHALL be mapped to one or more IDX sectors based on content |
+| F-36 | An impact score SHALL be computed per (article, ticker) pair (see Section 7) |
+| F-37 | NLP processing SHALL complete within 10 seconds for a batch of 100 articles |
+| F-38 | Each surviving (article, ticker) relationship SHALL carry a market-validation result that distinguishes text prediction from observed price/volume follow-through |
 
 ### 4.5 Dashboard Display
 
@@ -110,6 +113,8 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 | F-45 | User SHALL be able to add/remove tickers from their watchlist |
 | F-46 | User SHALL be able to switch between `24h`, `7d`, and `30d` windows from the dashboard |
 | F-47 | Refresh payloads SHALL include daily event-tracking aggregates plus top themes and sources for the selected window |
+| F-48 | Stock rows and relationship payloads SHALL expose `validation_status`, `validation_window`, `abnormal_return`, `abnormal_volume_ratio`, and `validation_score` when market history is available |
+| F-49 | If market history cannot be fetched, the refresh SHALL keep the text-based relationship and mark it `predicted_only` or `insufficient_data` instead of failing the request |
 
 ---
 
@@ -121,7 +126,7 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 | Cache TTL | In-memory cache expires after 5 minutes |
 | Concurrent users | Designed for single-user or small team use (no concurrency handling required for v1) |
 | Offline behaviour | If all sources fail, display last cached result with a warning |
-| Deployment | Runnable locally with `docker compose up` on any machine with 8GB RAM |
+| Deployment | Runnable locally with `python3 app.py` on any machine with Python 3.11+ and network access to the public data sources |
 
 ---
 
@@ -148,10 +153,13 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 
 ```
 ImpactScore(article, ticker) =
-    sentiment_score                    ← -1.0 to +1.0 from IndoBERT
-  × sector_relevance_weight            ← 1.0 if sector directly named, 0.5 if adjacent
-  × entity_mention_boost               ← 1.5 if company name appears in article, else 1.0
-  × model_confidence                   ← 0.0 to 1.0
+    sentiment_score                    ← -1.0 to +1.0
+  × relationship_relevance             ← stock-link score from specificity + transmission + evidence
+  × relationship_confidence            ← 0.0 to 1.0
+  × relationship_type_multiplier       ← direct / indirect / thematic
+
+Political relevance gating happens before ticker scoring:
+    relevance_score(article)           ← institution + legal + action signals, minus weak/noisy context
 ```
 
 Final score is clamped to [-1.0, +1.0].
@@ -181,6 +189,29 @@ Per-ticker score across all current articles = weighted average, heavier weight 
   "from_cache": false,
   "window": "7d",
   "window_label": "7 hari terakhir",
+  "reasoning_summary": {
+    "summary_line": "5 confirmed links · 2 predicted-only links · 1 contested thread",
+    "relevance_breakdown": [
+      { "name": "political", "count": 8 },
+      { "name": "maybe", "count": 1 }
+    ],
+    "stage_breakdown": [
+      { "name": "approved", "count": 4 },
+      { "name": "proposal", "count": 3 }
+    ],
+    "thread_breakdown": [
+      { "name": "confirmed", "count": 2 },
+      { "name": "contested", "count": 1 }
+    ],
+    "validation_breakdown": [
+      { "name": "confirmed", "count": 5 },
+      { "name": "predicted_only", "count": 2 }
+    ],
+    "direction_breakdown": [
+      { "name": "positive", "count": 4 },
+      { "name": "negative", "count": 3 }
+    ]
+  },
   "events": [
     {
       "id": "evt_001",
@@ -189,10 +220,35 @@ Per-ticker score across all current articles = weighted average, heavier weight 
       "url": "https://...",
       "published_at": "2025-05-30T08:00:00+07:00",
       "categories": ["ENERGY_POLICY", "TRADE_POLICY"],
+      "relevance_label": "political",
+      "relevance_score": 0.91,
+      "event_stage": "approved",
+      "is_reversal": false,
       "sentiment": "negative",
       "sentiment_score": -0.72,
       "impacted_sectors": ["Energy", "Basic Materials"],
-      "impacted_tickers": ["ADRO.JK", "PTBA.JK"]
+      "impacted_tickers": ["ADRO.JK", "PTBA.JK"],
+      "stock_relationships": [
+        {
+          "ticker": "ADRO.JK",
+          "impact_direction": "negative",
+          "validation_status": "confirmed",
+          "validation_window": "30m",
+          "abnormal_return": -0.031,
+          "abnormal_volume_ratio": 1.87,
+          "validation_score": 0.84
+        }
+      ]
+    }
+  ],
+  "event_threads": [
+    {
+      "thread_id": "thr_energy-policy-pemerintah-adro-jk-trade-policy",
+      "thread_status": "confirmed",
+      "article_count": 2,
+      "latest_event_stage": "approved",
+      "latest_headline": "Pemerintah larang ekspor batu bara",
+      "contradiction_count": 0
     }
   ],
   "stocks": [
@@ -204,7 +260,12 @@ Per-ticker score across all current articles = weighted average, heavier weight 
       "change_pct": -0.52,
       "volume": 12500000,
       "impact_score": -0.18,
-      "related_event_ids": ["evt_003"]
+      "related_event_ids": ["evt_003"],
+      "validation_status": "predicted_only",
+      "validation_window": "30m",
+      "abnormal_return": -0.002,
+      "abnormal_volume_ratio": 1.04,
+      "validation_score": 0.28
     }
   ],
   "sector_summary": {
@@ -215,6 +276,8 @@ Per-ticker score across all current articles = weighted average, heavier weight 
 }
 ```
 
+The dashboard uses `reasoning_summary` to render compact badges for relevance, stage, thread status, direction, and validation instead of burying the same data inside longer text blocks.
+
 ### `GET /api/watchlist`
 Returns current watchlist tickers.
 
@@ -223,6 +286,22 @@ Returns current watchlist tickers.
 { "tickers": ["BBCA.JK", "GOTO.JK"] }
 ```
 Updates watchlist (stored in memory for session).
+
+### `GET /api/dashboard`
+Returns the current dashboard view for the selected window.
+
+**Response**
+```json
+{
+  "watchlist": ["BBCA.JK", "TLKM.JK"],
+  "reasoning_summary": {
+    "summary_line": "5 confirmed links · 2 predicted-only links",
+    "validation_breakdown": [{ "name": "confirmed", "count": 5 }]
+  },
+  "payload": { "...": "same shape as POST /api/refresh" }
+}
+```
+- Mirrors the refresh payload, but also surfaces `watchlist` and a top-level `reasoning_summary` for simpler dashboard rendering.
 
 ---
 

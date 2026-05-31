@@ -37,6 +37,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_FILE = PROJECT_ROOT / "dashboard.html"
 WATCHLIST_FILE = PROJECT_ROOT / "watchlist.json"
 COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
+POLICY_SIGNAL_RULES_FILE = PROJECT_ROOT / "policy_signal_rules.json"
+MARKET_VALIDATION_CONFIG_FILE = PROJECT_ROOT / "market_validation_config.json"
 
 APP_TITLE = "Indonesia Political-Stock Impact System"
 CACHE_TTL_SECONDS = 300
@@ -45,6 +47,11 @@ EVENT_WINDOWS = {
     "24h": {"delta": timedelta(hours=24), "label": "24 jam terakhir", "days": 1},
     "7d": {"delta": timedelta(days=7), "label": "7 hari terakhir", "days": 7},
     "30d": {"delta": timedelta(days=30), "label": "30 hari terakhir", "days": 30},
+}
+STOCK_HISTORY_WINDOWS = {
+    "24h": {"range": "1d", "interval": "5m", "label": "24 jam terakhir"},
+    "7d": {"range": "7d", "interval": "1h", "label": "7 hari terakhir"},
+    "30d": {"range": "1mo", "interval": "1d", "label": "30 hari terakhir"},
 }
 SOURCE_TIMEOUT_SECONDS = 5
 WIB = timezone(timedelta(hours=7))
@@ -260,7 +267,7 @@ CATEGORY_TO_SECTORS = {
 
 POLICY_THEMES = {
     "HOUSING": {
-        "keywords": ["housing", "perumahan", "rumah subsidi", "properti", "mortgage", "kpr", "apartemen"],
+        "keywords": ["housing", "perumahan", "rumah subsidi", "subsidi rumah", "properti", "mortgage", "kpr", "apartemen"],
         "sectors": ["Properties & Real Estate", "Basic Materials", "Financials", "Industrials"],
         "channel": "housing demand, mortgage flows, and building-material execution",
         "exposure_type": "demand",
@@ -338,6 +345,8 @@ CACHE_LOCK = threading.Lock()
 WATCHLIST_STATE = list(DEFAULT_WATCHLIST)
 CACHE: dict[str, Any] = {}
 COMPANY_KNOWLEDGE: dict[str, dict[str, Any]] = {}
+POLICY_SIGNAL_RULES: dict[str, Any] = {}
+MARKET_VALIDATION_CONFIG: dict[str, Any] = {}
 
 
 class RefreshRequest(BaseModel):
@@ -422,6 +431,24 @@ def clamp(value: float, low: float = -1.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def normalize_match_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())).strip()
+
+
+def collect_phrase_hits(text: str, phrases: list[str]) -> list[str]:
+    normalized_text = normalize_match_text(text)
+    hits: list[str] = []
+    seen: set[str] = set()
+    for phrase in phrases:
+        normalized_phrase = normalize_match_text(phrase)
+        if not normalized_phrase:
+            continue
+        if normalized_phrase in normalized_text and normalized_phrase not in seen:
+            hits.append(normalized_phrase)
+            seen.add(normalized_phrase)
+    return hits
+
+
 def normalize_event_window(value: str | None) -> str:
     key = str(value or DEFAULT_EVENT_WINDOW).strip().lower()
     return key if key in EVENT_WINDOWS else DEFAULT_EVENT_WINDOW
@@ -470,9 +497,87 @@ def article_text(article: dict[str, Any]) -> str:
     return " ".join(p for p in parts if p).lower()
 
 
-def is_relevant_article(article: dict[str, Any]) -> bool:
+def score_political_relevance(article: dict[str, Any]) -> dict[str, Any]:
     text = article_text(article)
-    return any(keyword in text for keyword in POLITICAL_SIGNAL_KEYWORDS)
+    rules = POLICY_SIGNAL_RULES or load_policy_signal_rules()
+    relevance_rules = rules.get("political_relevance", {}) if isinstance(rules, dict) else {}
+    institution_terms = relevance_rules.get("institution_terms", [])
+    legal_terms = relevance_rules.get("legal_terms", [])
+    action_terms = relevance_rules.get("action_terms", [])
+    weak_context_terms = relevance_rules.get("weak_context_terms", [])
+    non_political_terms = relevance_rules.get("non_political_terms", [])
+
+    institution_hits = [term for term in institution_terms if term in text]
+    legal_hits = [term for term in legal_terms if term in text]
+    action_hits = [term for term in action_terms if term in text]
+    weak_hits = [term for term in weak_context_terms if term in text]
+    non_political_hits = [term for term in non_political_terms if term in text]
+    keyword_hits = [keyword for keyword in POLITICAL_SIGNAL_KEYWORDS if keyword in text]
+
+    score = 0.0
+    score += min(0.45, 0.14 * len(institution_hits))
+    score += min(0.3, 0.12 * len(legal_hits))
+    score += min(0.2, 0.08 * len(action_hits))
+    if article.get("source_type") in {"government", "regulator"}:
+        score += 0.12
+    if keyword_hits:
+        score += min(0.15, 0.03 * len(keyword_hits))
+    score -= min(0.2, 0.06 * len(weak_hits))
+    score -= min(0.45, 0.18 * len(non_political_hits))
+    score = clamp(score, 0.0, 1.0)
+
+    if score >= 0.6:
+        label = "political"
+    elif score >= 0.3:
+        label = "maybe"
+    else:
+        label = "not_political"
+
+    return {
+        "relevance_score": round(score, 3),
+        "relevance_label": label,
+        "relevance_signals": {
+            "institutions": institution_hits[:5],
+            "legal": legal_hits[:5],
+            "actions": action_hits[:5],
+            "keyword_hits": keyword_hits[:8],
+        },
+        "relevance_penalties": {
+            "weak_context": weak_hits[:5],
+            "non_political": non_political_hits[:5],
+        },
+    }
+
+
+def detect_event_stage(text: str) -> dict[str, Any]:
+    text = str(text or "").lower()
+    rules = (POLICY_SIGNAL_RULES or load_policy_signal_rules()).get("event_stage_rules", {})
+    priority = ["revoked", "delayed", "effective", "approved", "enforced", "proposal", "debate"]
+    hits_map = {stage: [term for term in rules.get(stage, []) if term in text] for stage in priority}
+    for stage in priority:
+        hits = hits_map.get(stage, [])
+        if hits:
+            confidence = clamp(0.45 + 0.12 * len(hits), 0.0, 1.0)
+            return {"event_stage": stage, "event_stage_confidence": round(confidence, 3), "event_stage_signals": hits[:5]}
+    return {"event_stage": "unspecified", "event_stage_confidence": 0.25, "event_stage_signals": []}
+
+
+def detect_negation_or_reversal(text: str) -> dict[str, Any]:
+    text = str(text or "").lower()
+    rules = POLICY_SIGNAL_RULES or load_policy_signal_rules()
+    negation_hits = [term for term in rules.get("negation_terms", []) if term in text]
+    reversal_hits = [term for term in rules.get("reversal_terms", []) if term in text]
+    return {
+        "negation_hits": negation_hits[:5],
+        "reversal_hits": reversal_hits[:5],
+        "is_reversal": bool(reversal_hits),
+        "is_tentative": any(term in text for term in ["wacana", "usulan", "rencana", "berencana", "kajian"]),
+    }
+
+
+def is_relevant_article(article: dict[str, Any]) -> bool:
+    relevance = score_political_relevance(article)
+    return relevance.get("relevance_label") == "political"
 
 
 def source_weight(source_name: str) -> float:
@@ -542,6 +647,41 @@ def normalize_company_knowledge(raw: Any) -> dict[str, dict[str, Any]]:
             )
         if not ticker or not policy_exposures or not policy_channels or not evidence:
             continue
+        policy_channel_details = []
+        for item in record.get("policy_channel_details", []):
+            if not isinstance(item, dict):
+                continue
+            channel = str(item.get("channel", "")).strip()
+            if not channel:
+                continue
+            keywords = [normalize_match_text(keyword) for keyword in item.get("keywords", []) if normalize_match_text(keyword)]
+            direction_map_raw = item.get("direction_map", {}) if isinstance(item.get("direction_map"), dict) else {}
+            direction_map = {
+                str(key).strip().lower(): [normalize_match_text(token) for token in value if normalize_match_text(token)]
+                for key, value in direction_map_raw.items()
+                if isinstance(value, list)
+            }
+            policy_channel_details.append(
+                {
+                    "channel": channel,
+                    "keywords": keywords,
+                    "confidence": clamp(float(item.get("confidence", 0.5)), 0.0, 1.0),
+                    "direction_map": direction_map,
+                }
+            )
+        exposure_factors_raw = record.get("exposure_factors", {}) if isinstance(record.get("exposure_factors"), dict) else {}
+        exposure_factors = {
+            "revenue_exposure": [str(item).strip() for item in exposure_factors_raw.get("revenue_exposure", []) if str(item).strip()],
+            "input_cost_exposure": [str(item).strip() for item in exposure_factors_raw.get("input_cost_exposure", []) if str(item).strip()],
+            "financing_sensitivity": str(exposure_factors_raw.get("financing_sensitivity", "unknown")).strip().lower() or "unknown",
+            "regulatory_dependency": str(exposure_factors_raw.get("regulatory_dependency", "unknown")).strip().lower() or "unknown",
+            "export_import_dependency": str(exposure_factors_raw.get("export_import_dependency", "unknown")).strip().lower() or "unknown",
+        }
+        market_validation_proxy_raw = record.get("market_validation_proxy", {}) if isinstance(record.get("market_validation_proxy"), dict) else {}
+        market_validation_proxy = {
+            "symbol": str(market_validation_proxy_raw.get("symbol", ticker)).strip() or ticker,
+            "kind": str(market_validation_proxy_raw.get("kind", "ticker")).strip() or "ticker",
+        }
         normalized[ticker] = {
             **record,
             "ticker": ticker,
@@ -550,6 +690,9 @@ def normalize_company_knowledge(raw: Any) -> dict[str, dict[str, Any]]:
             "business_lines": [str(item).strip() for item in record.get("business_lines", []) if str(item).strip()],
             "aliases": [str(item).strip().lower() for item in record.get("aliases", []) if str(item).strip()],
             "evidence": evidence,
+            "policy_channel_details": policy_channel_details,
+            "exposure_factors": exposure_factors,
+            "market_validation_proxy": market_validation_proxy,
         }
     return normalized
 
@@ -566,6 +709,81 @@ def load_company_knowledge_from_disk() -> dict[str, dict[str, Any]]:
 
 def company_knowledge_for_ticker(ticker: str) -> dict[str, Any]:
     return COMPANY_KNOWLEDGE.get(normalize_ticker(ticker), {})
+
+
+def normalize_policy_signal_rules(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
+    political_relevance = raw.get("political_relevance", {}) if isinstance(raw.get("political_relevance"), dict) else {}
+    event_stage_rules = raw.get("event_stage_rules", {}) if isinstance(raw.get("event_stage_rules"), dict) else {}
+    return {
+        "political_relevance": {
+            "institution_terms": [str(item).strip().lower() for item in political_relevance.get("institution_terms", []) if str(item).strip()],
+            "legal_terms": [str(item).strip().lower() for item in political_relevance.get("legal_terms", []) if str(item).strip()],
+            "action_terms": [str(item).strip().lower() for item in political_relevance.get("action_terms", []) if str(item).strip()],
+            "weak_context_terms": [str(item).strip().lower() for item in political_relevance.get("weak_context_terms", []) if str(item).strip()],
+            "non_political_terms": [str(item).strip().lower() for item in political_relevance.get("non_political_terms", []) if str(item).strip()],
+        },
+        "event_stage_rules": {
+            str(name).strip().lower(): [str(item).strip().lower() for item in values if str(item).strip()]
+            for name, values in event_stage_rules.items()
+            if isinstance(values, list)
+        },
+        "negation_terms": [str(item).strip().lower() for item in raw.get("negation_terms", []) if str(item).strip()],
+        "reversal_terms": [str(item).strip().lower() for item in raw.get("reversal_terms", []) if str(item).strip()],
+        "thread_match_terms": [str(item).strip().lower() for item in raw.get("thread_match_terms", []) if str(item).strip()],
+    }
+
+
+def load_policy_signal_rules() -> dict[str, Any]:
+    if not POLICY_SIGNAL_RULES_FILE.exists():
+        return normalize_policy_signal_rules({})
+    try:
+        raw = json.loads(POLICY_SIGNAL_RULES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return normalize_policy_signal_rules({})
+    return normalize_policy_signal_rules(raw)
+
+
+def normalize_market_validation_config(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
+    windows_raw = raw.get("windows", {}) if isinstance(raw.get("windows"), dict) else {}
+    thresholds_raw = raw.get("thresholds", {}) if isinstance(raw.get("thresholds"), dict) else {}
+    baseline_raw = raw.get("baseline", {}) if isinstance(raw.get("baseline"), dict) else {}
+    fallback_raw = raw.get("fallback", {}) if isinstance(raw.get("fallback"), dict) else {}
+    return {
+        "windows": {
+            str(name).strip(): {
+                "range": str(config.get("range", "")).strip(),
+                "interval": str(config.get("interval", "")).strip(),
+            }
+            for name, config in windows_raw.items()
+            if isinstance(config, dict)
+        },
+        "thresholds": {
+            "price_sigma": float(thresholds_raw.get("price_sigma", 2.0) or 2.0),
+            "volume_ratio": float(thresholds_raw.get("volume_ratio", 1.5) or 1.5),
+        },
+        "baseline": {
+            "lookback_periods": int(baseline_raw.get("lookback_periods", 20) or 20),
+            "min_points": int(baseline_raw.get("min_points", 5) or 5),
+        },
+        "fallback": {
+            "status": str(fallback_raw.get("status", "predicted_only")).strip() or "predicted_only",
+            "reason": str(fallback_raw.get("reason", "market history unavailable")).strip() or "market history unavailable",
+        },
+    }
+
+
+def load_market_validation_config() -> dict[str, Any]:
+    if not MARKET_VALIDATION_CONFIG_FILE.exists():
+        return normalize_market_validation_config({})
+    try:
+        raw = json.loads(MARKET_VALIDATION_CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return normalize_market_validation_config({})
+    return normalize_market_validation_config(raw)
 
 
 def load_watchlist_from_disk() -> list[str]:
@@ -606,6 +824,8 @@ def set_watchlist(tickers: list[str]) -> list[str]:
 with WATCHLIST_LOCK:
     WATCHLIST_STATE[:] = load_watchlist_from_disk()
 COMPANY_KNOWLEDGE.update(load_company_knowledge_from_disk())
+POLICY_SIGNAL_RULES.update(load_policy_signal_rules())
+MARKET_VALIDATION_CONFIG.update(load_market_validation_config())
 
 
 # ---------------------------------------------------------------------------
@@ -868,6 +1088,303 @@ def fetch_market_index() -> tuple[dict[str, Any], list[str]]:
     }, warnings
 
 
+def stock_history_window_config(window: str | None) -> dict[str, Any]:
+    return STOCK_HISTORY_WINDOWS[normalize_event_window(window)]
+
+
+def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)
+    config = stock_history_window_config(window)
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(normalized_ticker)}"
+        f"?range={quote(config['range'])}&interval={quote(config['interval'])}&includePrePost=false&events=div,splits"
+    )
+    warnings: list[str] = []
+    try:
+        response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
+        response.raise_for_status()
+        chart = response.json().get("chart", {}).get("result", [])
+        if not chart:
+            raise ValueError("empty history")
+        result = chart[0]
+        meta = result.get("meta", {})
+        quote_data = result.get("indicators", {}).get("quote", [{}])[0]
+        raw_timestamps = list(result.get("timestamp", []) or [])
+        raw_closes = list(quote_data.get("close", []) or [])
+        series_pairs = [
+            (int(ts), float(price))
+            for ts, price in zip(raw_timestamps, raw_closes)
+            if ts is not None and price is not None
+        ]
+        prices = [price for _, price in series_pairs]
+        series = [
+            {
+                "time": datetime.fromtimestamp(ts, tz=WIB).isoformat(timespec="seconds"),
+                "value": price,
+            }
+            for ts, price in series_pairs
+        ]
+        volumes = [float(value) for value in quote_data.get("volume", []) if value is not None]
+        price = meta.get("regularMarketPrice")
+        change_pct = meta.get("regularMarketChangePercent")
+        change_points = meta.get("regularMarketChange")
+        volume = meta.get("regularMarketVolume")
+        market_time = meta.get("regularMarketTime")
+        previous_close = meta.get("chartPreviousClose") or meta.get("previousClose")
+        if price is None and prices:
+            price = prices[-1]
+        if change_points is None and price is not None and previous_close not in (None, 0):
+            change_points = float(price) - float(previous_close)
+        if change_pct is None and change_points is not None and previous_close not in (None, 0):
+            change_pct = (float(change_points) / float(previous_close)) * 100.0
+        market_dt = datetime.fromtimestamp(market_time, tz=WIB) if market_time else now_wib()
+        start_price = prices[0] if prices else None
+        period_change_points = float(price) - float(start_price) if price is not None and start_price not in (None, 0) else None
+        period_change_pct = (period_change_points / float(start_price)) * 100.0 if period_change_points is not None and start_price not in (None, 0) else None
+        return {
+            "ticker": normalized_ticker,
+            "name": company_name_for_ticker(normalized_ticker),
+            "sector": sector_for_ticker(normalized_ticker),
+            "window": normalize_event_window(window),
+            "window_label": event_window_label(window),
+            "range": config["range"],
+            "interval": config["interval"],
+            "price": float(price) if price is not None else None,
+            "change_pct": float(change_pct) if change_pct is not None else None,
+            "change_points": float(change_points) if change_points is not None else None,
+            "period_change_pct": float(period_change_pct) if period_change_pct is not None else None,
+            "period_change_points": float(period_change_points) if period_change_points is not None else None,
+            "volume": int(volume) if volume is not None else None,
+            "series": prices,
+            "history": series,
+            "series_points": len(prices),
+            "series_start": series[0]["time"] if series else None,
+            "series_end": series[-1]["time"] if series else None,
+            "series_high": max(prices) if prices else None,
+            "series_low": min(prices) if prices else None,
+            "market_time": market_dt.isoformat(timespec="seconds"),
+            "source": "yahoo-finance",
+            "warnings": warnings,
+        }
+    except Exception as exc:  # pragma: no cover - network failures are environment-dependent
+        warnings.append(f"history unavailable for {normalized_ticker}: {exc}")
+        return {
+            "ticker": normalized_ticker,
+            "name": company_name_for_ticker(normalized_ticker),
+            "sector": sector_for_ticker(normalized_ticker),
+            "window": normalize_event_window(window),
+            "window_label": event_window_label(window),
+            "range": config["range"],
+            "interval": config["interval"],
+            "price": None,
+            "change_pct": None,
+            "change_points": None,
+            "period_change_pct": None,
+            "period_change_points": None,
+            "volume": None,
+            "series": [],
+            "history": [],
+            "series_points": 0,
+            "series_start": None,
+            "series_end": None,
+            "series_high": None,
+            "series_low": None,
+            "market_time": now_iso(),
+            "source": "unavailable",
+            "warnings": warnings,
+        }
+
+
+def fetch_market_validation_series(ticker: str, range_name: str, interval: str) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)
+    knowledge = company_knowledge_for_ticker(normalized_ticker)
+    proxy = knowledge.get("market_validation_proxy", {}) if isinstance(knowledge.get("market_validation_proxy"), dict) else {}
+    symbol = str(proxy.get("symbol", normalized_ticker)).strip() or normalized_ticker
+    warnings: list[str] = []
+    if not symbol:
+        return {
+            "ticker": normalized_ticker,
+            "symbol": normalized_ticker,
+            "range": range_name,
+            "interval": interval,
+            "prices": [],
+            "volumes": [],
+            "market_time": now_iso(),
+            "source": "unavailable",
+            "warnings": ["validation symbol unavailable"],
+        }
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(symbol)}?range={quote(range_name)}&interval={quote(interval)}&includePrePost=false&events=div,splits"
+    try:
+        response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
+        response.raise_for_status()
+        payload = response.json().get("chart", {}).get("result", [])
+        if not payload:
+            raise ValueError("empty validation history")
+        result = payload[0]
+        quote_data = result.get("indicators", {}).get("quote", [{}])[0]
+        closes = [float(value) for value in quote_data.get("close", []) if value is not None]
+        volumes = [float(value) for value in quote_data.get("volume", []) if value is not None]
+        market_time = result.get("meta", {}).get("regularMarketTime")
+        return {
+            "ticker": normalized_ticker,
+            "symbol": symbol,
+            "range": range_name,
+            "interval": interval,
+            "prices": closes,
+            "volumes": volumes,
+            "market_time": datetime.fromtimestamp(market_time, tz=WIB).isoformat(timespec="seconds") if market_time else now_iso(),
+            "source": "yahoo-finance",
+            "warnings": warnings,
+        }
+    except Exception as exc:  # pragma: no cover - network failures are environment-dependent
+        warnings.append(f"validation history unavailable for {symbol}: {exc}")
+        return {
+            "ticker": normalized_ticker,
+            "symbol": symbol,
+            "range": range_name,
+            "interval": interval,
+            "prices": [],
+            "volumes": [],
+            "market_time": now_iso(),
+            "source": "unavailable",
+            "warnings": warnings,
+        }
+
+
+def validation_window_for_article(article: dict[str, Any]) -> str:
+    published_at = article.get("published_at")
+    if isinstance(published_at, datetime) and (now_wib() - published_at) <= timedelta(days=1):
+        return "30m"
+    return "1d"
+
+
+def sample_stddev(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / (len(values) - 1)
+    return math.sqrt(max(variance, 0.0))
+
+
+def validate_market_reaction(
+    article: dict[str, Any],
+    ticker: str,
+    quote: dict[str, Any] | None,
+    relationship: dict[str, Any],
+    fetcher: Callable[[str, str, str], dict[str, Any]] | None = None,
+    series_cache: dict[tuple[str, str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    config = MARKET_VALIDATION_CONFIG or load_market_validation_config()
+    windows = config.get("windows", {}) if isinstance(config, dict) else {}
+    baseline_cfg = config.get("baseline", {}) if isinstance(config, dict) else {}
+    thresholds = config.get("thresholds", {}) if isinstance(config, dict) else {}
+    fallback = config.get("fallback", {}) if isinstance(config, dict) else {}
+
+    validation_window = validation_window_for_article(article)
+    window_cfg = windows.get(validation_window) or windows.get("1d") or {"range": "1mo", "interval": "1d"}
+    range_name = str(window_cfg.get("range", "1mo"))
+    interval = str(window_cfg.get("interval", "1d"))
+    fetcher = fetcher or fetch_market_validation_series
+
+    cache_key = (normalize_ticker(ticker), validation_window)
+    if series_cache is not None and cache_key in series_cache:
+        series = series_cache[cache_key]
+    else:
+        series = fetcher(ticker, range_name, interval)
+        if series_cache is not None:
+            series_cache[cache_key] = series
+
+    prices = [float(value) for value in series.get("prices", []) if value is not None]
+    volumes = [float(value) for value in series.get("volumes", []) if value is not None]
+    warnings = [str(item) for item in series.get("warnings", []) if str(item).strip()]
+    lookback_periods = max(int(baseline_cfg.get("lookback_periods", 20) or 20), 3)
+    min_points = max(int(baseline_cfg.get("min_points", 5) or 5), 3)
+
+    fallback_status = str(fallback.get("status", "predicted_only") or "predicted_only")
+    fallback_reason = str(fallback.get("reason", "market history unavailable") or "market history unavailable")
+    base_result = {
+        "validation_status": fallback_status,
+        "validation_window": validation_window,
+        "abnormal_return": 0.0,
+        "abnormal_volume_ratio": 0.0,
+        "validation_score": 0.0,
+        "validation_reason": fallback_reason,
+        "validation_warnings": warnings,
+        "validation_series_source": series.get("source", "unavailable"),
+    }
+
+    if not quote or not relationship:
+        return {
+            **base_result,
+            "validation_status": "unvalidated",
+            "validation_reason": "missing quote or relationship",
+        }
+
+    if len(prices) < min_points or len(volumes) < min_points:
+        return {
+            **base_result,
+            "validation_status": "insufficient_data" if warnings else fallback_status,
+            "validation_reason": warnings[0] if warnings else fallback_reason,
+        }
+
+    recent_prices = prices[-(lookback_periods + 1):]
+    recent_volumes = volumes[-(lookback_periods + 1):]
+    returns = []
+    for previous, current in zip(recent_prices[:-1], recent_prices[1:]):
+        if previous not in (None, 0):
+            returns.append((float(current) - float(previous)) / float(previous))
+    if len(returns) < max(2, min_points - 1):
+        return {
+            **base_result,
+            "validation_status": "insufficient_data",
+            "validation_reason": "not enough return history for baseline",
+        }
+
+    baseline_returns = returns[:-1] or returns
+    observed_return = returns[-1]
+    baseline_volumes = recent_volumes[:-1] or recent_volumes
+    observed_volume = recent_volumes[-1]
+    mean_return = sum(baseline_returns) / len(baseline_returns)
+    sigma_return = sample_stddev(baseline_returns)
+    return_z = abs(observed_return - mean_return) / sigma_return if sigma_return > 1e-9 else abs(observed_return - mean_return) * 100.0
+    avg_volume = sum(baseline_volumes) / len(baseline_volumes) if baseline_volumes else 0.0
+    volume_ratio = (observed_volume / avg_volume) if avg_volume > 0 else 0.0
+
+    expected_direction = str(relationship.get("impact_direction", "neutral"))
+    aligned = True
+    if expected_direction == "positive":
+        aligned = observed_return > 0
+    elif expected_direction == "negative":
+        aligned = observed_return < 0
+
+    price_sigma_threshold = float(thresholds.get("price_sigma", 2.0) or 2.0)
+    volume_ratio_threshold = float(thresholds.get("volume_ratio", 1.5) or 1.5)
+    signal_strength = min(1.0, return_z / max(price_sigma_threshold, 0.1))
+    volume_strength = min(1.0, volume_ratio / max(volume_ratio_threshold, 0.1)) if volume_ratio_threshold > 0 else 1.0
+    validation_score = clamp(0.65 * signal_strength + 0.35 * volume_strength, 0.0, 1.0)
+
+    if aligned and return_z >= price_sigma_threshold and volume_ratio >= volume_ratio_threshold:
+        status = "confirmed"
+        reason = "price and volume move align with predicted direction"
+    elif not aligned and abs(observed_return) > 0.002:
+        status = "rejected"
+        reason = "market move conflicts with predicted direction"
+    else:
+        status = "predicted_only"
+        reason = "market move is too weak or noisy to confirm the prediction"
+
+    return {
+        "validation_status": status,
+        "validation_window": validation_window,
+        "abnormal_return": round(observed_return - mean_return, 4),
+        "abnormal_volume_ratio": round(volume_ratio, 3),
+        "validation_score": round(validation_score, 3),
+        "validation_reason": reason,
+        "validation_warnings": warnings,
+        "validation_series_source": series.get("source", "unavailable"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # NLP / scoring
 # ---------------------------------------------------------------------------
@@ -967,12 +1484,235 @@ def recency_weight_for_article(article: dict[str, Any], window: str = DEFAULT_EV
     return recency_hours, recency_weight
 
 
-def relationship_type_for_link(direct_alias_hit: bool, transmission_clarity: float, company_exposure: float) -> str:
-    if direct_alias_hit or (transmission_clarity >= 4.0 and company_exposure >= 4.0):
+def infer_article_policy_signal(text: str) -> dict[str, list[str]]:
+    supportive_terms = [
+        "dorong",
+        "stimulus",
+        "percepat",
+        "subsidi",
+        "insentif",
+        "relaksasi",
+        "permudah",
+        "turunkan bunga",
+        "dukungan",
+        "tambahan anggaran",
+        "berlaku",
+        "sahkan",
+    ]
+    restrictive_terms = [
+        "larang",
+        "batasi",
+        "pembatasan",
+        "kuota",
+        "quota",
+        "tarif",
+        "bea masuk",
+        "moratorium",
+        "tekan",
+        "perketat",
+    ]
+    relief_terms = [
+        "batalkan",
+        "cabut",
+        "hapus",
+        "longgarkan",
+        "relaksasi",
+        "buka kembali",
+    ]
+    return {
+        "supportive_hits": collect_phrase_hits(text, supportive_terms),
+        "restrictive_hits": collect_phrase_hits(text, restrictive_terms),
+        "relief_hits": collect_phrase_hits(text, relief_terms),
+    }
+
+
+def match_policy_channels(text: str, knowledge: dict[str, Any], themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not knowledge:
+        return []
+    theme_names = {str(theme.get("name", "")).strip() for theme in themes if str(theme.get("name", "")).strip()}
+    if not theme_names:
+        return []
+    article_signal = infer_article_policy_signal(text)
+    business_lines = [str(item).strip() for item in knowledge.get("business_lines", []) if str(item).strip()]
+    exposures = knowledge.get("exposure_factors", {}) if isinstance(knowledge.get("exposure_factors"), dict) else {}
+    revenue_exposure = {str(item).strip() for item in exposures.get("revenue_exposure", []) if str(item).strip()}
+    input_cost_exposure = {str(item).strip() for item in exposures.get("input_cost_exposure", []) if str(item).strip()}
+    matched: list[dict[str, Any]] = []
+    for detail in knowledge.get("policy_channel_details", []):
+        if not isinstance(detail, dict):
+            continue
+        channel = str(detail.get("channel", "")).strip()
+        if not channel:
+            continue
+        theme_hits = sorted(theme_names & set(knowledge.get("policy_exposures", [])))
+        detail_text = " ".join([channel, *[str(item) for item in detail.get("keywords", [])]])
+        detail_theme_hits = []
+        for theme_name in theme_hits:
+            theme_keywords = POLICY_THEMES.get(theme_name, {}).get("keywords", [])
+            if collect_phrase_hits(detail_text, theme_keywords) or normalize_match_text(theme_name) in normalize_match_text(detail_text):
+                detail_theme_hits.append(theme_name)
+        if not detail_theme_hits:
+            detail_theme_hits = theme_hits
+        theme_keywords = [
+            keyword
+            for theme_name in detail_theme_hits
+            for keyword in POLICY_THEMES.get(theme_name, {}).get("keywords", [])
+        ]
+        revenue_hits = sorted(set(detail_theme_hits) & revenue_exposure)
+        input_cost_hits = sorted(set(detail_theme_hits) & input_cost_exposure)
+        keyword_hits = collect_phrase_hits(text, detail.get("keywords", []))
+        theme_keyword_hits = collect_phrase_hits(text, theme_keywords)
+        business_line_hits = collect_phrase_hits(text, business_lines)
+        if not detail_theme_hits or (not keyword_hits and not theme_keyword_hits and not business_line_hits and not revenue_hits and not input_cost_hits):
+            continue
+        direction_map = detail.get("direction_map", {}) if isinstance(detail.get("direction_map"), dict) else {}
+        positive_direction_hits = collect_phrase_hits(text, direction_map.get("positive", []))
+        negative_direction_hits = collect_phrase_hits(text, direction_map.get("negative", []))
+        confidence = clamp(
+            0.2
+            + 0.3 * float(detail.get("confidence", 0.5))
+            + 0.12 * len(detail_theme_hits)
+            + 0.1 * len(keyword_hits)
+            + 0.09 * len(theme_keyword_hits)
+            + 0.1 * len(business_line_hits)
+            + 0.08 * len(revenue_hits)
+            + 0.05 * len(input_cost_hits),
+            0.0,
+            1.0,
+        )
+        matched.append(
+            {
+                "channel": channel,
+                "channel_confidence": round(confidence, 3),
+                "matched_themes": detail_theme_hits,
+                "keyword_hits": keyword_hits,
+                "theme_keyword_hits": theme_keyword_hits,
+                "business_line_hits": business_line_hits,
+                "revenue_exposure_hits": revenue_hits,
+                "input_cost_exposure_hits": input_cost_hits,
+                "positive_direction_hits": positive_direction_hits,
+                "negative_direction_hits": negative_direction_hits,
+                "article_signal": article_signal,
+            }
+        )
+    matched.sort(
+        key=lambda item: (
+            item["channel_confidence"],
+            len(item["keyword_hits"]) + len(item.get("theme_keyword_hits", [])),
+            len(item["business_line_hits"]),
+        ),
+        reverse=True,
+    )
+    return matched[:4]
+
+
+def score_company_exposure(knowledge: dict[str, Any], matched_channels: list[dict[str, Any]], direct_alias_hit: bool) -> dict[str, Any]:
+    exposure_factors = knowledge.get("exposure_factors", {}) if isinstance(knowledge.get("exposure_factors"), dict) else {}
+    if direct_alias_hit:
+        return {
+            "company_exposure": 5.0,
+            "channel_confidence": round(max((float(item.get("channel_confidence", 0.0)) for item in matched_channels), default=1.0), 3),
+            "exposure_factors": exposure_factors,
+            "exposure_rationale": "Direct company mention in the source creates a first-order linkage.",
+        }
+    if not matched_channels:
+        return {
+            "company_exposure": 0.0,
+            "channel_confidence": 0.0,
+            "exposure_factors": exposure_factors,
+            "exposure_rationale": "No matched company-specific policy channel.",
+        }
+    avg_channel_confidence = sum(float(item.get("channel_confidence", 0.0)) for item in matched_channels) / len(matched_channels)
+    financing_bonus = {"low": 0.15, "medium": 0.35, "high": 0.55}.get(str(exposure_factors.get("financing_sensitivity", "unknown")), 0.0)
+    regulatory_bonus = {"low": 0.1, "medium": 0.2, "high": 0.35}.get(str(exposure_factors.get("regulatory_dependency", "unknown")), 0.0)
+    trade_bonus = {"low": 0.05, "medium": 0.15, "high": 0.3}.get(str(exposure_factors.get("export_import_dependency", "unknown")), 0.0)
+    revenue_bonus = 0.18 * sum(len(item.get("revenue_exposure_hits", [])) for item in matched_channels)
+    cost_penalty = 0.08 * sum(len(item.get("input_cost_exposure_hits", [])) for item in matched_channels)
+    exposure = clamp(2.45 + 1.55 * avg_channel_confidence + financing_bonus + regulatory_bonus + trade_bonus + revenue_bonus - cost_penalty, 0.0, 5.0)
+    return {
+        "company_exposure": round(exposure, 2),
+        "channel_confidence": round(avg_channel_confidence, 3),
+        "exposure_factors": exposure_factors,
+        "exposure_rationale": f"Matched {len(matched_channels)} company-specific policy channel(s) with avg confidence {avg_channel_confidence:.2f}.",
+    }
+
+
+def expected_direction_for_company(themes: list[dict[str, Any]], matched_channels: list[dict[str, Any]], knowledge: dict[str, Any]) -> dict[str, Any]:
+    theme_names = {str(theme.get("name", "")).strip() for theme in themes if str(theme.get("name", "")).strip()}
+    exposure_factors = knowledge.get("exposure_factors", {}) if isinstance(knowledge.get("exposure_factors"), dict) else {}
+    positive_score = 0.0
+    negative_score = 0.0
+    rationale_parts: list[str] = []
+    article_signal = matched_channels[0].get("article_signal", {}) if matched_channels else {"supportive_hits": [], "restrictive_hits": [], "relief_hits": []}
+    supportive_hits = list(article_signal.get("supportive_hits", []))
+    restrictive_hits = list(article_signal.get("restrictive_hits", []))
+    relief_hits = list(article_signal.get("relief_hits", []))
+
+    for channel in matched_channels:
+        channel_themes = set(channel.get("matched_themes", [])) or theme_names
+        positive_direction_hits = channel.get("positive_direction_hits", [])
+        negative_direction_hits = channel.get("negative_direction_hits", [])
+        positive_score += 0.9 * len(positive_direction_hits)
+        negative_score += 0.9 * len(negative_direction_hits)
+        if channel.get("keyword_hits"):
+            rationale_parts.append(f"{channel['channel']} via {', '.join(channel['keyword_hits'][:3])}")
+
+        if channel_themes & {"HOUSING", "BANKING_LIQUIDITY", "INFRASTRUCTURE", "DIGITAL_PUBLIC", "DOWNSTREAMING", "FOOD_SECURITY", "DEFENSE_PROCUREMENT"}:
+            positive_score += 0.9 * len(supportive_hits)
+            positive_score += 0.8 * len(relief_hits)
+            negative_score += 0.7 * len(restrictive_hits)
+        if "TRADE_RESTRICTION" in channel_themes:
+            if restrictive_hits and relief_hits:
+                positive_score += 1.7
+                rationale_parts.append("restriction rollback improves trade realization")
+            elif restrictive_hits:
+                negative_score += 1.7
+                rationale_parts.append("trade restriction pressures export/import volumes")
+            elif supportive_hits:
+                positive_score += 0.6
+        if "ENERGY_TRANSITION" in channel_themes:
+            if restrictive_hits and relief_hits:
+                positive_score += 1.0
+            elif restrictive_hits:
+                negative_score += 1.0
+            elif supportive_hits:
+                positive_score += 0.7
+
+    if "TRADE_RESTRICTION" in theme_names and str(exposure_factors.get("export_import_dependency", "unknown")) == "high":
+        if restrictive_hits and not relief_hits:
+            negative_score += 0.8
+        elif restrictive_hits and relief_hits:
+            positive_score += 0.8
+    if theme_names & {"BANKING_LIQUIDITY", "HOUSING"} and str(exposure_factors.get("financing_sensitivity", "unknown")) in {"medium", "high"}:
+        positive_score += 0.5 * len(supportive_hits)
+        negative_score += 0.4 * len(restrictive_hits)
+
+    delta = positive_score - negative_score
+    if delta >= 0.75:
+        impact_direction = "positive"
+    elif delta <= -0.75:
+        impact_direction = "negative"
+    elif positive_score > 0.0 and negative_score > 0.0:
+        impact_direction = "mixed"
+    else:
+        impact_direction = "neutral"
+
+    if not rationale_parts:
+        rationale_parts.append("direction inferred from matched policy themes and company exposures")
+    return {
+        "impact_direction": impact_direction,
+        "direction_rationale": "; ".join(rationale_parts[:3]),
+        "positive_score": round(positive_score, 2),
+        "negative_score": round(negative_score, 2),
+    }
+
+
+def relationship_type_for_link(direct_alias_hit: bool, matched_channels: list[dict[str, Any]]) -> str | None:
+    if direct_alias_hit:
         return "direct"
-    if transmission_clarity >= 3.0 and company_exposure >= 3.0:
+    if matched_channels:
         return "indirect"
-    return "thematic"
+    return None
 
 
 def build_stock_relationships(
@@ -987,7 +1727,6 @@ def build_stock_relationships(
     text = article_text(article)
     relationships: list[dict[str, Any]] = []
     recency_hours, _ = recency_weight_for_article(article, window)
-    category_sectors = {sector for category in categories for sector in CATEGORY_TO_SECTORS.get(category, [])}
     for ticker in watchlist:
         info = STOCK_MASTER.get(ticker)
         if not info:
@@ -997,76 +1736,51 @@ def build_stock_relationships(
         knowledge_alias_hits = [alias for alias in knowledge.get("aliases", []) if alias in text]
         alias_hits = [alias for alias in info["aliases"] if alias in text] + knowledge_alias_hits
         direct_alias_hit = bool(alias_hits)
-        sector_match = info["sector"] in sector_hits
-        adjacent_match = info["sector"] in category_sectors
-        profile = TICKER_EXPOSURE_PROFILES.get(ticker, {"themes": [], "keywords": []})
-        profile_theme_names = set(profile.get("themes", []))
-        profile_keyword_hits = [keyword for keyword in profile.get("keywords", []) if keyword in text]
-        knowledge_theme_names = set(knowledge.get("policy_exposures", []))
-        knowledge_channel_hits = [channel for channel in knowledge.get("policy_channels", []) if any(token in text for token in channel.lower().split())]
-        matched_themes = [theme for theme in themes if theme["name"] in (profile_theme_names | knowledge_theme_names)]
-
         if not knowledge and not direct_alias_hit:
             continue
 
-        transmission_clarity = 0.0
-        if direct_alias_hit:
-            transmission_clarity = 5.0
-        elif matched_themes and (profile_keyword_hits or knowledge_channel_hits):
-            transmission_clarity = 3.7 + min(1.0, 0.35 * len(matched_themes) + 0.1 * len(profile_keyword_hits) + 0.1 * len(knowledge_channel_hits))
-        elif matched_themes and knowledge:
-            transmission_clarity = 3.2 + min(0.8, 0.3 * len(matched_themes))
-        elif knowledge and sector_match and (profile_keyword_hits or knowledge_channel_hits):
-            transmission_clarity = 2.5
-        elif knowledge and adjacent_match and (profile_keyword_hits or knowledge_channel_hits):
-            transmission_clarity = 1.7
+        profile = TICKER_EXPOSURE_PROFILES.get(ticker, {"themes": [], "keywords": []})
+        profile_theme_names = set(profile.get("themes", []))
+        knowledge_theme_names = set(knowledge.get("policy_exposures", []))
+        matched_themes = [theme for theme in themes if theme["name"] in (profile_theme_names | knowledge_theme_names)]
+        matched_channels = match_policy_channels(text, knowledge, matched_themes or themes)
+        relationship_type = relationship_type_for_link(direct_alias_hit, matched_channels)
+        if not relationship_type:
+            continue
 
-        company_exposure = 0.0
-        if direct_alias_hit:
-            company_exposure = 5.0
-        elif matched_themes and knowledge and (profile_keyword_hits or knowledge_channel_hits):
-            company_exposure = 3.7 + min(1.0, 0.25 * len(matched_themes) + 0.15 * len(knowledge.get("business_lines", [])))
-        elif matched_themes and knowledge:
-            company_exposure = 3.2 + min(0.7, 0.3 * len(matched_themes))
-        elif knowledge and sector_match and (profile_keyword_hits or knowledge_channel_hits):
-            company_exposure = 2.3
-        elif knowledge and adjacent_match and (profile_keyword_hits or knowledge_channel_hits):
-            company_exposure = 1.6
-
+        exposure = score_company_exposure(knowledge, matched_channels, direct_alias_hit)
+        transmission_clarity = 5.0 if direct_alias_hit else clamp(2.5 + 2.0 * float(exposure.get("channel_confidence", 0.0)), 0.0, 5.0)
+        company_exposure = float(exposure.get("company_exposure", 0.0))
         if transmission_clarity <= 0.0 or company_exposure <= 0.0:
             continue
 
         specificity = policy_specificity_score(categories, themes, text)
         timing = max(1.0, min(5.0, 5.0 - recency_hours / max(6.0, event_window_delta(window).total_seconds() / 21600.0)))
         evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit, knowledge.get("evidence", []))
-        relationship_type = relationship_type_for_link(direct_alias_hit, transmission_clarity, company_exposure)
-        if relationship_type == "thematic":
-            company_exposure = min(company_exposure, 2.6)
-            transmission_clarity = min(transmission_clarity, 2.8)
+        direction = expected_direction_for_company(matched_themes or themes, matched_channels, knowledge)
 
         score = (
-            0.25 * specificity
-            + 0.25 * transmission_clarity
-            + 0.25 * company_exposure
-            + 0.15 * timing
-            + 0.10 * evidence_quality
+            0.24 * specificity
+            + 0.26 * transmission_clarity
+            + 0.24 * company_exposure
+            + 0.14 * timing
+            + 0.12 * evidence_quality
         )
         confidence = clamp((score / 5.0) * (0.7 + 0.3 * sentiment_confidence), 0.0, 1.0)
         if evidence_quality < MIN_EVIDENCE_QUALITY or score < MIN_RELATIONSHIP_SCORE:
             continue
 
-        primary_theme = (matched_themes or themes or [{"channel": "broad sector sensitivity", "exposure_type": "sector"}])[0]
-        policy_channel = (knowledge.get("policy_channels") or [primary_theme["channel"]])[0]
+        primary_theme = (matched_themes or themes or [{"channel": "company-specific transmission path", "exposure_type": "company"}])[0]
+        policy_channel = matched_channels[0]["channel"] if matched_channels else (knowledge.get("policy_channels") or [primary_theme["channel"]])[0]
         summary = knowledge.get("summary") or ""
         article_source_type = str(article.get("source_type") or infer_source_type(article.get("source", ""), article.get("url", "")))
         article_evidence_rank = round(source_type_rank(article_source_type), 2)
         company_evidence_rank = round(max((float(item.get("quality_rank") or source_type_rank(item.get("source_type"))) for item in knowledge.get("evidence", [])), default=0.0), 2)
         evidence_label = f"{article_source_type} article"
-        rationale = (
-            f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
-            if direct_alias_hit
-            else f"{ticker} is linked via {policy_channel} based on company-specific exposure in {info['sector']}"
-        )
+        if direct_alias_hit:
+            rationale = f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
+        else:
+            rationale = f"{ticker} survives through matched transmission paths instead of broad sector overlap"
         evidence = []
         if direct_alias_hit:
             evidence.append("company/entity mentioned in article")
@@ -1074,11 +1788,11 @@ def build_stock_relationships(
             evidence.append(f"matched policy theme: {matched_themes[0]['name'].replace('_', ' ').title()}")
         if policy_channel:
             evidence.append(f"policy channel: {policy_channel}")
+        if direction.get("direction_rationale"):
+            evidence.append(f"direction: {direction['direction_rationale']}")
         evidence.append(f"article source tier: {article_source_type} ({article_evidence_rank:.2f})")
         for item in knowledge.get("evidence", [])[:2]:
             evidence.append(f"{item.get('label', 'source')} [{item.get('source_type', 'other')}]: {item.get('url', '')}")
-        if article.get("source"):
-            evidence.append(f"source: {article['source']}")
 
         relationships.append(
             {
@@ -1099,10 +1813,15 @@ def build_stock_relationships(
                 "confidence": round(confidence, 3),
                 "rationale": rationale,
                 "policy_channel": policy_channel,
+                "matched_policy_channels": matched_channels,
+                "channel_confidence": round(float(exposure.get("channel_confidence", 0.0)), 3),
+                "impact_direction": direction.get("impact_direction", "neutral"),
+                "direction_rationale": direction.get("direction_rationale", ""),
                 "exposure_type": primary_theme["exposure_type"],
+                "exposure_factors": exposure.get("exposure_factors", {}),
                 "knowledge_summary": summary,
                 "company_evidence": knowledge.get("evidence", []),
-                "evidence": evidence[:6],
+                "evidence": evidence[:7],
             }
         )
 
@@ -1115,6 +1834,9 @@ def build_stock_relationships(
 
 def analyze_article(article: dict[str, Any], watchlist: list[str], window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     text = article_text(article)
+    relevance = score_political_relevance(article)
+    stage = detect_event_stage(text)
+    reversal = detect_negation_or_reversal(text)
     sentiment, sentiment_score, sentiment_confidence = analyze_sentiment(text)
     categories = classify_categories(text)
     entities = extract_entities(text)
@@ -1136,13 +1858,27 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
     )
     impacted_tickers = [item["ticker"] for item in stock_relationships]
 
+    stage_weight = {
+        "proposal": 0.68,
+        "debate": 0.8,
+        "approved": 1.08,
+        "effective": 1.15,
+        "enforced": 1.05,
+        "delayed": 0.66,
+        "revoked": 0.72,
+        "unspecified": 0.85,
+    }.get(stage.get("event_stage", "unspecified"), 0.85)
     confidence = clamp(
-        0.2
-        + 0.1 * len(categories)
-        + 0.08 * len(sector_hits)
-        + 0.08 * len(entities)
-        + 0.12 * len(themes)
-        + 0.18 * sentiment_confidence,
+        (
+            0.1
+            + 0.25 * float(relevance.get("relevance_score", 0.0))
+            + 0.08 * len(categories)
+            + 0.08 * len(sector_hits)
+            + 0.08 * len(entities)
+            + 0.1 * len(themes)
+            + 0.16 * sentiment_confidence
+            + 0.12 * float(stage.get("event_stage_confidence", 0.0))
+        ) * stage_weight,
         0.0,
         1.0,
     )
@@ -1156,6 +1892,17 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         **article,
         "sentiment": sentiment,
         "sentiment_score": round(sentiment_score, 3),
+        "relevance_score": relevance.get("relevance_score", 0.0),
+        "relevance_label": relevance.get("relevance_label", "not_political"),
+        "relevance_signals": relevance.get("relevance_signals", {}),
+        "relevance_penalties": relevance.get("relevance_penalties", {}),
+        "event_stage": stage.get("event_stage", "unspecified"),
+        "event_stage_confidence": stage.get("event_stage_confidence", 0.0),
+        "event_stage_signals": stage.get("event_stage_signals", []),
+        "is_reversal": reversal.get("is_reversal", False),
+        "is_tentative": reversal.get("is_tentative", False),
+        "reversal_hits": reversal.get("reversal_hits", []),
+        "negation_hits": reversal.get("negation_hits", []),
         "categories": categories or ["PARLIAMENT_SESSION"],
         "entities": entities,
         "policy_themes": [theme["name"] for theme in themes],
@@ -1166,7 +1913,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         "confidence": round(confidence, 3),
         "recency_weight": round(recency_weight, 3),
         "window": normalize_event_window(window),
-        "significance": round((abs(sentiment_score) + avg_relevance / 5.0) * confidence * recency_weight * 0.45, 3),
+        "significance": round((0.35 + abs(sentiment_score) + avg_relevance / 5.0) * float(relevance.get("relevance_score", 0.0)) * confidence * recency_weight * 0.45, 3),
     }
 
 
@@ -1177,8 +1924,17 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
     sentiment_score = float(article.get("sentiment_score", 0.0))
     relevance_factor = float(relationship.get("relevance_score", 0.0)) / 5.0
     confidence = float(relationship.get("confidence", article.get("confidence", 0.5)))
-    relationship_multiplier = {"direct": 1.0, "indirect": 0.82, "thematic": 0.55}.get(relationship.get("relationship_type"), 0.5)
-    raw = sentiment_score * relevance_factor * confidence * relationship_multiplier
+    relationship_multiplier = {"direct": 1.0, "indirect": 0.82}.get(relationship.get("relationship_type"), 0.5)
+    direction = str(relationship.get("impact_direction", "neutral"))
+    if direction == "positive":
+        directional_sentiment = max(abs(sentiment_score), 0.45)
+    elif direction == "negative":
+        directional_sentiment = -max(abs(sentiment_score), 0.45)
+    elif direction == "mixed":
+        directional_sentiment = 0.35 * sentiment_score
+    else:
+        directional_sentiment = 0.0
+    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier
     return clamp(raw, -1.0, 1.0)
 
 
@@ -1202,8 +1958,220 @@ def compute_sector_summary(stocks: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
+THREAD_CATEGORY_FAMILIES = {
+    "REGULATION_NEW": "REGULATION",
+    "REGULATION_REPEAL": "REGULATION",
+    "STATE_BUDGET": "FISCAL",
+    "MONETARY_SIGNAL": "MONETARY",
+    "TRADE_POLICY": "TRADE_POLICY",
+    "ENERGY_POLICY": "ENERGY_POLICY",
+    "INVESTMENT_POLICY": "INVESTMENT_POLICY",
+    "PARLIAMENT_SESSION": "LEGISLATIVE",
+}
+
+
+EVENT_STAGE_ORDER = {
+    "proposal": 1,
+    "debate": 2,
+    "approved": 3,
+    "effective": 4,
+    "enforced": 5,
+    "delayed": 1,
+    "revoked": 0,
+    "unspecified": 1,
+}
+
+
+THREAD_STATUS_RANK = {
+    "active": 1,
+    "confirmed": 2,
+    "contested": 3,
+    "reversed": 4,
+}
+
+
+def normalize_thread_token(value: Any, fallback: str = "general") -> str:
+    token = normalize_match_text(value)
+    return token.replace(" ", "-") if token else fallback
+
+
+def thread_category_family(article: dict[str, Any]) -> str:
+    categories = article.get("categories", []) if isinstance(article.get("categories", []), list) else []
+    for category in categories:
+        normalized = str(category or "").strip().upper()
+        if normalized:
+            return THREAD_CATEGORY_FAMILIES.get(normalized, normalized)
+    return "GENERAL"
+
+
+def thread_institution_label(article: dict[str, Any]) -> str:
+    relevance_signals = article.get("relevance_signals", {}) if isinstance(article.get("relevance_signals"), dict) else {}
+    institutions = relevance_signals.get("institutions", []) if isinstance(relevance_signals.get("institutions", []), list) else []
+    if institutions:
+        return str(institutions[0])
+    source = str(article.get("source", "")).strip()
+    if source:
+        return source
+    return str(article.get("source_type") or "general")
+
+
+def thread_entity_label(article: dict[str, Any]) -> str:
+    for relationship in article.get("stock_relationships", []):
+        if relationship.get("relationship_type") == "direct" and relationship.get("company_name"):
+            return str(relationship.get("company_name"))
+    impacted_tickers = article.get("impacted_tickers", []) if isinstance(article.get("impacted_tickers", []), list) else []
+    if impacted_tickers:
+        return str(impacted_tickers[0])
+    entities = article.get("entities", []) if isinstance(article.get("entities", []), list) else []
+    if entities:
+        return str(entities[0])
+    return "market"
+
+
+def thread_focus_label(article: dict[str, Any]) -> str:
+    rules = POLICY_SIGNAL_RULES or load_policy_signal_rules()
+    focus_terms = rules.get("thread_match_terms", []) if isinstance(rules, dict) else []
+    hits = collect_phrase_hits(article_text(article), focus_terms)
+    if hits:
+        return str(hits[0])
+    channels = article.get("policy_channels", []) if isinstance(article.get("policy_channels", []), list) else []
+    if channels:
+        return str(channels[0])
+    return "general"
+
+
+def build_event_thread_key(article: dict[str, Any]) -> str:
+    top_theme = (article.get("policy_themes") or ["general"])[0]
+    institution = thread_institution_label(article)
+    entity = thread_entity_label(article)
+    category_family = thread_category_family(article)
+    return "::".join(
+        [
+            normalize_thread_token(top_theme),
+            normalize_thread_token(institution),
+            normalize_thread_token(entity),
+            normalize_thread_token(category_family.lower()),
+        ]
+    )
+
+
+def event_primary_direction(event: dict[str, Any]) -> str:
+    directions = [str(item.get("impact_direction", "neutral")) for item in event.get("stock_relationships", []) if item.get("impact_direction")]
+    if "negative" in directions and "positive" in directions:
+        return "mixed"
+    if directions:
+        return directions[0]
+    sentiment_score = float(event.get("sentiment_score", 0.0))
+    if sentiment_score >= 0.2:
+        return "positive"
+    if sentiment_score <= -0.2:
+        return "negative"
+    return "neutral"
+
+
+def summarize_thread_status(thread_events: list[dict[str, Any]]) -> tuple[str, int, str]:
+    contradiction_count = 0
+    contradiction_reasons: list[str] = []
+    seen_positive_progress = False
+    seen_negative_progress = False
+    previous_direction = None
+    previous_stage_rank = None
+    for event in thread_events:
+        stage = str(event.get("event_stage") or "unspecified")
+        stage_rank = EVENT_STAGE_ORDER.get(stage, EVENT_STAGE_ORDER["unspecified"])
+        direction = event_primary_direction(event)
+        if stage in {"approved", "effective", "enforced"}:
+            seen_positive_progress = True
+        if stage in {"delayed", "revoked"} or bool(event.get("is_reversal")):
+            seen_negative_progress = True
+            if seen_positive_progress or previous_stage_rank not in {None, 0, 1}:
+                contradiction_count += 1
+                contradiction_reasons.append(f"latest coverage weakens earlier thread via {stage}")
+        if previous_stage_rank is not None and stage_rank < previous_stage_rank and stage in {"delayed", "revoked", "proposal", "debate"}:
+            contradiction_count += 1
+            contradiction_reasons.append(f"event stage moved backward to {stage}")
+        if previous_direction and direction in {"positive", "negative"} and previous_direction in {"positive", "negative"} and direction != previous_direction:
+            contradiction_count += 1
+            contradiction_reasons.append(f"impact direction flipped from {previous_direction} to {direction}")
+        previous_direction = direction if direction != "mixed" else previous_direction
+        previous_stage_rank = stage_rank
+
+    latest_event = thread_events[-1]
+    latest_stage = str(latest_event.get("event_stage") or "unspecified")
+    if latest_stage in {"delayed", "revoked"} or bool(latest_event.get("is_reversal")):
+        status = "reversed"
+    elif contradiction_count > 0 or (seen_positive_progress and seen_negative_progress):
+        status = "contested"
+    elif len(thread_events) >= 2 and latest_stage in {"approved", "effective", "enforced"}:
+        status = "confirmed"
+    else:
+        status = "active"
+    summary = contradiction_reasons[0] if contradiction_reasons else ""
+    return status, contradiction_count, summary
+
+
+def group_articles_into_threads(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        key = build_event_thread_key(event)
+        grouped.setdefault(key, []).append(event)
+
+    thread_summaries: list[dict[str, Any]] = []
+    for index, (thread_key, thread_events) in enumerate(grouped.items(), start=1):
+        thread_events.sort(key=lambda item: item.get("published_at") or now_wib())
+        latest_event = thread_events[-1]
+        top_theme = (latest_event.get("policy_themes") or ["general"])[0]
+        institution = thread_institution_label(latest_event)
+        entity = thread_entity_label(latest_event)
+        category_family = thread_category_family(latest_event)
+        focus = thread_focus_label(latest_event)
+        thread_id = f"thr_{normalize_thread_token(thread_key, fallback=str(index))[:72]}"
+        thread_status, contradiction_count, contradiction_summary = summarize_thread_status(thread_events)
+        latest_stage = str(latest_event.get("event_stage") or "unspecified")
+        headline = str(latest_event.get("headline") or "")
+        published_at = latest_event.get("published_at")
+        latest_published_at = published_at if isinstance(published_at, datetime) else now_wib()
+        summary = {
+            "thread_id": thread_id,
+            "thread_key": thread_key,
+            "thread_status": thread_status,
+            "article_count": len(thread_events),
+            "latest_event_stage": latest_stage,
+            "latest_headline": headline,
+            "latest_published_at": latest_published_at,
+            "contradiction_count": contradiction_count,
+            "contradiction_summary": contradiction_summary,
+            "top_theme": top_theme,
+            "institution": institution,
+            "entity": entity,
+            "category": category_family,
+            "focus": focus,
+        }
+        thread_summaries.append(summary)
+        for event in thread_events:
+            event["thread_id"] = thread_id
+            event["thread_status"] = thread_status
+            event["thread_key"] = thread_key
+            event["thread_contradiction_count"] = contradiction_count
+            event["thread_latest_event_stage"] = latest_stage
+
+    thread_summaries.sort(
+        key=lambda item: (
+            THREAD_STATUS_RANK.get(str(item.get("thread_status")), 0),
+            int(item.get("contradiction_count", 0)),
+            item.get("latest_published_at") or now_wib(),
+            int(item.get("article_count", 0)),
+        ),
+        reverse=True,
+    )
+    return thread_summaries
+
+
+
+
 def build_event_tracking(events: list[dict[str, Any]], window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     normalized_window = normalize_event_window(window)
+    event_threads = group_articles_into_threads(events)
     buckets: dict[str, dict[str, Any]] = {}
     theme_counts: dict[str, int] = {}
     source_counts: dict[str, int] = {}
@@ -1259,6 +2227,8 @@ def build_event_tracking(events: list[dict[str, Any]], window: str = DEFAULT_EVE
     strongest_day = max(timeline, key=lambda item: (item["event_count"], item["max_significance"]), default=None)
     total_events = len(events)
     avg_significance = round(sum(float(event.get("significance", 0.0)) for event in events) / total_events, 3) if total_events else 0.0
+    contested_thread_count = sum(1 for thread in event_threads if thread.get("thread_status") in {"contested", "reversed"})
+    reversed_thread_count = sum(1 for thread in event_threads if thread.get("thread_status") == "reversed")
     return {
         "window": normalized_window,
         "window_label": event_window_label(normalized_window),
@@ -1268,10 +2238,73 @@ def build_event_tracking(events: list[dict[str, Any]], window: str = DEFAULT_EVE
         "top_categories": top_categories,
         "summary": {
             "total_events": total_events,
+            "thread_count": len(event_threads),
+            "contested_thread_count": contested_thread_count,
+            "reversed_thread_count": reversed_thread_count,
             "avg_significance": avg_significance,
             "strongest_day": strongest_day,
             "strongest_theme": top_themes[0] if top_themes else None,
         },
+    }
+
+
+
+def build_reasoning_summary(events: list[dict[str, Any]], event_threads: list[dict[str, Any]], stocks: list[dict[str, Any]]) -> dict[str, Any]:
+    def bump(counts: dict[str, int], key: str, *, fallback: str = "unknown") -> None:
+        normalized = str(key or fallback).strip() or fallback
+        counts[normalized] = counts.get(normalized, 0) + 1
+
+    relevance_counts: dict[str, int] = {}
+    stage_counts: dict[str, int] = {}
+    thread_counts: dict[str, int] = {}
+    validation_counts: dict[str, int] = {}
+    direction_counts: dict[str, int] = {}
+
+    for event in events:
+        bump(relevance_counts, event.get("relevance_label"), fallback="not_political")
+        bump(stage_counts, event.get("event_stage"), fallback="unspecified")
+        for relationship in event.get("stock_relationships", []):
+            bump(validation_counts, relationship.get("validation_status"), fallback="unvalidated")
+            bump(direction_counts, relationship.get("impact_direction"), fallback="neutral")
+
+    for thread in event_threads:
+        bump(thread_counts, thread.get("thread_status"), fallback="active")
+
+    def to_buckets(counts: dict[str, int], *, order: list[str] | None = None) -> list[dict[str, Any]]:
+        ordered_keys = order or []
+        seen = set()
+        buckets: list[dict[str, Any]] = []
+        for key in ordered_keys:
+            if key in counts:
+                buckets.append({"name": key, "count": counts[key]})
+                seen.add(key)
+        for name, count in sorted(counts.items(), key=lambda item: (item[1], item[0]), reverse=True):
+            if name in seen:
+                continue
+            buckets.append({"name": name, "count": count})
+        return buckets[:5]
+
+    confirmed = validation_counts.get("confirmed", 0)
+    predicted = validation_counts.get("predicted_only", 0)
+    insufficient = validation_counts.get("insufficient_data", 0)
+    contested = thread_counts.get("contested", 0)
+    reversed_threads = thread_counts.get("reversed", 0)
+    summary_bits = [
+        f"{confirmed} confirmed links" if confirmed else None,
+        f"{predicted} predicted-only links" if predicted else None,
+        f"{insufficient} insufficient-data links" if insufficient else None,
+        f"{contested} contested threads" if contested else None,
+        f"{reversed_threads} reversed threads" if reversed_threads else None,
+    ]
+    summary_line = " · ".join(bit for bit in summary_bits if bit) or "No reasoning summary yet"
+
+    return {
+        "summary_line": summary_line,
+        "relevance_breakdown": to_buckets(relevance_counts, order=["political", "maybe", "not_political"]),
+        "stage_breakdown": to_buckets(stage_counts, order=["proposal", "debate", "approved", "effective", "enforced", "delayed", "revoked", "unspecified"]),
+        "thread_breakdown": to_buckets(thread_counts, order=["active", "confirmed", "contested", "reversed"]),
+        "validation_breakdown": to_buckets(validation_counts, order=["confirmed", "predicted_only", "rejected", "insufficient_data", "unvalidated"]),
+        "direction_breakdown": to_buckets(direction_counts, order=["positive", "negative", "neutral", "mixed"]),
     }
 
 
@@ -1311,10 +2344,28 @@ def build_refresh_payload(
     analyzed_articles = [analyze_article(article, watchlist, normalized_window) for article in articles]
     analyzed_articles.sort(key=lambda article: (article.get("significance", 0.0), article.get("published_at") or now_wib()), reverse=True)
     meaningful_events = [article for article in analyzed_articles if float(article.get("significance", 0.0)) > 0.05]
-    events = (meaningful_events or analyzed_articles)[:10]
+    ranked_events = meaningful_events or analyzed_articles
+    event_threads = group_articles_into_threads(ranked_events)
+    events = ranked_events[:10]
 
     quotes, stock_warnings = stock_fetcher(watchlist)
     market_index, market_warnings = market_fetcher()
+    validation_warnings: list[str] = []
+    validation_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    for event in events:
+        for relationship in event.get("stock_relationships", []):
+            ticker = normalize_ticker(relationship.get("ticker", ""))
+            validation = validate_market_reaction(
+                event,
+                ticker,
+                quotes.get(ticker),
+                relationship,
+                series_cache=validation_cache,
+            )
+            relationship.update(validation)
+            for warning in validation.get("validation_warnings", []):
+                if warning:
+                    validation_warnings.append(f"{ticker} validation: {warning}")
     stocks: list[dict[str, Any]] = []
     for ticker in watchlist:
         quote = quotes.get(ticker)
@@ -1348,12 +2399,23 @@ def build_refresh_payload(
                 "confidence": strongest_link[1].get("confidence") if strongest_link else 0.0,
                 "rationale": strongest_link[1].get("rationale") if strongest_link else "No evidence-backed political link in current batch.",
                 "policy_channel": strongest_link[1].get("policy_channel") if strongest_link else None,
+                "matched_policy_channels": strongest_link[1].get("matched_policy_channels") if strongest_link else [],
+                "channel_confidence": strongest_link[1].get("channel_confidence") if strongest_link else 0.0,
+                "impact_direction": strongest_link[1].get("impact_direction") if strongest_link else "neutral",
+                "direction_rationale": strongest_link[1].get("direction_rationale") if strongest_link else "",
+                "exposure_factors": strongest_link[1].get("exposure_factors") if strongest_link else knowledge.get("exposure_factors", {}),
                 "knowledge_summary": strongest_link[1].get("knowledge_summary") if strongest_link else knowledge.get("summary", ""),
                 "company_evidence": strongest_link[1].get("company_evidence") if strongest_link else knowledge.get("evidence", []),
                 "article_source_type": strongest_link[1].get("article_source_type") if strongest_link else None,
                 "article_evidence_rank": strongest_link[1].get("article_evidence_rank") if strongest_link else None,
                 "company_evidence_rank": strongest_link[1].get("company_evidence_rank") if strongest_link else max((item.get("quality_rank", 0.0) for item in knowledge.get("evidence", [])), default=0.0),
                 "evidence_label": strongest_link[1].get("evidence_label") if strongest_link else None,
+                "validation_status": strongest_link[1].get("validation_status") if strongest_link else "unvalidated",
+                "validation_window": strongest_link[1].get("validation_window") if strongest_link else None,
+                "abnormal_return": strongest_link[1].get("abnormal_return") if strongest_link else 0.0,
+                "abnormal_volume_ratio": strongest_link[1].get("abnormal_volume_ratio") if strongest_link else 0.0,
+                "validation_score": strongest_link[1].get("validation_score") if strongest_link else 0.0,
+                "validation_reason": strongest_link[1].get("validation_reason") if strongest_link else "",
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
@@ -1377,6 +2439,10 @@ def build_refresh_payload(
                 "policy_themes": event.get("policy_themes", []),
                 "policy_channels": event.get("policy_channels", []),
                 "stock_relationships": event.get("stock_relationships", []),
+                "event_stage": event.get("event_stage", "unspecified"),
+                "thread_id": event.get("thread_id"),
+                "thread_status": event.get("thread_status", "active"),
+                "thread_contradiction_count": event.get("thread_contradiction_count", 0),
                 "confidence": event.get("confidence", 0.0),
                 "window": normalized_window,
                 "significance": event.get("significance", 0.0),
@@ -1384,8 +2450,9 @@ def build_refresh_payload(
         )
 
     sector_summary = compute_sector_summary(stocks)
-    tracking = build_event_tracking(events, normalized_window)
-    warnings = news_warnings + stock_warnings + market_warnings
+    tracking = build_event_tracking(ranked_events, normalized_window)
+    reasoning_summary = build_reasoning_summary(events, event_threads, stocks)
+    warnings = news_warnings + stock_warnings + market_warnings + validation_warnings
     if not articles:
         warnings.append("No live articles available.")
     if not quotes:
@@ -1400,6 +2467,17 @@ def build_refresh_payload(
         "window_label": event_window_label(normalized_window),
         "watchlist": watchlist,
         "events": formatted_events,
+        "event_threads": [
+            {
+                **thread,
+                "latest_published_at": thread.get("latest_published_at").isoformat(timespec="seconds") if isinstance(thread.get("latest_published_at"), datetime) else str(thread.get("latest_published_at") or ""),
+            }
+            for thread in event_threads
+        ],
+        "displayed_event_count": len(formatted_events),
+        "total_event_count": len(ranked_events),
+        "hidden_event_count": max(0, len(ranked_events) - len(formatted_events)),
+        "reasoning_summary": reasoning_summary,
         "stocks": stocks,
         "sector_summary": sector_summary,
         "tracking": tracking,
@@ -1451,7 +2529,12 @@ def api_get_watchlist() -> dict[str, Any]:
 def api_dashboard(window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     watchlist = get_watchlist()
     payload = build_refresh_payload(watchlist, force=False, window=window)
-    return {"watchlist": watchlist, "payload": payload}
+    return {"watchlist": watchlist, "reasoning_summary": payload.get("reasoning_summary", {}), "payload": payload}
+
+
+@app.get("/api/ticker/{ticker}")
+def api_ticker_detail(ticker: str, window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
+    return fetch_ticker_history(ticker, window)
 
 
 @app.put("/api/watchlist")
@@ -1480,6 +2563,10 @@ def reset_runtime_state() -> None:
         pass
     COMPANY_KNOWLEDGE.clear()
     COMPANY_KNOWLEDGE.update(load_company_knowledge_from_disk())
+    POLICY_SIGNAL_RULES.clear()
+    POLICY_SIGNAL_RULES.update(load_policy_signal_rules())
+    MARKET_VALIDATION_CONFIG.clear()
+    MARKET_VALIDATION_CONFIG.update(load_market_validation_config())
     with CACHE_LOCK:
         CACHE.clear()
 
