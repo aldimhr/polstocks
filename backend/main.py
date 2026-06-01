@@ -745,6 +745,7 @@ def merge_duplicate_articles(articles: list[dict[str, Any]]) -> list[dict[str, A
                 "latest_published_at": latest_published_at,
             }
         )
+        canonical.update(source_quality_metrics_for_article(canonical))
         merged_articles.append(canonical)
 
     merged_articles.sort(key=lambda article: (article.get("published_at") or now_wib(), _article_merge_priority(article)), reverse=True)
@@ -907,6 +908,82 @@ def source_quality_score_for_profile(profile: dict[str, Any]) -> float:
         trust_weight = 0.5
     tier_factor = clamp((5 - tier) / 4.0, 0.25, 1.0)
     return round(clamp(trust_weight, 0.0, 1.0) * tier_factor, 3)
+
+
+def source_freshness_score(published_at: datetime | None, source_profile: dict[str, Any] | None = None) -> float:
+    if not isinstance(published_at, datetime):
+        return 0.5
+    profile = source_profile or {}
+    source_type = str(profile.get("source_type") or "other")
+    age_hours = max(0.0, (now_wib() - published_at).total_seconds() / 3600.0)
+    half_life = profile.get("freshness_half_life_hours", 0.0)
+    try:
+        half_life = float(half_life)
+    except Exception:
+        half_life = 0.0
+    if half_life <= 0:
+        half_life = {
+            "government": 120.0,
+            "regulator": 96.0,
+            "company": 84.0,
+            "media": 48.0,
+            "profile": 36.0,
+            "other": 24.0,
+        }.get(source_type, 36.0)
+    decay = 0.5 ** (age_hours / max(half_life, 1.0))
+    floor = {
+        "government": 0.35,
+        "regulator": 0.3,
+        "company": 0.25,
+        "media": 0.15,
+        "profile": 0.12,
+        "other": 0.1,
+    }.get(source_type, 0.15)
+    if age_hours <= 0:
+        return 1.0
+    return round(clamp(decay, floor, 1.0), 3)
+
+
+def source_quality_metrics_for_article(article: dict[str, Any]) -> dict[str, Any]:
+    profile = article.get("source_profile", {}) if isinstance(article.get("source_profile", {}), dict) else {}
+    if not profile:
+        profile = source_metadata_for(str(article.get("source") or ""), str(article.get("url") or "")).get("source_profile", {})
+    published_at = article.get("latest_published_at") if isinstance(article.get("latest_published_at"), datetime) else article.get("published_at")
+    source_type = str(article.get("source_type") or profile.get("source_type") or infer_source_type(str(article.get("source") or ""), str(article.get("url") or "")))
+    base_quality = float(article.get("source_quality_score", source_quality_score_for_profile(profile)) or 0.0)
+    freshness = source_freshness_score(published_at if isinstance(published_at, datetime) else None, profile)
+    try:
+        duplicate_count = max(1, int(article.get("duplicate_count", 1) or 1))
+    except Exception:
+        duplicate_count = 1
+    duplicate_penalty = 1.0 / (1.0 + 0.22 * max(0, duplicate_count - 1))
+    relevance_score = float(article.get("relevance_score", 0.0) or 0.0)
+    relevance_label = str(article.get("relevance_label", "") or "")
+    event_stage = str(article.get("event_stage", "") or "")
+    direct_language_bonus = 1.0
+    if source_type in {"government", "regulator", "company"} and relevance_score >= 0.5 and relevance_label != "not_political":
+        direct_language_bonus += 0.08
+    if event_stage in {"approved", "effective", "enforced", "revoked"}:
+        direct_language_bonus += 0.05
+    if source_type in {"media", "profile", "other"} and relevance_label in {"maybe", "not_political"}:
+        direct_language_bonus -= 0.08
+    source_quality = clamp(base_quality * (0.55 + 0.45 * freshness) * duplicate_penalty * direct_language_bonus, 0.0, 1.0)
+    age_hours = 0.0
+    if isinstance(published_at, datetime):
+        age_hours = max(0.0, (now_wib() - published_at).total_seconds() / 3600.0)
+    coverage_warning = ""
+    if freshness < 0.28:
+        coverage_warning = "stale_coverage"
+    elif duplicate_count > 1 and source_quality < 0.65:
+        coverage_warning = "duplicated_coverage"
+    elif source_quality < 0.35:
+        coverage_warning = "thin_source_coverage"
+    return {
+        "source_age_hours": round(age_hours, 1),
+        "source_freshness_score": round(freshness, 3),
+        "source_quality_score": round(source_quality, 3),
+        "coverage_warning": coverage_warning,
+    }
 
 
 def source_metadata_for(source_name: str = "", url: str = "") -> dict[str, Any]:
@@ -1811,7 +1888,9 @@ def policy_specificity_score(categories: list[str], themes: list[dict[str, Any]]
 def evidence_quality_score(article: dict[str, Any], themes: list[dict[str, Any]], direct_alias_hit: bool, company_evidence: list[dict[str, Any]] | None = None) -> float:
     article_source_rank = source_type_rank(article.get("source_type"))
     company_rank = max((float(item.get("quality_rank") or source_type_rank(item.get("source_type"))) for item in (company_evidence or [])), default=0.0)
-    base = 0.8 + 0.45 * article_source_rank + 0.2 * max(float(article.get("source_weight") or 0.0), 0.4)
+    source_quality = clamp(float(article.get("source_quality_score", 0.0) or 0.0), 0.0, 1.0)
+    source_freshness = clamp(float(article.get("source_freshness_score", source_quality) or 0.0), 0.0, 1.0)
+    base = 0.6 + 0.32 * article_source_rank + 0.55 * source_quality + 0.3 * source_freshness + 0.2 * max(float(article.get("source_weight") or 0.0), 0.4)
     if article.get("url"):
         base += 0.2
     if len(themes) >= 2:
@@ -2196,8 +2275,11 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
     for theme in themes:
         sector_hits.update(theme["sectors"])
 
+    article_quality = source_quality_metrics_for_article(article)
+    article_context = {**article, **article_quality}
+
     stock_relationships = build_stock_relationships(
-        article=article,
+        article=article_context,
         watchlist=watchlist,
         categories=categories or ["PARLIAMENT_SESSION"],
         sector_hits=sector_hits,
@@ -2233,12 +2315,13 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
     )
     if article.get("source_weight"):
         confidence = clamp(confidence * float(article["source_weight"]), 0.0, 1.0)
+    confidence = clamp(confidence * (0.55 + 0.45 * float(article_context.get("source_quality_score", 0.5))), 0.0, 1.0)
 
     _, recency_weight = recency_weight_for_article(article, window)
     avg_relevance = sum(link["relevance_score"] for link in stock_relationships) / len(stock_relationships) if stock_relationships else 0.0
 
     return {
-        **article,
+        **article_context,
         "sentiment": sentiment,
         "sentiment_score": round(sentiment_score, 3),
         "relevance_score": relevance.get("relevance_score", 0.0),
@@ -2262,7 +2345,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         "confidence": round(confidence, 3),
         "recency_weight": round(recency_weight, 3),
         "window": normalize_event_window(window),
-        "significance": round((0.35 + abs(sentiment_score) + avg_relevance / 5.0) * float(relevance.get("relevance_score", 0.0)) * confidence * recency_weight * 0.45, 3),
+        "significance": round((0.35 + abs(sentiment_score) + avg_relevance / 5.0) * float(relevance.get("relevance_score", 0.0)) * confidence * recency_weight * (0.55 + 0.45 * float(article_context.get("source_quality_score", 0.5))) * 0.45, 3),
     }
 
 
@@ -2692,7 +2775,7 @@ def build_refresh_payload(
     watchlist = list(dict.fromkeys(requested))
     analyzed_articles = [analyze_article(article, watchlist, normalized_window) for article in articles]
     analyzed_articles.sort(key=lambda article: (article.get("significance", 0.0), article.get("published_at") or now_wib()), reverse=True)
-    meaningful_events = [article for article in analyzed_articles if float(article.get("significance", 0.0)) > 0.05]
+    meaningful_events = [article for article in analyzed_articles if float(article.get("significance", 0.0)) > 0.015]
     ranked_events = meaningful_events or analyzed_articles
     event_threads = group_articles_into_threads(ranked_events)
     events = ranked_events[:10]
@@ -2795,6 +2878,10 @@ def build_refresh_payload(
                 "confidence": event.get("confidence", 0.0),
                 "window": normalized_window,
                 "significance": event.get("significance", 0.0),
+                "source_age_hours": event.get("source_age_hours", 0.0),
+                "source_freshness_score": event.get("source_freshness_score", 0.0),
+                "source_quality_score": event.get("source_quality_score", 0.0),
+                "coverage_warning": event.get("coverage_warning", ""),
             }
         )
 
@@ -2802,6 +2889,13 @@ def build_refresh_payload(
     tracking = build_event_tracking(ranked_events, normalized_window)
     reasoning_summary = build_reasoning_summary(events, event_threads, stocks)
     warnings = news_warnings + stock_warnings + market_warnings + validation_warnings
+    coverage_warnings = sorted({str(event.get("coverage_warning", "")).strip() for event in events if str(event.get("coverage_warning", "")).strip()})
+    if "stale_coverage" in coverage_warnings:
+        warnings.append("Some article coverage is stale; fresher evidence would improve confidence.")
+    if "thin_source_coverage" in coverage_warnings:
+        warnings.append("Some article coverage is thin; the current thread may need more independent sources.")
+    if "duplicated_coverage" in coverage_warnings:
+        warnings.append("Some article coverage is duplicated across mirrored sources.")
     if not articles:
         warnings.append("No live articles available.")
     if not quotes:

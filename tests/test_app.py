@@ -418,8 +418,8 @@ def test_merge_duplicate_articles_collapses_source_coverage_and_keeps_latest_pub
     articles = [
         {
             "source": "Setkab",
-            "headline": "Pemerintah resmi sahkan peraturan subsidi rumah",
-            "url": "https://setkab.go.id/berita/peraturan-subsidi-rumah?utm_source=rss",
+            "headline": "Pemerintah resmi sahkan subsidi rumah dan relaksasi KPR",
+            "url": "https://setkab.go.id/berita/subsidi-rumah/?utm_source=rss",
             "published_at": earlier,
             "summary": "Pemerintah menetapkan peraturan baru dan resmi mengumumkan program subsidi rumah berlaku tahun ini.",
             "source_weight": 1.0,
@@ -430,8 +430,8 @@ def test_merge_duplicate_articles_collapses_source_coverage_and_keeps_latest_pub
         },
         {
             "source": "Antara News",
-            "headline": "Pemerintah resmi sahkan peraturan subsidi rumah",
-            "url": "https://www.antaranews.com/ekonomi/2026/06/01/peraturan-subsidi-rumah?ref=amp",
+            "headline": "Pemerintah resmi sahkan subsidi rumah dan relaksasi KPR",
+            "url": "https://www.antaranews.com/ekonomi/subsidi-rumah/amp",
             "published_at": latest,
             "summary": "Pemerintah menetapkan peraturan baru dan resmi mengumumkan program subsidi rumah berlaku tahun ini.",
             "source_weight": 0.86,
@@ -441,16 +441,89 @@ def test_merge_duplicate_articles_collapses_source_coverage_and_keeps_latest_pub
             "source_quality_score": 0.54,
         },
     ]
-
-    merged = appmod.dedupe_articles(articles, window="7d")
+    merged = appmod.merge_duplicate_articles(articles)
     assert len(merged) == 1
     item = merged[0]
     assert item["duplicate_count"] == 2
-    assert set(item["source_names"]) == {"Setkab", "Antara News"}
-    assert item["alternate_urls"] == ["https://www.antaranews.com/ekonomi/2026/06/01/peraturan-subsidi-rumah"]
-    assert item["canonical_url"] == "https://setkab.go.id/berita/peraturan-subsidi-rumah"
     assert item["latest_published_at"] == latest
+    assert item["canonical_url"] == "https://setkab.go.id/berita/subsidi-rumah"
+    assert set(item["source_names"]) == {"Setkab", "Antara News"}
+    assert "https://www.antaranews.com/ekonomi/subsidi-rumah" in item["source_urls"]
     assert item["source_profile"]["canonical_name"] == "Setkab"
+
+
+def test_source_freshness_and_quality_score_decay_with_age_and_duplicates():
+    profile = appmod.source_profile_for_name("Setkab")
+    fresh_score = appmod.source_freshness_score(appmod.now_wib(), profile)
+    stale_score = appmod.source_freshness_score(appmod.now_wib() - timedelta(days=6), profile)
+    assert fresh_score > stale_score
+    assert fresh_score > 0.9
+    assert stale_score < 0.5
+
+    fresh_article = {
+        "source": "Setkab",
+        "headline": "Pemerintah resmi sahkan subsidi rumah dan relaksasi KPR",
+        "url": "https://setkab.go.id/berita/subsidi-rumah",
+        "published_at": appmod.now_wib(),
+        "summary": "Pemerintah menetapkan peraturan baru dan resmi mengumumkan program subsidi rumah berlaku tahun ini.",
+        **appmod.source_metadata_for("Setkab", "https://setkab.go.id/berita/subsidi-rumah"),
+    }
+    stale_commentary_article = {
+        "source": "Lifestyle Blog",
+        "headline": "Pengamat optimistis ekonomi digital tetap cerah",
+        "url": "https://example.com/article-opinion",
+        "published_at": appmod.now_wib() - timedelta(days=8),
+        "summary": "Artikel opini umum yang menyebut pemerintah sekali tanpa aksi kebijakan atau aturan spesifik.",
+        "source_weight": 0.3,
+        **appmod.source_metadata_for("Lifestyle Blog", "https://example.com/article-opinion"),
+    }
+    fresh_analyzed = appmod.analyze_article(fresh_article, ["BSDE.JK"], window="30d")
+    stale_analyzed = appmod.analyze_article(stale_commentary_article, ["BSDE.JK"], window="30d")
+
+    assert fresh_analyzed["source_quality_score"] > stale_analyzed["source_quality_score"]
+    assert fresh_analyzed.get("coverage_warning") in {None, ""}
+    assert stale_analyzed["coverage_warning"] == "stale_coverage"
+
+    merged = appmod.merge_duplicate_articles([
+        fresh_article,
+        {
+            **fresh_article,
+            "url": "https://www.antaranews.com/ekonomi/subsidi-rumah/amp?utm_source=twitter",
+            "source": "Antara News",
+            "source_quality_score": 0.54,
+            **appmod.source_metadata_for("Antara News", "https://www.antaranews.com/ekonomi/subsidi-rumah/amp?utm_source=twitter"),
+        },
+    ])
+    assert merged[0]["duplicate_count"] == 2
+    assert merged[0]["source_quality_score"] <= fresh_analyzed["source_quality_score"]
+
+
+def test_refresh_payload_flags_stale_source_coverage(monkeypatch):
+    stale_article = {
+        "source": "Antara Mirror",
+        "headline": "Pemerintah, DPR, dan OJK terbitkan aturan subsidi rumah baru",
+        "url": "https://example.com/article-stale",
+        "published_at": appmod.now_wib() - timedelta(days=9),
+        "summary": "Pemerintah dan DPR menerbitkan peraturan baru, disahkan kabinet, dan OJK mengumumkan kebijakan relaksasi KPR serta subsidi rumah berlaku setelah evaluasi.",
+        **appmod.source_metadata_for("Antara Mirror", "https://example.com/article-stale"),
+    }
+
+    def stale_news_fetcher():
+        return [stale_article], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["BBCA", "BSDE"],
+        window="30d",
+        news_fetcher=stale_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    assert payload["events"]
+    assert payload["events"][0]["coverage_warning"] == "stale_coverage"
+    assert any("stale" in warning.lower() for warning in payload["warnings"])
+
 
 
 def test_html_source_reports_when_no_article_links_are_extracted(monkeypatch):

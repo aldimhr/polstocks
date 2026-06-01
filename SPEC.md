@@ -98,8 +98,9 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 | F-34 | Named entities SHALL be extracted: persons, organizations, commodities, laws |
 | F-35 | Each article SHALL be mapped to one or more IDX sectors based on content |
 | F-36 | An impact score SHALL be computed per (article, ticker) pair (see Section 7) |
-| F-37 | NLP processing SHALL complete within 10 seconds for a batch of 100 articles |
-| F-38 | Each surviving (article, ticker) relationship SHALL carry a market-validation result that distinguishes text prediction from observed price/volume follow-through |
+|| F-37 | NLP processing SHALL complete within 10 seconds for a batch of 100 articles |
+|| F-38 | Each surviving (article, ticker) relationship SHALL carry a market-validation result that distinguishes text prediction from observed price/volume follow-through |
+|| F-39 | Each article SHALL expose source freshness and quality metadata, including `source_freshness_score`, `source_quality_score`, and a coverage warning when the evidence is stale, thin, or duplicated |
 
 ### 4.5 Dashboard Display
 
@@ -156,6 +157,7 @@ ImpactScore(article, ticker) =
     sentiment_score                    ← -1.0 to +1.0
   × relationship_relevance             ← stock-link score from specificity + transmission + evidence
   × relationship_confidence            ← 0.0 to 1.0
+  × source_quality_factor              ← freshness-aware source quality with duplicate penalty
   × relationship_type_multiplier       ← direct / indirect / thematic
 
 Political relevance gating happens before ticker scoring:

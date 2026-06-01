@@ -8,6 +8,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.86,
+      "freshness_half_life_hours": 60,
       "country_focus": "id",
       "notes": "National wire service with broad factual coverage and frequent political/economic reporting."
     },
@@ -19,6 +20,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.84,
+      "freshness_half_life_hours": 48,
       "country_focus": "mixed",
       "notes": "Business-first media outlet; useful for market reaction and policy business context."
     },
@@ -30,6 +32,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.78,
+      "freshness_half_life_hours": 48,
       "country_focus": "id",
       "notes": "General national media; useful for supplemental coverage but not an authority source."
     },
@@ -41,6 +44,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.82,
+      "freshness_half_life_hours": 72,
       "country_focus": "id",
       "notes": "Major national newspaper with strong editorial standards and wide political coverage."
     },
@@ -52,6 +56,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.8,
+      "freshness_half_life_hours": 48,
       "country_focus": "id",
       "notes": "High-volume finance desk; strong for fast market and policy follow-up reporting."
     },
@@ -63,6 +68,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.79,
+      "freshness_half_life_hours": 72,
       "country_focus": "id",
       "notes": "Investigative and analytical outlet; often useful for longer-form policy context."
     },
@@ -74,6 +80,7 @@
       "source_type": "media",
       "tier": 3,
       "trust_weight": 0.77,
+      "freshness_half_life_hours": 48,
       "country_focus": "id",
       "notes": "Mainstream national news source with business and politics coverage."
     },
@@ -85,6 +92,7 @@
       "source_type": "government",
       "tier": 1,
       "trust_weight": 1.0,
+      "freshness_half_life_hours": 120,
       "country_focus": "id",
       "notes": "Official cabinet publication; primary source for executive announcements and policy decisions."
     },
@@ -96,6 +104,7 @@
       "source_type": "regulator",
       "tier": 1,
       "trust_weight": 0.98,
+      "freshness_half_life_hours": 96,
       "country_focus": "id",
       "notes": "Primary financial regulator source for rules, circulars, supervision, and enforcement updates."
     },
@@ -107,6 +116,7 @@
       "source_type": "regulator",
       "tier": 1,
       "trust_weight": 0.97,
+      "freshness_half_life_hours": 96,
       "country_focus": "id",
       "notes": "Official anti-corruption authority; strongest source for enforcement and investigative disclosures."
     }
