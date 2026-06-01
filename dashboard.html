@@ -599,6 +599,14 @@
   .footer-sources {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .footer-source-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
   }
 
   .src-tag {
@@ -1391,6 +1399,35 @@
     return chips.join('');
   }
 
+  function renderConflictBadges(meta = {}) {
+    const chips = [];
+    const sourceConflict = Boolean(meta?.source_conflict) || Number(meta?.source_conflict_count || 0) > 0;
+    const threadStatus = String(meta?.thread_status || '').trim().toLowerCase();
+    const contradictions = Number(meta?.thread_contradiction_count ?? meta?.contradiction_count ?? 0);
+    if (sourceConflict) chips.push('<span class="reasoning-chip warn">Conflicting signals</span>');
+    if (['contested', 'reversed'].includes(threadStatus) || contradictions > 0) {
+      chips.push(`<span class="reasoning-chip ${threadStatus === 'reversed' ? 'neg' : 'warn'}">Contested thread</span>`);
+    }
+    return chips.join('');
+  }
+
+  function renderSourceDiagnosticBadges(source = {}) {
+    const chips = [];
+    const status = String(source?.status || '').trim().toLowerCase();
+    const resolutionMethod = String(source?.resolution_method || '').trim().toLowerCase();
+    const fallbackCount = Number(source?.date_fallback_count || 0);
+    if (resolutionMethod.startsWith('registry_') || source?.used_registry_profile) {
+      chips.push('<span class="src-tag">Registry matched</span>');
+    }
+    if (status && status !== 'ok') {
+      chips.push('<span class="src-tag">Source issue</span>');
+    }
+    if (fallbackCount > 0) {
+      chips.push('<span class="src-tag">Date fallback</span>');
+    }
+    return chips.join('');
+  }
+
   function renderReasoningSummary(reasoning) {
     const root = $('reasoningStrip');
     if (!root) return;
@@ -1587,12 +1624,13 @@
       const changeClass = Number.isFinite(change) && change > 0 ? 'up' : Number.isFinite(change) && change < 0 ? 'down' : 'flat';
       const impactClass = impact > 0 ? 'pos' : impact < 0 ? 'neg' : 'neu';
       const provenanceBadges = renderProvenanceBadges(stock);
+      const conflictBadges = renderConflictBadges(stock);
       const linkMeta = stock.relationship_type
         ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
         : 'No strong policy link';
       const directionChip = renderReasoningChip('Direction', stock.impact_direction || 'neutral', 'direction');
       const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
-      const reasoningLine = [directionChip, validationChip].filter(Boolean).join(' ');
+      const reasoningLine = [directionChip, validationChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationMeta = stock.validation_status
         ? `${escapeHtml(labelText(stock.validation_status))}${stock.validation_window ? ` · ${escapeHtml(stock.validation_window)}` : ''}${Number.isFinite(Number(stock.validation_score)) ? ` · score ${Number(stock.validation_score || 0).toFixed(2)}` : ''}`
@@ -1617,10 +1655,16 @@
     }
     root.innerHTML = rows.map((event) => {
       const provenanceBadges = renderProvenanceBadges(event);
+      const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
+      const conflictBadges = renderConflictBadges({
+        thread_status: event.thread_status,
+        thread_contradiction_count: event.thread_contradiction_count,
+        source_conflict: topLink?.source_conflict,
+        source_conflict_count: topLink?.source_conflict_count,
+      });
       const cats = (event.categories || []).slice(0, 3).map((c) => `<span class="cat-tag">${escapeHtml(String(c).replaceAll('_', ' '))}</span>`).join(' ');
       const themes = (event.policy_themes || []).slice(0, 2).map((t) => `<span class="cat-tag">${escapeHtml(String(t).replaceAll('_', ' '))}</span>`).join(' ');
       const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
-      const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
       const eventUrl = safeArticleUrl(event.url || topLink?.url || '');
       const eventTagOpen = eventUrl
         ? `<a class="event-item event-link ${Number(event.significance || 0) > 0.2 ? 'high-impact' : ''}" href="${escapeHtml(eventUrl)}" aria-label="Open article: ${escapeHtml(event.headline || '')}" title="${escapeHtml(topLink?.rationale || '')}">`
@@ -1634,7 +1678,7 @@
       const threadBadge = renderReasoningChip('Thread', event.thread_status || 'active', 'thread');
       const directionBadge = renderReasoningChip('Direction', topLink?.impact_direction || 'neutral', 'direction');
       const validationBadge = renderReasoningChip('Validation', topLink?.validation_status || 'unvalidated', 'validation');
-      const reasoningBadges = [relevanceBadge, stageBadge, threadBadge, directionBadge, validationBadge].filter(Boolean).join(' ');
+      const reasoningBadges = [relevanceBadge, stageBadge, threadBadge, directionBadge, validationBadge, conflictBadges].filter(Boolean).join(' ');
       const threadLine = event.thread_id
         ? `Thread: ${event.thread_status || 'active'} · ${event.thread_id}${Number(event.thread_contradiction_count || 0) > 0 ? ` · contradictions ${Number(event.thread_contradiction_count || 0)}` : ''}`
         : 'Thread: standalone coverage';
@@ -1705,7 +1749,14 @@
   function renderSources(sources, events) {
     const root = $('sourceTags');
     const list = Array.isArray(sources) && sources.length ? sources : [...new Set((events || []).map((e) => e.source).filter(Boolean))];
-    root.innerHTML = list.length ? list.map((src) => `<span class="src-tag">${escapeHtml(src)}</span>`).join('') : '<span class="src-tag">No sources</span>';
+    root.innerHTML = list.length ? list.map((src) => {
+      if (src && typeof src === 'object') {
+        const sourceName = src.name || 'Unknown source';
+        const detailBadges = renderSourceDiagnosticBadges(src);
+        return `<span class="footer-source-group"><span class="src-tag">${escapeHtml(sourceName)}</span>${detailBadges}</span>`;
+      }
+      return `<span class="src-tag">${escapeHtml(src)}</span>`;
+    }).join('') : '<span class="src-tag">No sources</span>';
   }
 
   function sparklinePath(series, width = 560, height = 80) {

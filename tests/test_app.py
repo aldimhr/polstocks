@@ -689,6 +689,8 @@ def test_dashboard_contains_runtime_hooks():
         'safeArticleUrl(',
         'event-link',
         'renderProvenanceBadges(',
+        'renderConflictBadges(',
+        'renderSourceDiagnosticBadges(',
         'provenance-chips',
         'Official',
         'Fresh',
@@ -696,6 +698,10 @@ def test_dashboard_contains_runtime_hooks():
         'Duplicated coverage',
         'High confidence',
         'Needs more evidence',
+        'Conflicting signals',
+        'Contested thread',
+        'Source issue',
+        'Date fallback',
     ]:
         assert snippet in dashboard_html
 
