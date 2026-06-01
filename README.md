@@ -9,7 +9,7 @@ A lightweight Indonesia political-stock impact dashboard that follows the simpli
 - source-backed company knowledge layer for stricter policy-to-stock matching
 - scored political relevance classification using `policy_signal_rules.json`
 - event-stage detection and reversal flags for policy articles
-- additive market-validation layer in `market_validation_config.json` to label links as `predicted_only`, `confirmed`, `rejected`, or `insufficient_data`
+- additive market-validation layer in `market_validation_config.json` to label links as `predicted_only`, `confirmed`, `rejected`, or `insufficient_data` and keep the app resilient when market history is missing
 - in-memory cache with 5 minute TTL
 - watchlist endpoints
 - selectable event windows (`24h`, `7d`, `30d`) with tracking summaries

@@ -55,7 +55,7 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 | Backend | FastAPI (Python) | Serves dashboard, orchestrates fetch → NLP → response |
 | RSS Fetcher | `requests` + XML parsing | Pulls latest political news from free RSS feeds |
 | Stock Fetcher | Yahoo Finance chart endpoint | Gets current prices for IDX tickers (`.JK`) and IHSG |
-| NLP Engine | Heuristic rules + scored relevance | Sentiment, political-relevance scoring, sector/theme classification, freshness-aware source quality scoring, and transmission-path directionality in Bahasa Indonesia |
+| NLP Engine | Heuristic rules + scored relevance | Sentiment, political-relevance scoring, sector/theme classification, freshness-aware source quality scoring, additive market-validation, and transmission-path directionality in Bahasa Indonesia |
 | Company Knowledge Layer | `company_knowledge.json` | Stores company-specific policy channels, exposure factors, evidence source types, and evidence URLs |
 | Policy Rules Layer | `policy_signal_rules.json` | Institution/legal/action vocab used by the scored political relevance gate |
 | Market Validation Config | `market_validation_config.json` | Threshold scaffold for later predicted-vs-confirmed market validation |
