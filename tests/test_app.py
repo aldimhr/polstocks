@@ -381,6 +381,48 @@ def test_parse_html_signal_uses_real_publish_time_from_meta():
     assert items[0]["headline"].startswith("Tinggalkan Paris Menuju Jakarta")
 
 
+def test_fetch_source_html_enriches_article_dates_from_article_pages(monkeypatch):
+    homepage_html = """<html>
+      <head>
+        <meta property='article:modified_time' content='2021-08-12T07:55:07+00:00' />
+      </head>
+      <body>
+        <a href='https://setkab.go.id/tinggalkan-paris-menuju-jakarta-presiden-prabowo-akhiri-kunjungan-resmi-kenegaraan-di-prancis/'>
+          Tinggalkan Paris Menuju Jakarta, Presiden Prabowo Akhiri Kunjungan Resmi Kenegaraan di Prancis
+        </a>
+      </body>
+    </html>"""
+    article_html = """<html>
+      <head>
+        <meta property='article:published_time' content='2026-05-29T15:39:22+00:00' />
+      </head>
+      <body>
+        <h1>Tinggalkan Paris Menuju Jakarta, Presiden Prabowo Akhiri Kunjungan Resmi Kenegaraan di Prancis</h1>
+      </body>
+    </html>"""
+
+    class FakeResponse:
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, timeout=None, headers=None):
+        if url == "https://setkab.go.id":
+            return FakeResponse(homepage_html)
+        if url == "https://setkab.go.id/tinggalkan-paris-menuju-jakarta-presiden-prabowo-akhiri-kunjungan-resmi-kenegaraan-di-prancis/":
+            return FakeResponse(article_html)
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    items, warning = appmod.fetch_source({"name": "Sekretariat Kabinet", "url": "https://setkab.go.id", "kind": "html", "weight": 1.0})
+
+    assert warning is None
+    assert len(items) == 1
+    assert items[0]["published_at"] == appmod.parse_datetime("2026-05-29T15:39:22+00:00")
+
+
 def test_source_registry_loader_normalizes_profiles():
     registry = appmod.load_source_registry()
     assert {"sources", "by_name", "by_domain", "by_canonical_domain"}.issubset(registry.keys())

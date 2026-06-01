@@ -1540,6 +1540,22 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
     return deduped
 
 
+def enrich_html_article_dates(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for article in articles:
+        url = str(article.get("url") or "").strip()
+        if not url:
+            continue
+        try:
+            response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
+            response.raise_for_status()
+            published_at = extract_html_published_at(response.text)
+            if published_at:
+                article["published_at"] = published_at
+        except Exception:
+            continue
+    return articles
+
+
 def fetch_source(source: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
     try:
         response = requests.get(source["url"], timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
@@ -1552,7 +1568,7 @@ def fetch_source(source: dict[str, Any]) -> tuple[list[dict[str, Any]], str | No
         articles = parse_html_signal(source, response.text)
         if not articles:
             return [], f"{source['name']}: no article links extracted"
-        return articles, None
+        return enrich_html_article_dates(articles), None
     except Exception as exc:  # pragma: no cover - network failures are expected in some environments
         return [], f"{source['name']}: {exc}"
 
