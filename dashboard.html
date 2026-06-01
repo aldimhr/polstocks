@@ -848,15 +848,139 @@
 
   /* ── Responsive ── */
   @media (max-width: 900px) {
+    .layout { padding: 0 18px 40px; }
+    header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+      padding: 16px 0 22px;
+    }
+    .header-right {
+      width: 100%;
+      flex-wrap: wrap;
+    }
+    .header-right > * {
+      flex: 1 1 180px;
+    }
+    .header-right .status-dot {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .btn-update {
+      justify-content: center;
+    }
+    .watchlist-toolbar {
+      align-items: stretch;
+    }
+    .watchlist-form {
+      width: 100%;
+    }
+    .watchlist-input {
+      flex: 1 1 220px;
+    }
     .main-grid { grid-template-columns: 1fr; }
     .metrics { grid-template-columns: repeat(2, 1fr); }
     .sector-grid { grid-template-columns: 1fr; }
     .bottom-grid { grid-template-columns: 1fr; }
   }
 
+  @media (max-width: 720px) {
+    .stock-table {
+      display: block;
+    }
+    .stock-table thead {
+      display: none;
+    }
+    .stock-table tbody {
+      display: block;
+    }
+    .stock-table tbody tr {
+      display: block;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--surface2);
+    }
+    .stock-table tr:hover td {
+      background: transparent;
+      transform: none;
+    }
+    .stock-table td {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 11px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      text-align: left;
+    }
+    .stock-table td::before {
+      content: attr(data-label);
+      flex: 0 0 36%;
+      max-width: 36%;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stock-table td:first-child {
+      display: block;
+    }
+    .stock-table td:first-child::before {
+      display: block;
+      max-width: none;
+      margin-bottom: 6px;
+    }
+    .stock-table td:first-child .ticker-name {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .stock-table td:last-child {
+      border-bottom: none;
+    }
+    .ticker-modal {
+      padding: 16px;
+      border-radius: 18px;
+    }
+    .ticker-modal-header {
+      flex-direction: column;
+    }
+    .ticker-modal-close {
+      align-self: flex-end;
+    }
+    .ticker-modal-stats {
+      grid-template-columns: 1fr;
+    }
+    .ticker-history-chart {
+      padding: 12px;
+    }
+  }
+
   @media (max-width: 560px) {
+    .layout { padding: 0 14px 28px; }
     .metrics { grid-template-columns: 1fr; }
     .header-right .status-dot { display: none; }
+    .watchlist-form {
+      flex-direction: column;
+    }
+    .watchlist-input,
+    .watchlist-btn {
+      width: 100%;
+    }
+    .watchlist-btn {
+      justify-content: center;
+    }
+    .card {
+      padding: 16px;
+      border-radius: 14px;
+    }
+    .card-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
   }
 
   /* ── Animate in ── */
@@ -1385,10 +1509,10 @@
         : '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
-          <td><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
-          <td class="price-cell">${formatPrice(stock.price)}</td>
-          <td class="change-cell ${changeClass}">${formatPct(stock.change_pct)}</td>
-          <td class="impact-cell"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
+          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
+          <td class="price-cell" data-label="Harga (IDR)">${formatPrice(stock.price)}</td>
+          <td class="change-cell ${changeClass}" data-label="Hari ini">${formatPct(stock.change_pct)}</td>
+          <td class="impact-cell" data-label="Impact score"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
         </tr>
       `;
     }).join('');
@@ -1614,6 +1738,12 @@
       const removeButton = event.target.closest('[data-remove-ticker]');
       if (removeButton) {
         removeTicker(removeButton.dataset.removeTicker || '');
+      }
+    });
+    $('stockBody').addEventListener('click', (event) => {
+      const tickerButton = event.target.closest('[data-ticker]');
+      if (tickerButton) {
+        openTickerModal(tickerButton.dataset.ticker || '');
       }
     });
     document.addEventListener('keydown', (event) => {
