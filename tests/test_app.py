@@ -406,6 +406,53 @@ def test_parse_rss_items_attaches_source_metadata():
     assert item["source_quality_score"] > 0
 
 
+def test_canonicalize_article_url_strips_tracking_and_amp_variants():
+    url = "https://www.antaranews.com/ekonomi/2026/06/01/pemerintah-dorong-investasi?utm_source=rss&utm_medium=feed#comments"
+    assert appmod.canonicalize_article_url(url) == "https://www.antaranews.com/ekonomi/2026/06/01/pemerintah-dorong-investasi"
+    assert appmod.canonicalize_article_url("https://www.antaranews.com/ekonomi/2026/06/01/pemerintah-dorong-investasi/amp") == "https://www.antaranews.com/ekonomi/2026/06/01/pemerintah-dorong-investasi"
+
+
+def test_merge_duplicate_articles_collapses_source_coverage_and_keeps_latest_publication_time():
+    latest = appmod.now_wib()
+    earlier = latest - timedelta(minutes=18)
+    articles = [
+        {
+            "source": "Setkab",
+            "headline": "Pemerintah resmi sahkan peraturan subsidi rumah",
+            "url": "https://setkab.go.id/berita/peraturan-subsidi-rumah?utm_source=rss",
+            "published_at": earlier,
+            "summary": "Pemerintah menetapkan peraturan baru dan resmi mengumumkan program subsidi rumah berlaku tahun ini.",
+            "source_weight": 1.0,
+            "source_type": "government",
+            "source_tier": 1,
+            "canonical_domain": "setkab.go.id",
+            "source_quality_score": 1.0,
+        },
+        {
+            "source": "Antara News",
+            "headline": "Pemerintah resmi sahkan peraturan subsidi rumah",
+            "url": "https://www.antaranews.com/ekonomi/2026/06/01/peraturan-subsidi-rumah?ref=amp",
+            "published_at": latest,
+            "summary": "Pemerintah menetapkan peraturan baru dan resmi mengumumkan program subsidi rumah berlaku tahun ini.",
+            "source_weight": 0.86,
+            "source_type": "media",
+            "source_tier": 3,
+            "canonical_domain": "www.antaranews.com",
+            "source_quality_score": 0.54,
+        },
+    ]
+
+    merged = appmod.dedupe_articles(articles, window="7d")
+    assert len(merged) == 1
+    item = merged[0]
+    assert item["duplicate_count"] == 2
+    assert set(item["source_names"]) == {"Setkab", "Antara News"}
+    assert item["alternate_urls"] == ["https://www.antaranews.com/ekonomi/2026/06/01/peraturan-subsidi-rumah"]
+    assert item["canonical_url"] == "https://setkab.go.id/berita/peraturan-subsidi-rumah"
+    assert item["latest_published_at"] == latest
+    assert item["source_profile"]["canonical_name"] == "Setkab"
+
+
 def test_html_source_reports_when_no_article_links_are_extracted(monkeypatch):
     class FakeResponse:
         status_code = 200

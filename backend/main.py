@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
 
 import requests
@@ -618,6 +618,139 @@ def normalize_domain(value: str) -> str:
     return value
 
 
+def canonicalize_article_url(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    scheme = (parsed.scheme or "https").lower()
+    netloc = parsed.netloc.lower()
+    path = re.sub(r"/amp/?$", "", parsed.path or "", flags=re.I)
+    path = re.sub(r"/{2,}", "/", path)
+    if path != "/" and path.endswith("/"):
+        path = path[:-1]
+    if path == "/":
+        path = ""
+    return urlunsplit((scheme, netloc, path, "", ""))
+
+
+def canonical_source_key(article: dict[str, Any]) -> str:
+    profile = article.get("source_profile", {}) if isinstance(article.get("source_profile", {}), dict) else {}
+    candidates = [
+        str(profile.get("duplicate_grouping") or "").strip().lower(),
+        normalize_domain(str(profile.get("canonical_domain") or "")),
+        normalize_domain(str(article.get("canonical_domain") or "")),
+        normalize_domain(canonicalize_article_url(str(article.get("url") or ""))),
+        normalize_match_text(article.get("source", "")),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return "unknown"
+
+
+def claim_signature(article: dict[str, Any]) -> str:
+    headline = normalize_match_text(article.get("headline", ""))
+    summary = normalize_match_text(article.get("summary", ""))
+    entities = normalize_match_text(" ".join(str(item) for item in article.get("entities", []) if str(item).strip()))
+    text_bits = [bit for bit in [headline, summary, entities] if bit]
+    if not text_bits:
+        return canonical_source_key(article)
+    signature = "::".join(text_bits[:3])
+    return signature[:320]
+
+
+def _article_merge_priority(article: dict[str, Any]) -> tuple[float, int, float, datetime]:
+    published_at = article.get("published_at") if isinstance(article.get("published_at"), datetime) else now_wib()
+    try:
+        quality_score = float(article.get("source_quality_score", 0.0))
+    except Exception:
+        quality_score = 0.0
+    try:
+        tier = int(article.get("source_tier", 4) or 4)
+    except Exception:
+        tier = 4
+    try:
+        source_weight = float(article.get("source_weight", 0.0))
+    except Exception:
+        source_weight = 0.0
+    return (quality_score, -tier, source_weight, published_at)
+
+
+def merge_duplicate_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: list[list[dict[str, Any]]] = []
+    for article in articles:
+        candidate = dict(article)
+        metadata = source_metadata_for(str(candidate.get("source") or ""), str(candidate.get("url") or ""))
+        candidate.setdefault("source_profile", metadata.get("source_profile", {}))
+        candidate.setdefault("source_type", metadata.get("source_type", "other"))
+        candidate.setdefault("source_tier", metadata.get("source_tier", 4))
+        candidate.setdefault("canonical_domain", metadata.get("canonical_domain", ""))
+        candidate.setdefault("source_quality_score", metadata.get("source_quality_score", 0.0))
+        candidate["canonical_url"] = canonicalize_article_url(str(candidate.get("url") or ""))
+        candidate["claim_signature"] = claim_signature(candidate)
+        matched_group = None
+        for group in groups:
+            exemplar = group[0]
+            if candidate["canonical_url"] and candidate["canonical_url"] == exemplar.get("canonical_url"):
+                matched_group = group
+                break
+            if candidate["claim_signature"] == exemplar.get("claim_signature"):
+                matched_group = group
+                break
+            if text_similarity(candidate.get("headline", ""), exemplar.get("headline", "")) >= 0.92:
+                if text_similarity(candidate.get("summary", ""), exemplar.get("summary", "")) >= 0.84 or candidate["canonical_url"] == exemplar.get("canonical_url"):
+                    matched_group = group
+                    break
+        if matched_group is None:
+            groups.append([candidate])
+        else:
+            matched_group.append(candidate)
+
+    merged_articles: list[dict[str, Any]] = []
+    for group in groups:
+        group.sort(key=_article_merge_priority, reverse=True)
+        canonical = dict(group[0])
+        canonical_url = canonical.get("canonical_url") or canonicalize_article_url(str(canonical.get("url") or ""))
+        source_names: list[str] = []
+        source_urls: list[str] = []
+        source_types: list[str] = []
+        for article in group:
+            source_name = str(article.get("source") or "").strip()
+            if source_name and source_name not in source_names:
+                source_names.append(source_name)
+            normalized_url = canonicalize_article_url(str(article.get("url") or ""))
+            if normalized_url and normalized_url not in source_urls:
+                source_urls.append(normalized_url)
+            source_type = str(article.get("source_type") or "").strip()
+            if source_type and source_type not in source_types:
+                source_types.append(source_type)
+
+        latest_published_at = max(
+            [article.get("published_at") for article in group if isinstance(article.get("published_at"), datetime)],
+            default=canonical.get("published_at") or now_wib(),
+        )
+        alternate_urls = [url for url in source_urls if url != canonical_url]
+
+        canonical.update(
+            {
+                "url": canonical_url or canonical.get("url", ""),
+                "canonical_url": canonical_url,
+                "duplicate_group_id": canonical.get("claim_signature") or claim_signature(canonical),
+                "duplicate_count": len(group),
+                "source_names": source_names,
+                "source_urls": source_urls,
+                "source_types": source_types,
+                "alternate_urls": alternate_urls,
+                "latest_published_at": latest_published_at,
+            }
+        )
+        merged_articles.append(canonical)
+
+    merged_articles.sort(key=lambda article: (article.get("published_at") or now_wib(), _article_merge_priority(article)), reverse=True)
+    return merged_articles
+
+
 def _source_registry_defaults() -> dict[str, Any]:
     return {"sources": [], "by_name": {}, "by_domain": {}, "by_canonical_domain": {}}
 
@@ -1192,27 +1325,7 @@ def fetch_news_bundle() -> tuple[list[dict[str, Any]], list[str]]:
 def dedupe_articles(articles: list[dict[str, Any]], window: str = DEFAULT_EVENT_WINDOW) -> list[dict[str, Any]]:
     filtered = [article for article in articles if not is_stale_article(article.get("published_at"), window)]
     filtered.sort(key=lambda article: article.get("published_at") or now_wib(), reverse=True)
-    unique: list[dict[str, Any]] = []
-    seen_urls: set[str] = set()
-    for article in filtered:
-        url = (article.get("url") or "").strip().lower()
-        headline = article.get("headline", "")
-        if url and url in seen_urls:
-            continue
-        duplicate = False
-        for existing in unique:
-            if url and url == (existing.get("url") or "").strip().lower():
-                duplicate = True
-                break
-            if text_similarity(headline, existing.get("headline", "")) > 0.9:
-                duplicate = True
-                break
-        if duplicate:
-            continue
-        if url:
-            seen_urls.add(url)
-        unique.append(article)
-    return unique
+    return merge_duplicate_articles(filtered)
 
 
 # ---------------------------------------------------------------------------
