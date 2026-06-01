@@ -25,11 +25,11 @@ from datetime import datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,7 @@ WATCHLIST_FILE = PROJECT_ROOT / "watchlist.json"
 COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
 POLICY_SIGNAL_RULES_FILE = PROJECT_ROOT / "policy_signal_rules.json"
 MARKET_VALIDATION_CONFIG_FILE = PROJECT_ROOT / "market_validation_config.json"
+SOURCE_REGISTRY_FILE = PROJECT_ROOT / "source_registry.json"
 
 APP_TITLE = "Indonesia Political-Stock Impact System"
 CACHE_TTL_SECONDS = 300
@@ -340,6 +341,7 @@ NEWS_SOURCES = [
 
 app = FastAPI(title=APP_TITLE, version="1.0.0")
 
+
 WATCHLIST_LOCK = threading.Lock()
 CACHE_LOCK = threading.Lock()
 WATCHLIST_STATE = list(DEFAULT_WATCHLIST)
@@ -347,6 +349,7 @@ CACHE: dict[str, Any] = {}
 COMPANY_KNOWLEDGE: dict[str, dict[str, Any]] = {}
 POLICY_SIGNAL_RULES: dict[str, Any] = {}
 MARKET_VALIDATION_CONFIG: dict[str, Any] = {}
+SOURCE_REGISTRY: dict[str, Any] = {}
 
 
 class RefreshRequest(BaseModel):
@@ -603,6 +606,199 @@ def infer_source_type(source_name: str = "", url: str = "") -> str:
     return "other"
 
 
+def normalize_domain(value: str) -> str:
+    value = (value or "").strip().lower()
+    if not value:
+        return ""
+    if "://" in value:
+        value = urlsplit(value).netloc or value
+    value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if value.startswith("www."):
+        value = value[4:]
+    return value
+
+
+def _source_registry_defaults() -> dict[str, Any]:
+    return {"sources": [], "by_name": {}, "by_domain": {}, "by_canonical_domain": {}}
+
+
+def normalize_source_registry(raw: Any) -> dict[str, Any]:
+    records = raw.get("sources", []) if isinstance(raw, dict) else raw
+    if not isinstance(records, list):
+        return _source_registry_defaults()
+
+    normalized_sources: list[dict[str, Any]] = []
+    by_name: dict[str, dict[str, Any]] = {}
+    by_domain: dict[str, dict[str, Any]] = {}
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        canonical_name = str(record.get("name", "")).strip()
+        if not canonical_name:
+            continue
+
+        aliases = [str(item).strip() for item in record.get("aliases", []) if str(item).strip()]
+        domains = [normalize_domain(item) for item in record.get("domains", []) if normalize_domain(item)]
+        raw_canonical_domain = str(record.get("canonical_domain", "")).strip().lower()
+        canonical_domain = normalize_domain(raw_canonical_domain)
+        if canonical_domain and canonical_domain not in domains:
+            domains.append(canonical_domain)
+        if not raw_canonical_domain and domains:
+            raw_canonical_domain = domains[0]
+        display_canonical_domain = raw_canonical_domain or canonical_domain
+
+        source_type = str(record.get("source_type") or infer_source_type(canonical_name, canonical_domain)).strip().lower() or "other"
+        try:
+            tier = int(record.get("tier", 4))
+        except Exception:
+            tier = 4
+        tier = max(1, min(4, tier))
+        try:
+            trust_weight = float(record.get("trust_weight", 0.5))
+        except Exception:
+            trust_weight = 0.5
+        trust_weight = clamp(trust_weight, 0.0, 1.0)
+
+        country_focus = str(record.get("country_focus", "mixed")).strip().lower() or "mixed"
+        notes = str(record.get("notes", "")).strip()
+        duplicate_grouping = str(record.get("duplicate_grouping") or canonical_domain or canonical_name).strip().lower()
+        if not duplicate_grouping:
+            duplicate_grouping = normalize_match_text(canonical_name)
+
+        profile = {
+            **record,
+            "name": canonical_name,
+            "canonical_name": canonical_name,
+            "aliases": aliases,
+            "domains": domains,
+            "canonical_domain": display_canonical_domain,
+            "source_type": source_type,
+            "tier": tier,
+            "trust_weight": trust_weight,
+            "country_focus": country_focus,
+            "notes": notes,
+            "duplicate_grouping": duplicate_grouping,
+        }
+
+        normalized_sources.append(profile)
+
+        name_keys = {normalize_match_text(canonical_name), normalize_match_text(profile.get("canonical_name", canonical_name))}
+        name_keys.update(normalize_match_text(alias) for alias in aliases)
+        for key in {key for key in name_keys if key}:
+            by_name[key] = profile
+
+        for domain in domains:
+            by_domain[domain] = profile
+
+    return {
+        "sources": normalized_sources,
+        "by_name": by_name,
+        "by_domain": by_domain,
+        "by_canonical_domain": dict(by_domain),
+    }
+
+
+def load_source_registry() -> dict[str, Any]:
+    if not SOURCE_REGISTRY_FILE.exists():
+        return _source_registry_defaults()
+    try:
+        raw = json.loads(SOURCE_REGISTRY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return _source_registry_defaults()
+    return normalize_source_registry(raw)
+
+
+def _fallback_source_profile(name: str = "", url: str = "") -> dict[str, Any]:
+    parsed = urlsplit(url or "")
+    domain = normalize_domain(parsed.netloc or (url if "." in url and "/" not in url else ""))
+    source_type = infer_source_type(name, url)
+    canonical_name = name.strip() or domain or "Unknown source"
+    return {
+        "name": canonical_name,
+        "canonical_name": canonical_name,
+        "aliases": [],
+        "domains": [domain] if domain else [],
+        "canonical_domain": domain,
+        "source_type": source_type,
+        "tier": 4,
+        "trust_weight": 0.5,
+        "country_focus": "mixed",
+        "notes": "Fallback profile inferred from source name or URL.",
+        "duplicate_grouping": normalize_match_text(canonical_name) or domain or "unknown",
+    }
+
+
+def source_profile_for_domain(domain: str) -> dict[str, Any]:
+    normalized_domain = normalize_domain(domain)
+    if not normalized_domain:
+        return _fallback_source_profile(url=domain)
+    registry = SOURCE_REGISTRY or load_source_registry()
+    profile = registry.get("by_domain", {}).get(normalized_domain)
+    if profile:
+        return dict(profile)
+    return _fallback_source_profile(url=normalized_domain)
+
+
+def source_profile_for_name(name: str) -> dict[str, Any]:
+    normalized_name = normalize_match_text(name)
+    registry = SOURCE_REGISTRY or load_source_registry()
+    profile = registry.get("by_name", {}).get(normalized_name)
+    if profile:
+        return dict(profile)
+    if name and "://" in name:
+        return source_profile_for_url(name)
+    return _fallback_source_profile(name=name)
+
+
+def source_profile_for_url(url: str) -> dict[str, Any]:
+    parsed = urlsplit(url or "")
+    domain = parsed.netloc or (url if "." in url and "/" not in url else "")
+    if domain:
+        registry = SOURCE_REGISTRY or load_source_registry()
+        profile = registry.get("by_domain", {}).get(normalize_domain(domain))
+        if profile:
+            return dict(profile)
+    return _fallback_source_profile(url=url)
+
+
+def source_quality_score_for_profile(profile: dict[str, Any]) -> float:
+    try:
+        tier = int(profile.get("tier", 4))
+    except Exception:
+        tier = 4
+    tier = max(1, min(4, tier))
+    try:
+        trust_weight = float(profile.get("trust_weight", 0.5))
+    except Exception:
+        trust_weight = 0.5
+    tier_factor = clamp((5 - tier) / 4.0, 0.25, 1.0)
+    return round(clamp(trust_weight, 0.0, 1.0) * tier_factor, 3)
+
+
+def source_metadata_for(source_name: str = "", url: str = "") -> dict[str, Any]:
+    registry = SOURCE_REGISTRY or load_source_registry()
+    profile = None
+    normalized_name = normalize_match_text(source_name)
+    if normalized_name:
+        profile = registry.get("by_name", {}).get(normalized_name)
+    if profile is None and url:
+        profile = source_profile_for_url(url)
+    if profile is None and source_name:
+        profile = source_profile_for_name(source_name)
+    if profile is None:
+        profile = _fallback_source_profile(name=source_name, url=url)
+    if profile.get("canonical_domain") and not url:
+        profile = source_profile_for_domain(str(profile.get("canonical_domain", "")))
+    return {
+        "source_profile": profile,
+        "source_type": profile.get("source_type", infer_source_type(source_name, url)),
+        "source_tier": int(profile.get("tier", 4) or 4),
+        "canonical_domain": profile.get("canonical_domain", ""),
+        "source_quality_score": source_quality_score_for_profile(profile),
+    }
+
+
 def source_type_rank(source_type: str | None) -> float:
     return float(SOURCE_TYPE_RANKS.get(str(source_type or "other"), SOURCE_TYPE_RANKS["other"]))
 
@@ -826,6 +1022,7 @@ with WATCHLIST_LOCK:
 COMPANY_KNOWLEDGE.update(load_company_knowledge_from_disk())
 POLICY_SIGNAL_RULES.update(load_policy_signal_rules())
 MARKET_VALIDATION_CONFIG.update(load_market_validation_config())
+SOURCE_REGISTRY.update(load_source_registry())
 
 
 # ---------------------------------------------------------------------------
@@ -833,19 +1030,20 @@ MARKET_VALIDATION_CONFIG.update(load_market_validation_config())
 # ---------------------------------------------------------------------------
 
 
+def _extract_loose_xml_text(block: str, tag_name: str) -> str:
+    tag = re.escape(tag_name)
+    match = re.search(rf"<(?:[\w.-]+:)?{tag}\b[^>]*>(.*?)</(?:[\w.-]+:)?{tag}>", block, flags=re.I | re.S)
+    return match.group(1).strip() if match else ""
+
+
 def parse_rss_items(source: dict[str, Any], xml_text: str) -> list[dict[str, Any]]:
     articles: list[dict[str, Any]] = []
-    root = ET.fromstring(xml_text)
-    items = list(root.findall(".//item"))
-    if not items:
-        items = list(root.findall(".//{*}item"))
-    for item in items[:80]:
-        title = safe_text(item, "title")
-        link = safe_text(item, "link")
-        summary = safe_text(item, "description") or safe_text(item, "encoded")
-        published_at = parse_datetime(safe_text(item, "pubDate") or safe_text(item, "date"))
+    source_metadata = source_metadata_for(source.get("name", ""), source.get("url", ""))
+
+    def add_item(title: str, link: str, summary: str, published_raw: str) -> None:
         if not title:
-            continue
+            return
+        published_at = parse_datetime(published_raw)
         articles.append(
             {
                 "source": source["name"],
@@ -854,9 +1052,40 @@ def parse_rss_items(source: dict[str, Any], xml_text: str) -> list[dict[str, Any
                 "published_at": published_at or now_wib(),
                 "summary": strip_tags(summary),
                 "source_weight": float(source["weight"]),
-                "source_type": infer_source_type(source.get("name", ""), source.get("url", "")),
+                **source_metadata,
             }
         )
+
+    parsed = False
+    try:
+        root = ET.fromstring(xml_text)
+        items = list(root.findall(".//item"))
+        if not items:
+            items = list(root.findall(".//{*}item"))
+        for item in items[:80]:
+            title = safe_text(item, "title")
+            link = safe_text(item, "link")
+            summary = safe_text(item, "description") or safe_text(item, "encoded")
+            published_at = safe_text(item, "pubDate") or safe_text(item, "date")
+            add_item(title, link, summary, published_at)
+        parsed = bool(items)
+    except Exception:
+        parsed = False
+
+    if articles or parsed:
+        return articles
+
+    # Fallback for malformed RSS/Atom payloads where strict XML parsing fails.
+    for item_match in re.finditer(r"<item\b[^>]*>(.*?)</item>", xml_text, flags=re.I | re.S):
+        item_block = item_match.group(1)
+        title = _extract_loose_xml_text(item_block, "title")
+        link = _extract_loose_xml_text(item_block, "link")
+        summary = _extract_loose_xml_text(item_block, "description") or _extract_loose_xml_text(item_block, "encoded")
+        published_raw = _extract_loose_xml_text(item_block, "pubDate") or _extract_loose_xml_text(item_block, "date")
+        add_item(title, link, summary, published_raw)
+        if len(articles) >= 80:
+            break
+
     return articles
 
 
@@ -880,8 +1109,9 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
     domain_match = re.match(r"https?://([^/]+)", base_url)
     domain = domain_match.group(1) if domain_match else ""
     candidates: list[dict[str, Any]] = []
+    source_metadata = source_metadata_for(source.get("name", ""), source.get("url", ""))
 
-    anchor_pattern = re.compile(r'<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', flags=re.I | re.S)
+    anchor_pattern = re.compile(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', flags=re.I | re.S)
     for href, inner_html in anchor_pattern.findall(html_text):
         title = strip_tags(inner_html)
         if len(title) < 28:
@@ -905,7 +1135,7 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
             "published_at": now_wib(),
             "summary": description or page_title or title,
             "source_weight": float(source["weight"]),
-            "source_type": infer_source_type(source.get("name", ""), href),
+            **source_metadata,
         }
         if is_relevant_article(item):
             candidates.append(item)
@@ -930,8 +1160,14 @@ def fetch_source(source: dict[str, Any]) -> tuple[list[dict[str, Any]], str | No
         response = requests.get(source["url"], timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
         response.raise_for_status()
         if source["kind"] == "rss":
-            return parse_rss_items(source, response.text), None
-        return parse_html_signal(source, response.text), None
+            articles = parse_rss_items(source, response.text)
+            if not articles:
+                return [], f"{source['name']}: no RSS items extracted"
+            return articles, None
+        articles = parse_html_signal(source, response.text)
+        if not articles:
+            return [], f"{source['name']}: no article links extracted"
+        return articles, None
     except Exception as exc:  # pragma: no cover - network failures are expected in some environments
         return [], f"{source['name']}: {exc}"
 
@@ -2515,9 +2751,30 @@ def index() -> FileResponse:
     return FileResponse(FRONTEND_FILE, media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
+@app.head("/")
+def index_head() -> Response:
+    # Some ingress/health checks probe the site with HEAD; keep them green.
+    return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, Any]:
     return {"ok": True, "time": now_iso()}
+
+
+@app.head("/healthz")
+def healthz_head() -> Response:
+    return Response(status_code=200)
+
+
+@app.head("/api/dashboard")
+def api_dashboard_head() -> Response:
+    return Response(status_code=200)
+
+
+@app.head("/api/ticker/{ticker}")
+def api_ticker_head(ticker: str) -> Response:
+    return Response(status_code=200)
 
 
 @app.get("/api/watchlist")
@@ -2567,6 +2824,8 @@ def reset_runtime_state() -> None:
     POLICY_SIGNAL_RULES.update(load_policy_signal_rules())
     MARKET_VALIDATION_CONFIG.clear()
     MARKET_VALIDATION_CONFIG.update(load_market_validation_config())
+    SOURCE_REGISTRY.clear()
+    SOURCE_REGISTRY.update(load_source_registry())
     with CACHE_LOCK:
         CACHE.clear()
 

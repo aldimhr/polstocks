@@ -321,29 +321,122 @@ def test_root_serves_dashboard_html():
     assert response.text == dashboard_html
 
 
+def test_root_and_healthz_support_head_requests():
+    root_response = client.head("/")
+    assert root_response.status_code == 200
+    assert root_response.text == ""
+
+    healthz_response = client.head("/healthz")
+    assert healthz_response.status_code == 200
+    assert healthz_response.text == ""
+
+    ticker_response = client.head("/api/ticker/BBCA.JK?window=7d")
+    assert ticker_response.status_code == 200
+    assert ticker_response.text == ""
+
+
+def test_parse_rss_items_recovers_from_malformed_xml():
+    malformed_rss = """<?xml version='1.0' encoding='UTF-8'?>
+    <rss version='2.0'>
+      <channel>
+        <title>Example Feed</title>
+        <item>
+          <title>Pemerintah & DPR bahas kebijakan subsidi rumah</title>
+          <link>https://example.com/policy-1</link>
+          <description>Rencana kebijakan baru untuk subsidi rumah dan KPR.</description>
+          <pubDate>Mon, 01 Jun 2026 09:00:00 +0700</pubDate>
+        </item>
+      </channel>
+    </rss>
+    """
+    items = appmod.parse_rss_items({"name": "Antara Terkini", "url": "https://example.com/rss", "weight": 1.0}, malformed_rss)
+    assert len(items) == 1
+    assert items[0]["headline"] == "Pemerintah & DPR bahas kebijakan subsidi rumah"
+    assert items[0]["url"] == "https://example.com/policy-1"
+    assert items[0]["source_type"] == "media"
+
+
+def test_source_registry_loader_normalizes_profiles():
+    registry = appmod.load_source_registry()
+    assert {"sources", "by_name", "by_domain", "by_canonical_domain"}.issubset(registry.keys())
+    assert len(registry["sources"]) >= 9
+
+    source_record = registry["sources"][0]
+    assert {"name", "source_type", "tier", "trust_weight", "canonical_domain", "country_focus", "notes"}.issubset(source_record.keys())
+
+    antara = appmod.source_profile_for_name("Antara Terkini")
+    setkab = appmod.source_profile_for_domain("setkab.go.id")
+    ojk = appmod.source_profile_for_url("https://www.ojk.go.id/id/berita")
+
+    assert antara["canonical_name"] == "Antara News"
+    assert antara["source_type"] == "media"
+    assert antara["tier"] == 3
+    assert antara["trust_weight"] > 0.0
+    assert setkab["canonical_name"] == "Setkab"
+    assert setkab["source_type"] == "government"
+    assert setkab["tier"] == 1
+    assert setkab["trust_weight"] > antara["trust_weight"]
+    assert setkab["tier"] < antara["tier"]
+    assert ojk["source_type"] == "regulator"
+    assert ojk["tier"] == 1
+    assert ojk["canonical_domain"] == "www.ojk.go.id"
+
+
+def test_parse_rss_items_attaches_source_metadata():
+    rss_payload = """<?xml version='1.0' encoding='UTF-8'?>
+    <rss version='2.0'>
+      <channel>
+        <title>OJK Feed</title>
+        <item>
+          <title>OJK terbitkan aturan baru untuk kredit perumahan</title>
+          <link>https://www.ojk.go.id/id/berita/Pages/aturan-baru-kpr.aspx</link>
+          <description>Regulator menerbitkan aturan baru untuk mendukung kredit perumahan.</description>
+          <pubDate>Mon, 01 Jun 2026 09:00:00 +0700</pubDate>
+        </item>
+      </channel>
+    </rss>
+    """
+    items = appmod.parse_rss_items({"name": "OJK", "url": "https://www.ojk.go.id", "weight": 0.9, "kind": "rss"}, rss_payload)
+    assert len(items) == 1
+    item = items[0]
+    assert item["source_type"] == "regulator"
+    assert item["source_tier"] == 1
+    assert item["canonical_domain"] == "www.ojk.go.id"
+    assert item["source_profile"]["canonical_name"] == "OJK"
+    assert item["source_quality_score"] > 0
+
+
+def test_html_source_reports_when_no_article_links_are_extracted(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        text = "<html><head><title>Portal OJK</title></head><body><div>No news links here</div></body></html>"
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    articles, warning = appmod.fetch_source({"name": "OJK", "url": "https://www.ojk.go.id", "kind": "html", "weight": 0.9})
+    assert articles == []
+    assert warning == "OJK: no article links extracted"
+
+
 def test_dashboard_contains_runtime_hooks():
     dashboard_html = (appmod.PROJECT_ROOT / "dashboard.html").read_text(encoding="utf-8")
     for snippet in [
         'id="m-highest"',
         'id="m-highest-sub"',
         'id="m-events-sub"',
-        'id="stockBody"',
-        'id="watchlistInput"',
-        'id="watchlistChips"',
-        'id="windowSelect"',
-        'id="windowBadge"',
-        'id="eventBadge"',
-        'id="eventWindowHint"',
-        'id="trackingSummary"',
-        'id="trackingThemes"',
-        'id="trackingTimeline"',
-        'id="reasoningStrip"',
-        'id="tickerModalBackdrop"',
-        'watchlist-chip-main',
-        'ticker-name watchlist-chip-main',
-        'data-ticker=',
-        'data-remove-ticker=',
+        'stockBody',
+        'data-label="Ticker"',
+        'data-label="Harga (IDR)"',
+        'data-label="Hari ini"',
+        'data-label="Impact score"',
         'openTickerModal(',
+        "$('stockBody').addEventListener('click'",
+        '@media (max-width: 720px)',
         'id="ihsgValue"',
         'id="ihsgChange"',
         'safeArticleUrl(',

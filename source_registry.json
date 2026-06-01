@@ -1,0 +1,114 @@
+{
+  "sources": [
+    {
+      "name": "Antara News",
+      "aliases": ["Antara Terkini", "Antara Top News", "Antara Ekonomi Bursa"],
+      "domains": ["www.antaranews.com", "antaranews.com"],
+      "canonical_domain": "www.antaranews.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.86,
+      "country_focus": "id",
+      "notes": "National wire service with broad factual coverage and frequent political/economic reporting."
+    },
+    {
+      "name": "CNBC Indonesia",
+      "aliases": [],
+      "domains": ["www.cnbcindonesia.com", "cnbcindonesia.com"],
+      "canonical_domain": "www.cnbcindonesia.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.84,
+      "country_focus": "mixed",
+      "notes": "Business-first media outlet; useful for market reaction and policy business context."
+    },
+    {
+      "name": "CNN Indonesia",
+      "aliases": ["CNN Indonesia Nasional", "CNN Indonesia Ekonomi"],
+      "domains": ["www.cnnindonesia.com", "cnnindonesia.com"],
+      "canonical_domain": "www.cnnindonesia.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.78,
+      "country_focus": "id",
+      "notes": "General national media; useful for supplemental coverage but not an authority source."
+    },
+    {
+      "name": "Kompas",
+      "aliases": [],
+      "domains": ["www.kompas.com", "kompas.com"],
+      "canonical_domain": "www.kompas.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.82,
+      "country_focus": "id",
+      "notes": "Major national newspaper with strong editorial standards and wide political coverage."
+    },
+    {
+      "name": "Detik Finance",
+      "aliases": [],
+      "domains": ["finance.detik.com", "detik.com"],
+      "canonical_domain": "finance.detik.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.8,
+      "country_focus": "id",
+      "notes": "High-volume finance desk; strong for fast market and policy follow-up reporting."
+    },
+    {
+      "name": "Tempo",
+      "aliases": [],
+      "domains": ["tempo.co", "www.tempo.co"],
+      "canonical_domain": "tempo.co",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.79,
+      "country_focus": "id",
+      "notes": "Investigative and analytical outlet; often useful for longer-form policy context."
+    },
+    {
+      "name": "BeritaSatu",
+      "aliases": [],
+      "domains": ["www.beritasatu.com", "beritasatu.com"],
+      "canonical_domain": "www.beritasatu.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.77,
+      "country_focus": "id",
+      "notes": "Mainstream national news source with business and politics coverage."
+    },
+    {
+      "name": "Setkab",
+      "aliases": ["Sekretariat Kabinet"],
+      "domains": ["setkab.go.id"],
+      "canonical_domain": "setkab.go.id",
+      "source_type": "government",
+      "tier": 1,
+      "trust_weight": 1.0,
+      "country_focus": "id",
+      "notes": "Official cabinet publication; primary source for executive announcements and policy decisions."
+    },
+    {
+      "name": "OJK",
+      "aliases": ["Otoritas Jasa Keuangan"],
+      "domains": ["www.ojk.go.id", "ojk.go.id"],
+      "canonical_domain": "www.ojk.go.id",
+      "source_type": "regulator",
+      "tier": 1,
+      "trust_weight": 0.98,
+      "country_focus": "id",
+      "notes": "Primary financial regulator source for rules, circulars, supervision, and enforcement updates."
+    },
+    {
+      "name": "KPK",
+      "aliases": ["Komisi Pemberantasan Korupsi"],
+      "domains": ["www.kpk.go.id", "kpk.go.id"],
+      "canonical_domain": "www.kpk.go.id",
+      "source_type": "regulator",
+      "tier": 1,
+      "trust_weight": 0.97,
+      "country_focus": "id",
+      "notes": "Official anti-corruption authority; strongest source for enforcement and investigative disclosures."
+    }
+  ]
+}
