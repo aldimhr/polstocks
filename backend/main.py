@@ -2587,6 +2587,15 @@ def validation_outcome_multiplier(validation_status: str, validation_score: floa
     return round(clamp(base, 0.8, 1.15), 3)
 
 
+def calibrate_source_confidence_from_validation(source_confidence: float, validation_status: str, validation_score: float) -> float:
+    try:
+        base_confidence = clamp(float(source_confidence or 0.0), 0.0, 1.0)
+    except Exception:
+        base_confidence = 0.0
+    multiplier = validation_outcome_multiplier(validation_status, validation_score)
+    return round(clamp(base_confidence * multiplier, 0.0, 1.0), 3)
+
+
 def apply_source_conflicts_to_events(events: list[dict[str, Any]]) -> None:
     groups: dict[str, list[dict[str, Any]]] = {}
     for event in events:
@@ -3366,6 +3375,11 @@ def build_refresh_payload(
                 float(validation.get("validation_score", 0.0) or 0.0),
             )
             relationship.update(validation)
+            relationship["source_confidence"] = calibrate_source_confidence_from_validation(
+                relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
+                str(relationship.get("validation_status", "unvalidated")),
+                float(relationship.get("validation_score", 0.0) or 0.0),
+            )
             for warning in validation.get("validation_warnings", []):
                 if warning:
                     validation_warnings.append(f"{ticker} validation: {warning}")

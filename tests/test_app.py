@@ -1252,6 +1252,44 @@ def test_validation_outcome_nudges_stock_impact_score(monkeypatch):
     assert confirmed_stock["impact_score"] >= flat_stock["impact_score"]
 
 
+def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monkeypatch):
+    def direct_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    confirmed = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    flat = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    confirmed_event = confirmed["events"][0]
+    flat_event = flat["events"][0]
+    confirmed_link = next(item for item in confirmed_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    flat_link = next(item for item in flat_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    confirmed_stock = confirmed["stocks"][0]
+    flat_stock = flat["stocks"][0]
+
+    assert confirmed_link["validation_status"] == "confirmed"
+    assert flat_link["validation_status"] in {"predicted_only", "rejected"}
+    assert confirmed_link["validation_multiplier"] > flat_link["validation_multiplier"]
+    assert confirmed_link["source_confidence"] > flat_link["source_confidence"]
+    assert confirmed_stock["source_confidence"] > flat_stock["source_confidence"]
+
+
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_unavailable)
     payload = appmod.build_refresh_payload(
