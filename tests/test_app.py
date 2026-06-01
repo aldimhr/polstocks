@@ -498,6 +498,35 @@ def test_source_freshness_and_quality_score_decay_with_age_and_duplicates():
     assert merged[0]["source_quality_score"] <= fresh_analyzed["source_quality_score"]
 
 
+def test_refresh_payload_sorts_impacted_tickers_first(monkeypatch):
+    impacted_article = {
+        "source": "Setkab",
+        "headline": "Pemerintah dorong BBCA salurkan kredit rumah subsidi",
+        "url": "https://example.com/article-impacted-bbca",
+        "published_at": appmod.now_wib(),
+        "summary": "Pemerintah meminta BBCA dan bank nasional mempercepat kredit rumah subsidi, relaksasi KPR, dan pembiayaan perumahan.",
+        "source_weight": 1.0,
+        "source_type": "government",
+    }
+
+    def impacted_news_fetcher():
+        return [impacted_article], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["TLKM", "BBCA"],
+        window="7d",
+        news_fetcher=impacted_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    tickers = [stock["ticker"] for stock in payload["stocks"]]
+    assert tickers[0] == "BBCA.JK"
+    assert payload["stocks"][0]["relationship_count"] > 0
+    assert payload["stocks"][1]["relationship_count"] == 0
+
+
 def test_refresh_payload_flags_stale_source_coverage(monkeypatch):
     stale_article = {
         "source": "Antara Mirror",
@@ -554,6 +583,10 @@ def test_dashboard_contains_runtime_hooks():
         'data-label="Harga (IDR)"',
         'data-label="Hari ini"',
         'data-label="Impact score"',
+        'stocksSortBadge',
+        'stocksSortHint',
+        'Impacted first',
+        'Impacted tickers appear first, then neutral ones.',
         'openTickerModal(',
         "$('stockBody').addEventListener('click'",
         '@media (max-width: 720px)',

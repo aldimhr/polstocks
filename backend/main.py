@@ -2414,6 +2414,20 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
 # ---------------------------------------------------------------------------
 
 
+def sort_stocks_by_impact(stocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def sort_key(stock: dict[str, Any]) -> tuple[int, float, float, str]:
+        relationship_count = int(stock.get("relationship_count", 0) or 0)
+        impact_score = float(stock.get("impact_score", 0.0) or 0.0)
+        return (
+            1 if relationship_count > 0 or abs(impact_score) > 0.0001 else 0,
+            abs(impact_score),
+            float(relationship_count),
+            str(stock.get("ticker", "")),
+        )
+
+    return sorted(stocks, key=sort_key, reverse=True)
+
+
 def compute_sector_summary(stocks: list[dict[str, Any]]) -> dict[str, float]:
     totals = {sector: 0.0 for sector in SECTORS}
     counts = {sector: 0 for sector in SECTORS}
@@ -2894,6 +2908,7 @@ def build_refresh_payload(
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
+    stocks = sort_stocks_by_impact(stocks)
 
     event_id_map = {f"evt_{idx+1:03d}": event for idx, event in enumerate(events)}
     formatted_events = []
