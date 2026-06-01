@@ -989,28 +989,54 @@ def test_official_source_stays_strong_without_many_corroborators():
     assert official_link["confidence_label"] in {"high_confidence", "confirmed"}
 
 
-def test_transmission_path_scoring_blocks_sector_only_spillover_and_supports_directionality():
-    trade_only_article = {
-        "source": "Setkab",
-        "headline": "Pemerintah perketat pembatasan ekspor batu bara",
-        "url": "https://example.com/article-14",
+def test_source_conflict_flags_opposite_direction_coverage_and_downgrades_confidence(monkeypatch):
+    negative_article = {
+        "source": "Antara News",
+        "headline": "Pemerintah batasi ekspor nikel dan tekan Antam",
+        "url": "https://example.com/antam-negative",
         "published_at": appmod.now_wib(),
-        "summary": "Kabinet memperketat pembatasan ekspor batu bara untuk menjaga pasokan domestik.",
-        "source_weight": 1.0,
-        "source_type": "government",
+        "summary": "Pemerintah memperketat pembatasan ekspor nikel sehingga Antam menghadapi tekanan margin dan produksi.",
+        "source_weight": 0.86,
+        "source_type": "media",
     }
-    trade_only = appmod.analyze_article(trade_only_article, ["ADRO.JK", "BBCA.JK"], window="7d")
-    trade_links = {item["ticker"]: item for item in trade_only["stock_relationships"]}
-    assert set(trade_links) == {"ADRO.JK"}
-    assert trade_links["ADRO.JK"]["impact_direction"] == "negative"
-    assert trade_links["ADRO.JK"]["matched_policy_channels"]
 
-    mixed = appmod.analyze_article(MIXED_DIRECTION_ARTICLE, ["ADRO.JK", "BBCA.JK"], window="7d")
-    mixed_links = {item["ticker"]: item for item in mixed["stock_relationships"]}
-    assert mixed_links["BBCA.JK"]["impact_direction"] == "positive"
-    assert mixed_links["ADRO.JK"]["impact_direction"] == "negative"
-    assert mixed_links["BBCA.JK"]["direction_rationale"]
-    assert mixed_links["ADRO.JK"]["direction_rationale"]
+    def solo_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE], []
+
+    def conflict_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE, negative_article], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    solo_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=solo_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    conflict_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=conflict_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    solo_event = next(event for event in solo_payload["events"] if event["url"] == DIRECT_MENTION_ARTICLE["url"])
+    conflict_event = next(event for event in conflict_payload["events"] if event["url"] == DIRECT_MENTION_ARTICLE["url"])
+    solo_link = next(item for item in solo_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    conflict_link = next(item for item in conflict_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+
+    assert solo_link["source_conflict"] is False
+    assert conflict_link["source_conflict"] is True
+    assert conflict_link["source_conflict_count"] >= 1
+    assert conflict_link["source_conflict_penalty"] < 1.0
+    assert conflict_link["relationship_confidence"] < solo_link["relationship_confidence"]
+    assert conflict_link["confidence_label"] in {"low_confidence", "predicted_only", "insufficient_data"}
+    assert conflict_payload["stocks"][0]["source_conflict"] is True
+    assert any("conflicting" in warning.lower() for warning in conflict_payload["warnings"])
 
 
 def test_evidence_hierarchy_prefers_official_sources():

@@ -2349,6 +2349,63 @@ def validation_outcome_multiplier(validation_status: str, validation_score: floa
     return round(clamp(base, 0.8, 1.15), 3)
 
 
+def apply_source_conflicts_to_events(events: list[dict[str, Any]]) -> None:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        source_key = canonical_source_key(event)
+        source_domain = article_source_domain(event)
+        source_tier = int(event.get("source_tier", 4) or 4)
+        for relationship in event.get("stock_relationships", []):
+            direction = str(relationship.get("impact_direction") or "neutral").strip().lower() or "neutral"
+            if direction not in {"positive", "negative"}:
+                continue
+            ticker = normalize_ticker(str(relationship.get("ticker") or ""))
+            if not ticker:
+                continue
+            groups.setdefault(ticker, []).append(
+                {
+                    "event": event,
+                    "relationship": relationship,
+                    "direction": direction,
+                    "source_key": source_key,
+                    "domain": source_domain,
+                    "source_tier": source_tier,
+                }
+            )
+
+    for supports in groups.values():
+        positive = [item for item in supports if item["direction"] == "positive"]
+        negative = [item for item in supports if item["direction"] == "negative"]
+        if not positive or not negative:
+            continue
+        total_count = len(positive) + len(negative)
+        opposing_label = {"positive": len(negative), "negative": len(positive)}
+        conflict_score = clamp(min(len(positive), len(negative)) / max(total_count, 1), 0.0, 1.0)
+        for item in supports:
+            relationship = item["relationship"]
+            opposing_count = opposing_label.get(item["direction"], 0)
+            penalty = clamp(1.0 - (0.15 * opposing_count) - (0.05 * max(0, total_count - 2)), 0.65, 1.0)
+            relationship_confidence = clamp(float(relationship.get("relationship_confidence", relationship.get("confidence", 0.0)) or 0.0) * penalty, 0.0, 1.0)
+            evidence_strength = clamp(float(relationship.get("evidence_strength", 0.0) or 0.0) * penalty, 0.0, 1.0)
+            current_warning = str(relationship.get("coverage_warning", "")).strip()
+            new_warning = current_warning or "source_conflict"
+            relationship.update(
+                {
+                    "source_conflict": True,
+                    "source_conflict_count": opposing_count,
+                    "source_conflict_total_count": total_count,
+                    "source_conflict_score": round(conflict_score, 3),
+                    "source_conflict_penalty": round(penalty, 3),
+                    "source_conflict_label": "conflicted",
+                    "coverage_warning": new_warning,
+                    "relationship_confidence": round(relationship_confidence, 3),
+                    "confidence": round(relationship_confidence, 3),
+                    "evidence_strength": round(evidence_strength, 3),
+                    "confidence_label": relationship_confidence_label(relationship_confidence, new_warning),
+                }
+            )
+
+
 def build_stock_relationships(
     article: dict[str, Any],
     watchlist: list[str],
@@ -2482,6 +2539,12 @@ def build_stock_relationships(
                 "corroboration_agreement_score": corroboration.get("corroboration_agreement_score", 0.0),
                 "corroboration_multiplier": corroboration.get("corroboration_multiplier", 1.0),
                 "corroboration_label": corroboration.get("corroboration_label", "single_source"),
+                "source_conflict": False,
+                "source_conflict_count": 0,
+                "source_conflict_total_count": 0,
+                "source_conflict_score": 0.0,
+                "source_conflict_penalty": 1.0,
+                "source_conflict_label": "aligned",
             }
         )
 
@@ -3044,6 +3107,7 @@ def build_refresh_payload(
     event_threads = group_articles_into_threads(ranked_events)
     events = ranked_events[:10]
     apply_corroboration_to_events(events)
+    apply_source_conflicts_to_events(events)
 
     quotes, stock_warnings = stock_fetcher(watchlist)
     market_index, market_warnings = market_fetcher()
@@ -3131,6 +3195,12 @@ def build_refresh_payload(
                 "validation_score": strongest_link[1].get("validation_score") if strongest_link else 0.0,
                 "validation_multiplier": strongest_link[1].get("validation_multiplier") if strongest_link else 1.0,
                 "validation_reason": strongest_link[1].get("validation_reason") if strongest_link else "",
+                "source_conflict": strongest_link[1].get("source_conflict") if strongest_link else False,
+                "source_conflict_count": strongest_link[1].get("source_conflict_count") if strongest_link else 0,
+                "source_conflict_total_count": strongest_link[1].get("source_conflict_total_count") if strongest_link else 0,
+                "source_conflict_score": strongest_link[1].get("source_conflict_score") if strongest_link else 0.0,
+                "source_conflict_penalty": strongest_link[1].get("source_conflict_penalty") if strongest_link else 1.0,
+                "source_conflict_label": strongest_link[1].get("source_conflict_label") if strongest_link else "aligned",
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
@@ -3180,6 +3250,8 @@ def build_refresh_payload(
         warnings.append("Some article coverage is thin; the current thread may need more independent sources.")
     if "duplicated_coverage" in coverage_warnings:
         warnings.append("Some article coverage is duplicated across mirrored sources.")
+    if any(bool(relationship.get("source_conflict")) for event in events for relationship in event.get("stock_relationships", [])):
+        warnings.append("Some article coverage is conflicting across sources.")
     if not articles:
         warnings.append("No live articles available.")
     if not quotes:
