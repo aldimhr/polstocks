@@ -862,29 +862,131 @@ def test_article_analysis_requires_evidence_backed_relationships():
     assert vague["stock_relationships"] == []
 
 
-def test_source_quality_downgrades_relationship_confidence_and_labels_weak_coverage():
-    strong = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK"], window="7d")
-    strong_link = next(item for item in strong["stock_relationships"] if item["ticker"] == "ANTM.JK")
-    assert strong_link["relationship_type"] == "direct"
-    assert strong_link["relationship_confidence"] > 0
-    assert strong_link["confidence_label"] in {"high_confidence", "confirmed"}
+def test_source_corroboration_from_independent_sources_raises_relationship_confidence(monkeypatch):
+    weak_article = {
+        "source": "Opinion Blog",
+        "headline": "Pemerintah dorong hilirisasi nikel yang menguntungkan Antam",
+        "url": "https://blog.example.com/opinion-antam",
+        "published_at": appmod.now_wib(),
+        "summary": "Opini pasar menyebut Pemerintah dorong hilirisasi nikel yang menguntungkan Antam, tetapi tanpa dasar resmi yang jelas.",
+        "source_weight": 0.2,
+        "source_type": "other",
+    }
+    corroborated_articles = [
+        weak_article,
+        {
+            "source": "Antara News",
+            "headline": "Pemerintah dorong hilirisasi nikel yang menguntungkan Antam",
+            "url": "https://www.antaranews.com/ekonomi/hilirisasi-antam",
+            "published_at": appmod.now_wib() - timedelta(minutes=5),
+            "summary": "Pemerintah mendorong hilirisasi nikel, dan Antam disebut sebagai salah satu pihak yang mendapat dorongan kebijakan.",
+            **appmod.source_metadata_for("Antara News", "https://www.antaranews.com/ekonomi/hilirisasi-antam"),
+        },
+        {
+            "source": "Setkab",
+            "headline": "Pemerintah percepat hilirisasi nikel untuk mendukung Antam",
+            "url": "https://setkab.go.id/berita/hilirisasi-antam",
+            "published_at": appmod.now_wib() - timedelta(minutes=9),
+            "summary": "Pemerintah mempercepat hilirisasi nikel, dan Antam disebut dalam dukungan kebijakan resmi.",
+            **appmod.source_metadata_for("Setkab", "https://setkab.go.id/berita/hilirisasi-antam"),
+        },
+    ]
 
-    weak_direct_article = {
+    def weak_news_fetcher():
+        return [weak_article], []
+
+    def corroborated_news_fetcher():
+        return corroborated_articles, []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    weak_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        window="7d",
+        force=True,
+        news_fetcher=weak_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    corroborated_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        window="7d",
+        force=True,
+        news_fetcher=corroborated_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    weak_event = next(event for event in weak_payload["events"] if event["url"] == weak_article["url"])
+    corroborated_event = next(event for event in corroborated_payload["events"] if event["url"] == weak_article["url"])
+    weak_link = next(item for item in weak_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    corroborated_link = next(item for item in corroborated_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+
+    assert weak_link["corroboration_count"] == 1
+    assert weak_link["corroboration_label"] == "single_weak_source"
+    assert corroborated_link["corroboration_count"] == 3
+    assert corroborated_link["corroboration_domain_count"] == 3
+    assert corroborated_link["corroboration_label"] == "independently_corroborated"
+    assert corroborated_link["relationship_confidence"] > weak_link["relationship_confidence"]
+    assert corroborated_payload["stocks"][0]["corroboration_count"] == 3
+    assert corroborated_payload["stocks"][0]["corroboration_domain_count"] == 3
+    assert corroborated_payload["stocks"][0]["relationship_confidence"] >= corroborated_link["relationship_confidence"]
+
+
+def test_weak_source_requires_corroboration_to_raise_confidence():
+    weak_single_article = {
         "source": "Opinion Blog",
         "headline": "Antam dan hilirisasi jadi tema ramai di pasar",
-        "url": "https://example.com/article-14",
+        "url": "https://example.com/article-weak-1",
         "published_at": appmod.now_wib(),
         "summary": "Opini umum menyebut Antam tanpa dasar kebijakan, regulasi, atau sumber resmi yang jelas.",
         "source_weight": 0.2,
         "source_type": "other",
     }
-    weak = appmod.analyze_article(weak_direct_article, ["ANTM.JK"], window="7d")
-    weak_link = next(item for item in weak["stock_relationships"] if item["ticker"] == "ANTM.JK")
-    assert weak_link["relationship_type"] == "direct"
-    assert weak_link["relationship_confidence"] < strong_link["relationship_confidence"]
-    assert weak_link["confidence_label"] in {"low_confidence", "predicted_only", "insufficient_data"}
-    assert weak_link["source_confidence"] <= strong_link["source_confidence"]
-    assert weak_link["evidence_strength"] <= strong_link["evidence_strength"]
+    weak_single = appmod.analyze_article(weak_single_article, ["ANTM.JK"], window="7d")
+    weak_single_link = next(item for item in weak_single["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    assert weak_single_link["corroboration_source_count"] == 1
+    assert weak_single_link["corroboration_domain_count"] == 1
+    assert weak_single_link["corroboration_label"] in {"single_weak_source", "thin_corroboration"}
+    assert weak_single_link["confidence_label"] in {"low_confidence", "predicted_only", "insufficient_data"}
+
+    corroborated_articles = appmod.merge_duplicate_articles([
+        {
+            "source": "Antara News",
+            "headline": "Antam dan hilirisasi kembali jadi sorotan pasar",
+            "url": "https://www.antaranews.com/ekonomi/antam-hilirisasi",
+            "published_at": appmod.now_wib(),
+            "summary": "Antam disebut dalam pembahasan hilirisasi dan kebijakan mineral yang sama.",
+            "source_weight": 0.86,
+            "source_type": "media",
+        },
+        {
+            "source": "Bisnis Indonesia",
+            "headline": "Antam dan hilirisasi kembali jadi sorotan pasar",
+            "url": "https://www.bisnis.com/market/antam-hilirisasi",
+            "published_at": appmod.now_wib(),
+            "summary": "Antam disebut dalam pembahasan hilirisasi dan kebijakan mineral yang sama.",
+            "source_weight": 0.82,
+            "source_type": "media",
+        },
+    ])
+    corroborated = appmod.analyze_article(corroborated_articles[0], ["ANTM.JK"], window="7d")
+    corroborated_link = next(item for item in corroborated["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    assert corroborated_articles[0]["duplicate_count"] == 2
+    assert corroborated_link["corroboration_source_count"] == 2
+    assert corroborated_link["corroboration_domain_count"] == 2
+    assert corroborated_link["relationship_confidence"] > weak_single_link["relationship_confidence"]
+    assert corroborated_link["corroboration_label"] in {"independently_corroborated", "corroborated"}
+
+
+def test_official_source_stays_strong_without_many_corroborators():
+    official = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK"], window="7d")
+    official_link = next(item for item in official["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    assert official_link["source_tier"] == 1
+    assert official_link["corroboration_source_count"] == 1
+    assert official_link["corroboration_domain_count"] == 1
+    assert official_link["corroboration_label"] == "official_source"
+    assert official_link["relationship_confidence"] >= 0.65
+    assert official_link["confidence_label"] in {"high_confidence", "confirmed"}
 
 
 def test_transmission_path_scoring_blocks_sector_only_spillover_and_supports_directionality():
@@ -992,6 +1094,37 @@ def test_validate_market_reaction_marks_predicted_only_when_series_is_flat(monke
     assert validation["validation_score"] < 0.6
 
 
+def test_validation_outcome_nudges_stock_impact_score(monkeypatch):
+    def direct_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    confirmed = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    flat = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    confirmed_stock = confirmed["stocks"][0]
+    flat_stock = flat["stocks"][0]
+    assert confirmed_stock["validation_status"] == "confirmed"
+    assert confirmed_stock["validation_multiplier"] > flat_stock["validation_multiplier"]
+    assert confirmed_stock["impact_score"] >= flat_stock["impact_score"]
+
+
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_unavailable)
     payload = appmod.build_refresh_payload(
@@ -1008,3 +1141,5 @@ def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(mon
     statuses = {item["validation_status"] for event in payload["events"] for item in event["stock_relationships"]}
     assert statuses <= {"predicted_only", "insufficient_data"}
     assert any("validation" in warning.lower() or "history" in warning.lower() for warning in payload["warnings"])
+
+

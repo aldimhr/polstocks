@@ -982,7 +982,81 @@ def source_quality_metrics_for_article(article: dict[str, Any]) -> dict[str, Any
         "source_age_hours": round(age_hours, 1),
         "source_freshness_score": round(freshness, 3),
         "source_quality_score": round(source_quality, 3),
+        "source_tier": int(article.get("source_tier", profile.get("tier", 4)) or 4),
         "coverage_warning": coverage_warning,
+    }
+
+
+def source_corroboration_metrics_for_article(article: dict[str, Any]) -> dict[str, Any]:
+    profile = article.get("source_profile", {}) if isinstance(article.get("source_profile", {}), dict) else {}
+    if not profile:
+        profile = source_metadata_for(str(article.get("source") or ""), str(article.get("url") or "")).get("source_profile", {})
+    source_type = str(article.get("source_type") or profile.get("source_type") or infer_source_type(str(article.get("source") or ""), str(article.get("url") or "")))
+    try:
+        source_tier = int(article.get("source_tier", profile.get("tier", 4)) or 4)
+    except Exception:
+        source_tier = 4
+    try:
+        duplicate_count = max(1, int(article.get("duplicate_count", 1) or 1))
+    except Exception:
+        duplicate_count = 1
+
+    source_names = [str(item).strip() for item in article.get("source_names", []) if str(item).strip()] if isinstance(article.get("source_names", []), list) else []
+    source_urls = [str(item).strip() for item in article.get("source_urls", []) if str(item).strip()] if isinstance(article.get("source_urls", []), list) else []
+    source_types = [str(item).strip().lower() for item in article.get("source_types", []) if str(item).strip()] if isinstance(article.get("source_types", []), list) else []
+    if not source_names and str(article.get("source") or "").strip():
+        source_names = [str(article.get("source") or "").strip()]
+    if not source_urls and str(article.get("url") or "").strip():
+        source_urls = [canonicalize_article_url(str(article.get("url") or "")) or str(article.get("url") or "").strip()]
+    if not source_types and source_type:
+        source_types = [source_type]
+
+    domains: list[str] = []
+    for url in source_urls:
+        domain = normalize_domain(urlsplit(url).netloc or url)
+        if domain and domain not in domains:
+            domains.append(domain)
+
+    source_quality = float(article.get("source_quality_score", source_quality_score_for_profile(profile)) or 0.0)
+    independent_source_count = max(1, len(source_names), len(source_urls), duplicate_count)
+    independent_domain_count = max(1, len(domains) or len(source_urls) or len(source_names))
+    source_type_count = max(1, len(set(source_types)))
+    official_source = source_type in {"government", "regulator", "company"} or source_tier <= 2
+
+    corroboration_agreement_score = clamp(
+        0.45 + 0.2 * max(0, independent_source_count - 1) + 0.2 * max(0, independent_domain_count - 1) + 0.15 * max(0, source_type_count - 1),
+        0.0,
+        1.0,
+    )
+    corroboration_multiplier = clamp(
+        1.0
+        + 0.12 * max(0, independent_source_count - 1)
+        + 0.14 * max(0, independent_domain_count - 1)
+        + 0.05 * max(0, source_type_count - 1)
+        + (0.05 if official_source else 0.0),
+        1.0,
+        1.35,
+    )
+
+    if official_source and independent_source_count <= 1:
+        corroboration_label = "official_source"
+    elif independent_domain_count > 1 and independent_source_count > 1:
+        corroboration_label = "independently_corroborated"
+    elif independent_source_count > 1:
+        corroboration_label = "corroborated"
+    elif source_quality < 0.4 or source_tier >= 4:
+        corroboration_label = "single_weak_source"
+    else:
+        corroboration_label = "single_source"
+
+    return {
+        "source_tier": source_tier,
+        "corroboration_source_count": independent_source_count,
+        "corroboration_domain_count": independent_domain_count,
+        "corroboration_source_type_count": source_type_count,
+        "corroboration_agreement_score": round(corroboration_agreement_score, 3),
+        "corroboration_multiplier": round(corroboration_multiplier, 3),
+        "corroboration_label": corroboration_label,
     }
 
 
@@ -2158,6 +2232,123 @@ def relationship_confidence_label(confidence: float, coverage_warning: str = "")
     return "insufficient_data"
 
 
+def article_source_domain(article: dict[str, Any]) -> str:
+    profile = article.get("source_profile", {}) if isinstance(article.get("source_profile", {}), dict) else {}
+    candidates = [
+        str(article.get("canonical_domain") or "").strip(),
+        str(profile.get("canonical_domain") or "").strip(),
+        canonicalize_article_url(str(article.get("url") or "")),
+    ]
+    for candidate in candidates:
+        normalized = normalize_domain(candidate)
+        if normalized:
+            return normalized
+    return ""
+
+
+def corroboration_group_key(article: dict[str, Any], relationship: dict[str, Any]) -> tuple[str, str, str]:
+    ticker = normalize_ticker(str(relationship.get("ticker") or ""))
+    direction = str(relationship.get("impact_direction") or "neutral").strip().lower() or "neutral"
+    policy_channel = str(relationship.get("policy_channel") or "").strip().lower() or "__any__"
+    return ticker, direction, policy_channel
+
+
+def corroboration_multiplier_for_group(supports: list[dict[str, Any]]) -> tuple[float, int, int, int]:
+    support_count = len(supports)
+    domain_count = len({str(item.get("domain") or "").strip() for item in supports if str(item.get("domain") or "").strip()})
+    source_count = len({str(item.get("source_key") or "").strip() for item in supports if str(item.get("source_key") or "").strip()})
+    official_count = sum(1 for item in supports if int(item.get("source_tier", 4) or 4) <= 1)
+    avg_quality = sum(float(item.get("source_quality_score", 0.0) or 0.0) for item in supports) / support_count if support_count else 0.0
+
+    if support_count <= 1:
+        multiplier = 0.66 + (0.18 if official_count else 0.0) + 0.10 * avg_quality + 0.04 * min(domain_count, 2)
+    else:
+        multiplier = 0.70 + 0.12 * min(support_count, 4) + 0.09 * min(domain_count, 3) + 0.08 * avg_quality + 0.12 * min(official_count, 2)
+        if support_count >= 2 and domain_count >= 2:
+            multiplier += 0.03
+    return clamp(multiplier, 0.55, 1.25), support_count, domain_count, source_count
+
+
+def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for event in events:
+        source_key = canonical_source_key(event)
+        source_domain = article_source_domain(event)
+        source_tier = int(event.get("source_tier", 4) or 4)
+        source_quality_score = float(event.get("source_quality_score", 0.0) or 0.0)
+        for relationship in event.get("stock_relationships", []):
+            key = corroboration_group_key(event, relationship)
+            if not key[0]:
+                continue
+            groups.setdefault(key, []).append(
+                {
+                    "event": event,
+                    "relationship": relationship,
+                    "source_key": source_key,
+                    "domain": source_domain,
+                    "source_tier": source_tier,
+                    "source_quality_score": source_quality_score,
+                }
+            )
+
+    for supports in groups.values():
+        multiplier, support_count, domain_count, source_count = corroboration_multiplier_for_group(supports)
+        corroboration_score = clamp((multiplier - 0.55) / 0.70, 0.0, 1.0)
+        for item in supports:
+            relationship = item["relationship"]
+            relationship_confidence = clamp(float(relationship.get("relationship_confidence", relationship.get("confidence", 0.0)) or 0.0) * multiplier, 0.0, 1.0)
+            evidence_strength = clamp(float(relationship.get("evidence_strength", 0.0) or 0.0) * max(1.0, min(multiplier, 1.15)), 0.0, 1.0)
+            relationship.update(
+                {
+                    "corroboration_count": support_count,
+                    "corroboration_domain_count": domain_count,
+                    "corroboration_source_count": source_count,
+                    "corroboration_multiplier": round(multiplier, 3),
+                    "corroboration_score": round(corroboration_score, 3),
+                    "corroboration_agreement_score": round(corroboration_score, 3),
+                    "corroboration_label": (
+                        "official_source"
+                        if support_count <= 1 and any(int(item.get("source_tier", 4) or 4) <= 1 for item in supports)
+                        else "independently_corroborated"
+                        if support_count >= 2 and domain_count >= 2
+                        else "corroborated"
+                        if support_count > 1
+                        else "single_weak_source"
+                        if any(int(item.get("source_tier", 4) or 4) >= 4 for item in supports)
+                        else "single_source"
+                    ),
+                    "relationship_confidence": round(relationship_confidence, 3),
+                    "confidence": round(relationship_confidence, 3),
+                    "evidence_strength": round(evidence_strength, 3),
+                    "confidence_label": relationship_confidence_label(relationship_confidence, str(relationship.get("coverage_warning", ""))),
+                }
+            )
+
+
+def validation_outcome_multiplier(validation_status: str, validation_score: float) -> float:
+    status = str(validation_status or "unvalidated").strip().lower() or "unvalidated"
+    try:
+        score = clamp(float(validation_score or 0.0), 0.0, 1.0)
+    except Exception:
+        score = 0.0
+    base = {
+        "confirmed": 1.08,
+        "predicted_only": 0.98,
+        "insufficient_data": 0.94,
+        "rejected": 0.86,
+        "unvalidated": 1.0,
+    }.get(status, 1.0)
+    if status == "confirmed":
+        base += 0.04 * score
+    elif status == "predicted_only":
+        base += 0.02 * score
+    elif status == "insufficient_data":
+        base -= 0.02 * (1.0 - score)
+    elif status == "rejected":
+        base -= 0.06 * score
+    return round(clamp(base, 0.8, 1.15), 3)
+
+
 def build_stock_relationships(
     article: dict[str, Any],
     watchlist: list[str],
@@ -2203,12 +2394,16 @@ def build_stock_relationships(
         direction = expected_direction_for_company(matched_themes or themes, matched_channels, knowledge)
         source_quality = clamp(float(article.get("source_quality_score", 0.0) or 0.0), 0.0, 1.0)
         source_freshness = clamp(float(article.get("source_freshness_score", 1.0) or 0.0), 0.0, 1.0)
+        corroboration = source_corroboration_metrics_for_article(article)
+        source_tier = int(corroboration.get("source_tier", article.get("source_tier", 4)) or 4)
         try:
             duplicate_count = max(1, int(article.get("duplicate_count", 1) or 1))
         except Exception:
             duplicate_count = 1
         redundancy_factor = 1.0 / (1.0 + 0.18 * max(0, duplicate_count - 1))
         source_confidence = clamp(0.35 + 0.65 * (source_quality * source_freshness), 0.0, 1.0)
+        if source_tier <= 2:
+            source_confidence = clamp(source_confidence + 0.05, 0.0, 1.0)
 
         score = (
             0.24 * specificity
@@ -2218,8 +2413,8 @@ def build_stock_relationships(
             + 0.12 * evidence_quality
         )
         confidence = clamp((score / 5.0) * (0.7 + 0.3 * sentiment_confidence), 0.0, 1.0)
-        relationship_confidence = clamp(confidence * source_confidence * redundancy_factor, 0.0, 1.0)
-        evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor, 0.0, 1.0)
+        relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
+        evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
         if evidence_quality < MIN_EVIDENCE_QUALITY or score < MIN_RELATIONSHIP_SCORE:
             continue
@@ -2280,6 +2475,13 @@ def build_stock_relationships(
                 "knowledge_summary": summary,
                 "company_evidence": knowledge.get("evidence", []),
                 "evidence": evidence[:7],
+                "source_tier": source_tier,
+                "corroboration_source_count": corroboration.get("corroboration_source_count", 1),
+                "corroboration_domain_count": corroboration.get("corroboration_domain_count", 1),
+                "corroboration_source_type_count": corroboration.get("corroboration_source_type_count", 1),
+                "corroboration_agreement_score": corroboration.get("corroboration_agreement_score", 0.0),
+                "corroboration_multiplier": corroboration.get("corroboration_multiplier", 1.0),
+                "corroboration_label": corroboration.get("corroboration_label", "single_source"),
             }
         )
 
@@ -2396,6 +2598,10 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
     relationship_multiplier = {"direct": 1.0, "indirect": 0.82}.get(relationship.get("relationship_type"), 0.5)
     confidence_multiplier = clamp(0.45 + 0.55 * max(0.0, source_confidence), 0.25, 1.0)
     evidence_multiplier = clamp(0.5 + 0.5 * max(0.0, evidence_strength), 0.25, 1.0)
+    validation_multiplier = validation_outcome_multiplier(
+        str(relationship.get("validation_status", article.get("validation_status", "unvalidated"))),
+        float(relationship.get("validation_score", article.get("validation_score", 0.0)) or 0.0),
+    )
     direction = str(relationship.get("impact_direction", "neutral"))
     if direction == "positive":
         directional_sentiment = max(abs(sentiment_score), 0.45)
@@ -2405,7 +2611,7 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
         directional_sentiment = 0.35 * sentiment_score
     else:
         directional_sentiment = 0.0
-    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * confidence_multiplier * evidence_multiplier
+    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * confidence_multiplier * evidence_multiplier * validation_multiplier
     return clamp(raw, -1.0, 1.0)
 
 
@@ -2837,6 +3043,7 @@ def build_refresh_payload(
     ranked_events = meaningful_events or analyzed_articles
     event_threads = group_articles_into_threads(ranked_events)
     events = ranked_events[:10]
+    apply_corroboration_to_events(events)
 
     quotes, stock_warnings = stock_fetcher(watchlist)
     market_index, market_warnings = market_fetcher()
@@ -2851,6 +3058,10 @@ def build_refresh_payload(
                 quotes.get(ticker),
                 relationship,
                 series_cache=validation_cache,
+            )
+            validation["validation_multiplier"] = validation_outcome_multiplier(
+                str(validation.get("validation_status", "unvalidated")),
+                float(validation.get("validation_score", 0.0) or 0.0),
             )
             relationship.update(validation)
             for warning in validation.get("validation_warnings", []):
@@ -2904,11 +3115,21 @@ def build_refresh_payload(
                 "article_evidence_rank": strongest_link[1].get("article_evidence_rank") if strongest_link else None,
                 "company_evidence_rank": strongest_link[1].get("company_evidence_rank") if strongest_link else max((item.get("quality_rank", 0.0) for item in knowledge.get("evidence", [])), default=0.0),
                 "evidence_label": strongest_link[1].get("evidence_label") if strongest_link else None,
+                "source_tier": strongest_link[1].get("source_tier") if strongest_link else None,
+                "corroboration_source_count": strongest_link[1].get("corroboration_source_count") if strongest_link else 0,
+                "corroboration_domain_count": strongest_link[1].get("corroboration_domain_count") if strongest_link else 0,
+                "corroboration_source_type_count": strongest_link[1].get("corroboration_source_type_count") if strongest_link else 0,
+                "corroboration_agreement_score": strongest_link[1].get("corroboration_agreement_score") if strongest_link else 0.0,
+                "corroboration_multiplier": strongest_link[1].get("corroboration_multiplier") if strongest_link else 1.0,
+                "corroboration_label": strongest_link[1].get("corroboration_label") if strongest_link else "single_source",
+                "corroboration_count": strongest_link[1].get("corroboration_count") if strongest_link else 0,
+                "corroboration_score": strongest_link[1].get("corroboration_score") if strongest_link else 0.0,
                 "validation_status": strongest_link[1].get("validation_status") if strongest_link else "unvalidated",
                 "validation_window": strongest_link[1].get("validation_window") if strongest_link else None,
                 "abnormal_return": strongest_link[1].get("abnormal_return") if strongest_link else 0.0,
                 "abnormal_volume_ratio": strongest_link[1].get("abnormal_volume_ratio") if strongest_link else 0.0,
                 "validation_score": strongest_link[1].get("validation_score") if strongest_link else 0.0,
+                "validation_multiplier": strongest_link[1].get("validation_multiplier") if strongest_link else 1.0,
                 "validation_reason": strongest_link[1].get("validation_reason") if strongest_link else "",
                 "source": (quote or {}).get("source", "unavailable"),
             }
