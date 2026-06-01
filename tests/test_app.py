@@ -561,6 +561,14 @@ def test_dashboard_contains_runtime_hooks():
         'id="ihsgChange"',
         'safeArticleUrl(',
         'event-link',
+        'renderProvenanceBadges(',
+        'provenance-chips',
+        'Official',
+        'Fresh',
+        'Sparse sources',
+        'Duplicated coverage',
+        'High confidence',
+        'Needs more evidence',
     ]:
         assert snippet in dashboard_html
 
@@ -676,6 +684,8 @@ def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
     assert data["payload"]["market_index"]["value"] == 6847
     assert data["payload"]["market_index"]["series"]
     assert data["payload"]["sources"]
+    assert {"source_type", "source_quality_score", "source_freshness_score", "coverage_warning"}.issubset(data["payload"]["events"][0])
+    assert {"relationship_confidence", "confidence_label", "source_confidence", "evidence_strength"}.issubset(data["payload"]["stocks"][0])
 
 
 def test_refresh_builds_expected_payload_and_uses_cache(monkeypatch):

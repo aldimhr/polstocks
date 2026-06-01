@@ -478,6 +478,10 @@
   .reasoning-chip.neu { background: var(--surface2); color: var(--muted2); border-color: var(--border); }
   .reasoning-chip.muted { background: var(--surface); color: var(--muted); border-color: var(--border); }
 
+  .provenance-chips {
+    margin-top: 2px;
+  }
+
   .tick-tag {
     font-size: 11px;
     font-family: 'DM Mono', monospace;
@@ -1302,6 +1306,89 @@
     return `<span class="reasoning-chip ${reasoningChipClass(kind, value)}">${escapeHtml(label)}: ${escapeHtml(labelText(value))}</span>`;
   }
 
+  function provenanceSourceLabel(sourceType) {
+    const normalized = String(sourceType || '').toLowerCase();
+    if (['government', 'regulator', 'company'].includes(normalized)) return 'Official';
+    if (normalized === 'media') return 'Media';
+    return normalized ? 'Other' : '';
+  }
+
+  function provenanceConfidenceLabel(meta) {
+    const explicit = String(meta?.confidence_label || '').trim().toLowerCase();
+    if (['high_confidence', 'confirmed'].includes(explicit)) return 'High confidence';
+    if (explicit === 'medium_confidence') return 'Medium confidence';
+    if (['low_confidence'].includes(explicit)) return 'Low confidence';
+    if (['predicted_only', 'needs_more_evidence'].includes(explicit)) return 'Needs more evidence';
+    if (['insufficient_data', 'unvalidated', 'rejected'].includes(explicit)) return 'Unverified';
+    const score = Number(meta?.relationship_confidence ?? meta?.confidence);
+    if (!Number.isFinite(score)) return '';
+    if (score >= 0.8) return 'High confidence';
+    if (score >= 0.6) return 'Medium confidence';
+    if (score > 0) return 'Low confidence';
+    return 'Unverified';
+  }
+
+  function provenanceFreshnessLabel(meta) {
+    const warning = String(meta?.coverage_warning || '').trim();
+    const freshness = Number(meta?.source_freshness_score);
+    if (warning === 'stale_coverage' || (Number.isFinite(freshness) && freshness < 0.3)) return 'Stale';
+    if (Number.isFinite(freshness) && freshness >= 0.75) return 'Fresh';
+    return '';
+  }
+
+  function provenanceCoverageLabel(warning) {
+    const normalized = String(warning || '').trim().toLowerCase();
+    if (normalized === 'thin_source_coverage') return 'Sparse sources';
+    if (normalized === 'duplicated_coverage') return 'Duplicated coverage';
+    if (normalized === 'stale_coverage') return 'Stale';
+    return '';
+  }
+
+  function provenanceChipClass(kind, value) {
+    const normalized = String(value || '').toLowerCase();
+    if (kind === 'source') {
+      if (normalized === 'official') return 'info';
+      if (normalized === 'media') return 'neu';
+      return 'muted';
+    }
+    if (kind === 'freshness') {
+      if (normalized === 'fresh') return 'pos';
+      if (normalized === 'stale') return 'warn';
+      return 'neu';
+    }
+    if (kind === 'coverage') {
+      if (normalized === 'sparse sources') return 'warn';
+      if (normalized === 'duplicated coverage') return 'warn';
+      if (normalized === 'stale') return 'warn';
+      return 'muted';
+    }
+    if (kind === 'confidence') {
+      if (normalized === 'high confidence' || normalized === 'confirmed') return 'pos';
+      if (normalized === 'medium confidence') return 'info';
+      if (normalized === 'low confidence' || normalized === 'needs more evidence') return 'warn';
+      if (normalized === 'unverified') return 'muted';
+      return 'neu';
+    }
+    return 'neu';
+  }
+
+  function renderProvenanceBadges(meta = {}) {
+    const chips = [];
+    const sourceLabel = provenanceSourceLabel(meta.source_type || meta.article_source_type);
+    if (sourceLabel) chips.push(`<span class="reasoning-chip ${provenanceChipClass('source', sourceLabel)}">${escapeHtml(sourceLabel)}</span>`);
+
+    const freshnessLabel = provenanceFreshnessLabel(meta);
+    if (freshnessLabel) chips.push(`<span class="reasoning-chip ${provenanceChipClass('freshness', freshnessLabel)}">${escapeHtml(freshnessLabel)}</span>`);
+
+    const coverageLabel = provenanceCoverageLabel(meta.coverage_warning);
+    if (coverageLabel) chips.push(`<span class="reasoning-chip ${provenanceChipClass('coverage', coverageLabel)}">${escapeHtml(coverageLabel)}</span>`);
+
+    const confidenceLabel = provenanceConfidenceLabel(meta);
+    if (confidenceLabel) chips.push(`<span class="reasoning-chip ${provenanceChipClass('confidence', confidenceLabel)}">${escapeHtml(confidenceLabel)}</span>`);
+
+    return chips.join('');
+  }
+
   function renderReasoningSummary(reasoning) {
     const root = $('reasoningStrip');
     if (!root) return;
@@ -1497,6 +1584,7 @@
       const impact = Number(stock.impact_score);
       const changeClass = Number.isFinite(change) && change > 0 ? 'up' : Number.isFinite(change) && change < 0 ? 'down' : 'flat';
       const impactClass = impact > 0 ? 'pos' : impact < 0 ? 'neg' : 'neu';
+      const provenanceBadges = renderProvenanceBadges(stock);
       const linkMeta = stock.relationship_type
         ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
         : 'No strong policy link';
@@ -1509,7 +1597,7 @@
         : '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
-          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
+          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
           <td class="price-cell" data-label="Harga (IDR)">${formatPrice(stock.price)}</td>
           <td class="change-cell ${changeClass}" data-label="Hari ini">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell" data-label="Impact score"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
@@ -1526,6 +1614,7 @@
       return;
     }
     root.innerHTML = rows.map((event) => {
+      const provenanceBadges = renderProvenanceBadges(event);
       const cats = (event.categories || []).slice(0, 3).map((c) => `<span class="cat-tag">${escapeHtml(String(c).replaceAll('_', ' '))}</span>`).join(' ');
       const themes = (event.policy_themes || []).slice(0, 2).map((t) => `<span class="cat-tag">${escapeHtml(String(t).replaceAll('_', ' '))}</span>`).join(' ');
       const tickers = (event.impacted_tickers || []).slice(0, 6).map((t) => `<span class="tick-tag">${escapeHtml(t)}</span>`).join(' ');
@@ -1557,6 +1646,7 @@
             <span class="cat-tag">${escapeHtml(ageLabel)}</span>
             <span class="event-source">${escapeHtml(event.source || '')} · ${escapeHtml(formatTime(event.published_at))}</span>
           </div>
+          <div class="reasoning-chips provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div>
           <div class="reasoning-chips">${reasoningBadges || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div>
           <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
           <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>

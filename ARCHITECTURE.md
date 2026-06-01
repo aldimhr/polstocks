@@ -51,7 +51,7 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
 
 | Component | Technology | Responsibility |
 |---|---|---|
-| Dashboard | Static HTML + vanilla JS | UI, Update button, window selector, watchlist editor, compact reasoning badges, renders results |
+| Dashboard | Static HTML + vanilla JS | UI, Update button, window selector, watchlist editor, compact reasoning badges, source provenance/confidence badges, renders results |
 | Backend | FastAPI (Python) | Serves dashboard, orchestrates fetch → NLP → response |
 | RSS Fetcher | `requests` + XML parsing | Pulls latest political news from free RSS feeds |
 | Stock Fetcher | Yahoo Finance chart endpoint | Gets current prices for IDX tickers (`.JK`) and IHSG |
