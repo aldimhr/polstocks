@@ -430,6 +430,105 @@ def parse_datetime(value: str | None) -> datetime | None:
     return None
 
 
+_INDONESIAN_MONTHS = {
+    "januari": 1,
+    "februari": 2,
+    "maret": 3,
+    "april": 4,
+    "mei": 5,
+    "juni": 6,
+    "juli": 7,
+    "agustus": 8,
+    "september": 9,
+    "oktober": 10,
+    "november": 11,
+    "desember": 12,
+}
+
+_ENGLISH_MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+
+
+def _parse_human_date_text(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = re.sub(r"\s+", " ", str(value).strip())
+    match = re.search(
+        r"(?P<day>\d{1,2})\s+(?P<month>[A-Za-zÀ-ÿ]+)\s+(?P<year>\d{4})(?:\s+(?P<hour>\d{1,2})[.:](?P<minute>\d{2})(?::(?P<second>\d{2}))?\s*(?P<tz>WIB|WITA|WIT|UTC|GMT)?)?",
+        text,
+        flags=re.I,
+    )
+    if not match:
+        return None
+    month_name = match.group("month").strip().lower()
+    month = _INDONESIAN_MONTHS.get(month_name) or _ENGLISH_MONTHS.get(month_name)
+    if not month:
+        return None
+    day = int(match.group("day"))
+    year = int(match.group("year"))
+    hour = int(match.group("hour") or 0)
+    minute = int(match.group("minute") or 0)
+    second = int(match.group("second") or 0)
+    tz_name = (match.group("tz") or "WIB").upper()
+    tz = {
+        "WIB": WIB,
+        "WITA": timezone(timedelta(hours=8)),
+        "WIT": timezone(timedelta(hours=9)),
+        "UTC": timezone.utc,
+        "GMT": timezone.utc,
+    }.get(tz_name, WIB)
+    try:
+        return datetime(year, month, day, hour, minute, second, tzinfo=tz).astimezone(WIB)
+    except Exception:
+        return None
+
+
+def extract_html_published_at(html_text: str) -> datetime | None:
+    if not html_text:
+        return None
+    meta_patterns = (
+        r'<meta[^>]+(?:property|name)=["\']article:published_time["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+(?:property|name)=["\']og:published_time["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+(?:property|name)=["\']article:modified_time["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+(?:property|name)=["\']date["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+(?:property|name)=["\']pubdate["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+(?:property|name)=["\']publishdate["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+(?:property|name)=["\']dc\.date(?:\.issued)?["\'][^>]+content=["\']([^"\']+)',
+    )
+    for pattern in meta_patterns:
+        match = re.search(pattern, html_text, flags=re.I)
+        if match:
+            parsed = parse_datetime(match.group(1))
+            if parsed:
+                return parsed
+    text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", html_text, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(re.sub(r"\s+", " ", text))
+    visible_patterns = (
+        r"(?:dipublikasikan pada|published on|posted on|diterbitkan pada|terbit pada)\s+([0-9]{1,2}\s+[A-Za-zÀ-ÿ]+\s+[0-9]{4}(?:\s+[0-9]{1,2}[.:][0-9]{2}(?::[0-9]{2})?\s*(?:WIB|WITA|WIT|UTC|GMT)?)?)",
+        r"([0-9]{1,2}\s+[A-Za-zÀ-ÿ]+\s+[0-9]{4}(?:\s+[0-9]{1,2}[.:][0-9]{2}(?::[0-9]{2})?\s*(?:WIB|WITA|WIT|UTC|GMT)?)?)",
+    )
+    for pattern in visible_patterns:
+        match = re.search(pattern, text, flags=re.I)
+        if match:
+            parsed = _parse_human_date_text(match.group(1))
+            if parsed:
+                return parsed
+    return None
+
+
 def clamp(value: float, low: float = -1.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
@@ -1389,6 +1488,8 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
     if match:
         description = strip_tags(match.group(1))
 
+    source_published_at = extract_html_published_at(html_text) or now_wib()
+
     base_url = source["url"].rstrip("/")
     domain_match = re.match(r"https?://([^/]+)", base_url)
     domain = domain_match.group(1) if domain_match else ""
@@ -1416,7 +1517,7 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
             "source": source["name"],
             "headline": title,
             "url": href,
-            "published_at": now_wib(),
+            "published_at": source_published_at,
             "summary": description or page_title or title,
             "source_weight": float(source["weight"]),
             **source_metadata,

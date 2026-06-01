@@ -356,6 +356,31 @@ def test_parse_rss_items_recovers_from_malformed_xml():
     assert items[0]["source_type"] == "media"
 
 
+def test_parse_html_signal_uses_real_publish_time_from_meta():
+    html_payload = """<html>
+      <head>
+        <title>Tinggalkan Paris Menuju Jakarta, Presiden Prabowo Akhiri Kunjungan Resmi Kenegaraan di Prancis</title>
+        <meta property='article:published_time' content='2026-05-29T15:39:22+00:00' />
+        <meta name='description' content='Presiden Republik Indonesia Prabowo Subianto mengakhiri rangkaian kunjungan resmi kenegaraan di Paris.' />
+      </head>
+      <body>
+        <h1>Tinggalkan Paris Menuju Jakarta, Presiden Prabowo Akhiri Kunjungan Resmi Kenegaraan di Prancis</h1>
+        <a href='/tinggalkan-paris-menuju-jakarta-presiden-prabowo-akhiri-kunjungan-resmi-kenegaraan-di-prancis/'>
+          Tinggalkan Paris Menuju Jakarta, Presiden Prabowo Akhiri Kunjungan Resmi Kenegaraan di Prancis
+        </a>
+      </body>
+    </html>"""
+
+    items = appmod.parse_html_signal(
+        {"name": "Sekretariat Kabinet", "url": "https://setkab.go.id", "weight": 1.0, "kind": "html"},
+        html_payload,
+    )
+
+    assert len(items) == 1
+    assert items[0]["published_at"] == appmod.parse_datetime("2026-05-29T15:39:22+00:00")
+    assert items[0]["headline"].startswith("Tinggalkan Paris Menuju Jakarta")
+
+
 def test_source_registry_loader_normalizes_profiles():
     registry = appmod.load_source_registry()
     assert {"sources", "by_name", "by_domain", "by_canonical_domain"}.issubset(registry.keys())
