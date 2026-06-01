@@ -2143,6 +2143,21 @@ def relationship_type_for_link(direct_alias_hit: bool, matched_channels: list[di
     return None
 
 
+def relationship_confidence_label(confidence: float, coverage_warning: str = "") -> str:
+    warning = str(coverage_warning or "").strip()
+    if warning == "stale_coverage" and confidence < 0.7:
+        return "predicted_only"
+    if confidence >= 0.8:
+        return "high_confidence"
+    if confidence >= 0.65:
+        return "confirmed"
+    if confidence >= 0.4:
+        return "low_confidence"
+    if confidence >= 0.2:
+        return "predicted_only"
+    return "insufficient_data"
+
+
 def build_stock_relationships(
     article: dict[str, Any],
     watchlist: list[str],
@@ -2186,6 +2201,14 @@ def build_stock_relationships(
         timing = max(1.0, min(5.0, 5.0 - recency_hours / max(6.0, event_window_delta(window).total_seconds() / 21600.0)))
         evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit, knowledge.get("evidence", []))
         direction = expected_direction_for_company(matched_themes or themes, matched_channels, knowledge)
+        source_quality = clamp(float(article.get("source_quality_score", 0.0) or 0.0), 0.0, 1.0)
+        source_freshness = clamp(float(article.get("source_freshness_score", 1.0) or 0.0), 0.0, 1.0)
+        try:
+            duplicate_count = max(1, int(article.get("duplicate_count", 1) or 1))
+        except Exception:
+            duplicate_count = 1
+        redundancy_factor = 1.0 / (1.0 + 0.18 * max(0, duplicate_count - 1))
+        source_confidence = clamp(0.35 + 0.65 * (source_quality * source_freshness), 0.0, 1.0)
 
         score = (
             0.24 * specificity
@@ -2195,6 +2218,9 @@ def build_stock_relationships(
             + 0.12 * evidence_quality
         )
         confidence = clamp((score / 5.0) * (0.7 + 0.3 * sentiment_confidence), 0.0, 1.0)
+        relationship_confidence = clamp(confidence * source_confidence * redundancy_factor, 0.0, 1.0)
+        evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor, 0.0, 1.0)
+        confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
         if evidence_quality < MIN_EVIDENCE_QUALITY or score < MIN_RELATIONSHIP_SCORE:
             continue
 
@@ -2238,7 +2264,11 @@ def build_stock_relationships(
                 "company_evidence_rank": company_evidence_rank,
                 "evidence_label": evidence_label,
                 "relevance_score": round(score, 2),
-                "confidence": round(confidence, 3),
+                "confidence": round(relationship_confidence, 3),
+                "relationship_confidence": round(relationship_confidence, 3),
+                "source_confidence": round(source_confidence, 3),
+                "evidence_strength": round(evidence_strength, 3),
+                "confidence_label": confidence_label,
                 "rationale": rationale,
                 "policy_channel": policy_channel,
                 "matched_policy_channels": matched_channels,
@@ -2355,8 +2385,17 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
         return 0.0
     sentiment_score = float(article.get("sentiment_score", 0.0))
     relevance_factor = float(relationship.get("relevance_score", 0.0)) / 5.0
-    confidence = float(relationship.get("confidence", article.get("confidence", 0.5)))
+    confidence = float(
+        relationship.get(
+            "relationship_confidence",
+            relationship.get("confidence", article.get("confidence", 0.5)),
+        )
+    )
+    source_confidence = float(relationship.get("source_confidence", article.get("source_quality_score", 0.5)))
+    evidence_strength = float(relationship.get("evidence_strength", confidence))
     relationship_multiplier = {"direct": 1.0, "indirect": 0.82}.get(relationship.get("relationship_type"), 0.5)
+    confidence_multiplier = clamp(0.45 + 0.55 * max(0.0, source_confidence), 0.25, 1.0)
+    evidence_multiplier = clamp(0.5 + 0.5 * max(0.0, evidence_strength), 0.25, 1.0)
     direction = str(relationship.get("impact_direction", "neutral"))
     if direction == "positive":
         directional_sentiment = max(abs(sentiment_score), 0.45)
@@ -2366,7 +2405,7 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
         directional_sentiment = 0.35 * sentiment_score
     else:
         directional_sentiment = 0.0
-    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier
+    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * confidence_multiplier * evidence_multiplier
     return clamp(raw, -1.0, 1.0)
 
 
@@ -2829,6 +2868,10 @@ def build_refresh_payload(
                 "relationship_type": strongest_link[1].get("relationship_type") if strongest_link else None,
                 "relevance_score": strongest_link[1].get("relevance_score") if strongest_link else None,
                 "confidence": strongest_link[1].get("confidence") if strongest_link else 0.0,
+                "relationship_confidence": strongest_link[1].get("relationship_confidence") if strongest_link else 0.0,
+                "confidence_label": strongest_link[1].get("confidence_label") if strongest_link else "insufficient_data",
+                "source_confidence": strongest_link[1].get("source_confidence") if strongest_link else 0.0,
+                "evidence_strength": strongest_link[1].get("evidence_strength") if strongest_link else 0.0,
                 "rationale": strongest_link[1].get("rationale") if strongest_link else "No evidence-backed political link in current batch.",
                 "policy_channel": strongest_link[1].get("policy_channel") if strongest_link else None,
                 "matched_policy_channels": strongest_link[1].get("matched_policy_channels") if strongest_link else [],

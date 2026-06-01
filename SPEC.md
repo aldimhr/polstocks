@@ -116,6 +116,7 @@ A lightweight on-demand dashboard that lets users check how current Indonesian p
 | F-47 | Refresh payloads SHALL include daily event-tracking aggregates plus top themes and sources for the selected window |
 | F-48 | Stock rows and relationship payloads SHALL expose `validation_status`, `validation_window`, `abnormal_return`, `abnormal_volume_ratio`, and `validation_score` when market history is available |
 | F-49 | If market history cannot be fetched, the refresh SHALL keep the text-based relationship and mark it `predicted_only` or `insufficient_data` instead of failing the request |
+| F-50 | Relationship payloads SHALL also expose source-aware confidence metadata, including `relationship_confidence`, `confidence_label`, `source_confidence`, and `evidence_strength`, so weak evidence can be downgraded without being hidden |
 
 ---
 

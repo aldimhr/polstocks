@@ -87,8 +87,7 @@ A lightweight on-demand FastAPI web app that serves a static HTML dashboard, fet
    - Sentiment score (-1.0 to +1.0)
    - Political category (e.g. ENERGY_POLICY, CORRUPTION_CASE)
    - Company linking through two strict paths only: direct mention or matched company-specific policy channel
-   - Transmission-path outputs such as matched policy channels, channel confidence, and per-company impact direction
-   - Evidence tier (government / regulator / company / media / profile / other)
+   - Transmission-path outputs such as matched policy channels, channel confidence, per-company impact direction, and source-aware relationship confidence
    - Freshness-aware source quality scoring and coverage warnings when evidence is stale, thin, or duplicated
 
 7. Event Tracking layer groups surviving events into daily buckets and top theme/source summaries for the selected window, while the refresh payload also computes a compact `reasoning_summary` for relevance, stage, thread, direction, validation, and source-coverage breakdowns

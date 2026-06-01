@@ -792,6 +792,31 @@ def test_article_analysis_requires_evidence_backed_relationships():
     assert vague["stock_relationships"] == []
 
 
+def test_source_quality_downgrades_relationship_confidence_and_labels_weak_coverage():
+    strong = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK"], window="7d")
+    strong_link = next(item for item in strong["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    assert strong_link["relationship_type"] == "direct"
+    assert strong_link["relationship_confidence"] > 0
+    assert strong_link["confidence_label"] in {"high_confidence", "confirmed"}
+
+    weak_direct_article = {
+        "source": "Opinion Blog",
+        "headline": "Antam dan hilirisasi jadi tema ramai di pasar",
+        "url": "https://example.com/article-14",
+        "published_at": appmod.now_wib(),
+        "summary": "Opini umum menyebut Antam tanpa dasar kebijakan, regulasi, atau sumber resmi yang jelas.",
+        "source_weight": 0.2,
+        "source_type": "other",
+    }
+    weak = appmod.analyze_article(weak_direct_article, ["ANTM.JK"], window="7d")
+    weak_link = next(item for item in weak["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    assert weak_link["relationship_type"] == "direct"
+    assert weak_link["relationship_confidence"] < strong_link["relationship_confidence"]
+    assert weak_link["confidence_label"] in {"low_confidence", "predicted_only", "insufficient_data"}
+    assert weak_link["source_confidence"] <= strong_link["source_confidence"]
+    assert weak_link["evidence_strength"] <= strong_link["evidence_strength"]
+
+
 def test_transmission_path_scoring_blocks_sector_only_spillover_and_supports_directionality():
     trade_only_article = {
         "source": "Setkab",
