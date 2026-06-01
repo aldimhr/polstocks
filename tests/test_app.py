@@ -527,6 +527,33 @@ def test_refresh_payload_sorts_impacted_tickers_first(monkeypatch):
     assert payload["stocks"][1]["relationship_count"] == 0
 
 
+def test_refresh_payload_keeps_neutral_ticker_order_when_no_impacts(monkeypatch):
+    neutral_article = {
+        "source": "Sports News",
+        "headline": "Laga persahabatan dan skor akhir pertandingan",
+        "url": "https://example.com/article-neutral",
+        "published_at": appmod.now_wib(),
+        "summary": "Berita olahraga tanpa kebijakan, regulasi, atau perusahaan yang relevan.",
+        "source_weight": 0.2,
+        "source_type": "other",
+    }
+
+    def neutral_news_fetcher():
+        return [neutral_article], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["TLKM", "BBCA"],
+        window="7d",
+        news_fetcher=neutral_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    assert [stock["ticker"] for stock in payload["stocks"]] == ["TLKM.JK", "BBCA.JK"]
+    assert all(stock["relationship_count"] == 0 for stock in payload["stocks"])
+
+
 def test_refresh_payload_flags_stale_source_coverage(monkeypatch):
     stale_article = {
         "source": "Antara Mirror",

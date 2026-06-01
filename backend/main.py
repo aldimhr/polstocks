@@ -2415,17 +2415,22 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
 
 
 def sort_stocks_by_impact(stocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    def sort_key(stock: dict[str, Any]) -> tuple[int, float, float, str]:
+    ranked = []
+    for index, stock in enumerate(stocks):
         relationship_count = int(stock.get("relationship_count", 0) or 0)
         impact_score = float(stock.get("impact_score", 0.0) or 0.0)
-        return (
-            1 if relationship_count > 0 or abs(impact_score) > 0.0001 else 0,
-            abs(impact_score),
-            float(relationship_count),
-            str(stock.get("ticker", "")),
+        impacted = relationship_count > 0 or abs(impact_score) > 0.0001
+        ranked.append(
+            (
+                0 if impacted else 1,
+                -abs(impact_score),
+                -float(relationship_count),
+                index,
+                stock,
+            )
         )
-
-    return sorted(stocks, key=sort_key, reverse=True)
+    ranked.sort()
+    return [stock for *_, stock in ranked]
 
 
 def compute_sector_summary(stocks: list[dict[str, Any]]) -> dict[str, float]:
