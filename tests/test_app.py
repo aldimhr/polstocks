@@ -848,6 +848,34 @@ def test_refresh_builds_expected_payload_and_uses_cache(monkeypatch):
     assert cached["cache_key"] == ["7d", "BBCA.JK", "TLKM.JK"]
 
 
+def test_refresh_payload_exposes_source_fetch_diagnostics(monkeypatch):
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["BBCA"],
+        force=True,
+        window="7d",
+        news_fetcher=fake_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    assert payload["sources"]
+    source_diag = payload["sources"][0]
+    assert isinstance(source_diag, dict)
+    assert {
+        "name",
+        "kind",
+        "status",
+        "warning",
+        "article_count",
+        "used_registry_profile",
+        "resolution_method",
+        "date_enrichment_attempted",
+        "date_enrichment_success_count",
+        "date_fallback_count",
+    }.issubset(source_diag)
+
+
 def test_refresh_window_changes_article_set_and_tracking(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     weekly = appmod.build_refresh_payload(

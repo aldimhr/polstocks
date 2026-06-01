@@ -995,6 +995,29 @@ def source_profile_for_url(url: str) -> dict[str, Any]:
     return _fallback_source_profile(url=url)
 
 
+def source_profile_resolution(source_name: str = "", url: str = "") -> tuple[dict[str, Any], str]:
+    registry = SOURCE_REGISTRY or load_source_registry()
+    normalized_name = normalize_match_text(source_name)
+    if normalized_name:
+        profile = registry.get("by_name", {}).get(normalized_name)
+        if profile:
+            return dict(profile), "registry_name"
+
+    parsed = urlsplit(url or "")
+    domain = parsed.netloc or (url if "." in url and "/" not in url else "")
+    normalized_domain = normalize_domain(domain)
+    if normalized_domain:
+        profile = registry.get("by_domain", {}).get(normalized_domain)
+        if profile:
+            return dict(profile), "registry_domain"
+
+    if source_name and "://" in source_name:
+        return _fallback_source_profile(url=source_name), "inferred_fallback"
+    if source_name or url:
+        return _fallback_source_profile(name=source_name, url=url), "inferred_fallback"
+    return _fallback_source_profile(), "inferred_fallback"
+
+
 def source_quality_score_for_profile(profile: dict[str, Any]) -> float:
     try:
         tier = int(profile.get("tier", 4))
@@ -1160,17 +1183,7 @@ def source_corroboration_metrics_for_article(article: dict[str, Any]) -> dict[st
 
 
 def source_metadata_for(source_name: str = "", url: str = "") -> dict[str, Any]:
-    registry = SOURCE_REGISTRY or load_source_registry()
-    profile = None
-    normalized_name = normalize_match_text(source_name)
-    if normalized_name:
-        profile = registry.get("by_name", {}).get(normalized_name)
-    if profile is None and url:
-        profile = source_profile_for_url(url)
-    if profile is None and source_name:
-        profile = source_profile_for_name(source_name)
-    if profile is None:
-        profile = _fallback_source_profile(name=source_name, url=url)
+    profile, resolution_method = source_profile_resolution(source_name, url)
     if profile.get("canonical_domain") and not url:
         profile = source_profile_for_domain(str(profile.get("canonical_domain", "")))
     return {
@@ -1179,6 +1192,8 @@ def source_metadata_for(source_name: str = "", url: str = "") -> dict[str, Any]:
         "source_tier": int(profile.get("tier", 4) or 4),
         "canonical_domain": profile.get("canonical_domain", ""),
         "source_quality_score": source_quality_score_for_profile(profile),
+        "source_profile_resolution": resolution_method,
+        "used_registry_profile": resolution_method.startswith("registry_"),
     }
 
 
@@ -1540,54 +1555,160 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
     return deduped
 
 
-def enrich_html_article_dates(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def enrich_html_article_dates(articles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    stats = {
+        "date_enrichment_attempted": 0,
+        "date_enrichment_success_count": 0,
+        "date_fallback_count": 0,
+    }
     for article in articles:
         url = str(article.get("url") or "").strip()
         if not url:
+            stats["date_fallback_count"] += 1
             continue
+        stats["date_enrichment_attempted"] += 1
         try:
+            original_published_at = article.get("published_at") if isinstance(article.get("published_at"), datetime) else None
             response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
             response.raise_for_status()
             published_at = extract_html_published_at(response.text)
             if published_at:
                 article["published_at"] = published_at
+                if not original_published_at or published_at != original_published_at:
+                    stats["date_enrichment_success_count"] += 1
+                continue
         except Exception:
-            continue
-    return articles
+            pass
+        stats["date_fallback_count"] += 1
+    return articles, stats
 
 
-def fetch_source(source: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+def build_source_diagnostic(
+    source: dict[str, Any],
+    *,
+    status: str,
+    articles: list[dict[str, Any]] | None = None,
+    warning: str | None = None,
+    date_stats: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    metadata = source_metadata_for(str(source.get("name") or ""), str(source.get("url") or ""))
+    resolution_method = str(metadata.get("source_profile_resolution", "inferred_fallback") or "inferred_fallback")
+    canonical_name = str(metadata.get("source_profile", {}).get("canonical_name") or source.get("name") or "Unknown source").strip() or "Unknown source"
+    article_count = len(articles or [])
+    stats = date_stats or {}
+    return {
+        "name": canonical_name,
+        "kind": str(source.get("kind") or "unknown"),
+        "status": status,
+        "warning": str(warning or ""),
+        "article_count": article_count,
+        "used_registry_profile": bool(metadata.get("used_registry_profile")),
+        "resolution_method": resolution_method,
+        "date_enrichment_attempted": bool(stats.get("date_enrichment_attempted", 0)),
+        "date_enrichment_success_count": int(stats.get("date_enrichment_success_count", 0) or 0),
+        "date_fallback_count": int(stats.get("date_fallback_count", 0) or 0),
+    }
+
+
+def summarize_source_diagnostics_from_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for article in articles:
+        source_name = str(article.get("source") or "Unknown source").strip() or "Unknown source"
+        grouped.setdefault(source_name, []).append(article)
+
+    diagnostics: list[dict[str, Any]] = []
+    for source_name, group in sorted(grouped.items()):
+        first = group[0]
+        metadata = source_metadata_for(source_name, str(first.get("url") or ""))
+        resolution_method = str(first.get("source_profile_resolution") or metadata.get("source_profile_resolution", "inferred_fallback") or "inferred_fallback")
+        source_profile = first.get("source_profile", {}) if isinstance(first.get("source_profile", {}), dict) else metadata.get("source_profile", {})
+        diagnostics.append(
+            {
+                "name": str(source_profile.get("canonical_name") or source_name).strip() or source_name,
+                "kind": str(first.get("source_kind") or "provided"),
+                "status": "ok" if group else "empty",
+                "warning": "",
+                "article_count": len(group),
+                "used_registry_profile": bool(first.get("used_registry_profile", metadata.get("used_registry_profile", False))),
+                "resolution_method": resolution_method,
+                "date_enrichment_attempted": False,
+                "date_enrichment_success_count": 0,
+                "date_fallback_count": 0,
+            }
+        )
+    return diagnostics
+
+
+def unpack_news_fetch_result(result: Any) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
+    if not isinstance(result, tuple):
+        return [], ["News fetcher returned an invalid result shape."], []
+
+    if len(result) == 3:
+        articles, warnings, diagnostics = result
+    elif len(result) == 2:
+        articles, warnings = result
+        diagnostics = summarize_source_diagnostics_from_articles(articles if isinstance(articles, list) else [])
+    else:
+        return [], ["News fetcher returned an unsupported tuple shape."], []
+
+    normalized_articles = articles if isinstance(articles, list) else []
+    normalized_warnings = warnings if isinstance(warnings, list) else [str(warnings)] if warnings else []
+    normalized_diagnostics = diagnostics if isinstance(diagnostics, list) else []
+    return normalized_articles, normalized_warnings, normalized_diagnostics
+
+
+def fetch_source(
+    source: dict[str, Any],
+    include_diagnostic: bool = False,
+) -> tuple[list[dict[str, Any]], str | None] | tuple[list[dict[str, Any]], str | None, dict[str, Any]]:
     try:
         response = requests.get(source["url"], timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
         response.raise_for_status()
         if source["kind"] == "rss":
             articles = parse_rss_items(source, response.text)
             if not articles:
-                return [], f"{source['name']}: no RSS items extracted"
+                warning = f"{source['name']}: no RSS items extracted"
+                if include_diagnostic:
+                    return [], warning, build_source_diagnostic(source, status="empty", warning=warning)
+                return [], warning
+            if include_diagnostic:
+                return articles, None, build_source_diagnostic(source, status="ok", articles=articles)
             return articles, None
         articles = parse_html_signal(source, response.text)
         if not articles:
-            return [], f"{source['name']}: no article links extracted"
-        return enrich_html_article_dates(articles), None
+            warning = f"{source['name']}: no article links extracted"
+            if include_diagnostic:
+                return [], warning, build_source_diagnostic(source, status="empty", warning=warning)
+            return [], warning
+        enriched_articles, date_stats = enrich_html_article_dates(articles)
+        if include_diagnostic:
+            return enriched_articles, None, build_source_diagnostic(source, status="ok", articles=enriched_articles, date_stats=date_stats)
+        return enriched_articles, None
     except Exception as exc:  # pragma: no cover - network failures are expected in some environments
-        return [], f"{source['name']}: {exc}"
+        warning = f"{source['name']}: {exc}"
+        if include_diagnostic:
+            return [], warning, build_source_diagnostic(source, status="error", warning=warning)
+        return [], warning
 
 
-def fetch_news_bundle() -> tuple[list[dict[str, Any]], list[str]]:
+def fetch_news_bundle() -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     articles: list[dict[str, Any]] = []
     warnings: list[str] = []
+    diagnostics: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(8, len(NEWS_SOURCES))) as pool:
-        futures = {pool.submit(fetch_source, source): source for source in NEWS_SOURCES}
+        futures = {pool.submit(fetch_source, source, True): source for source in NEWS_SOURCES}
         for future in as_completed(futures):
-            source_articles, warning = future.result()
+            source_articles, warning, source_diagnostic = future.result()
             if warning:
                 warnings.append(warning)
+            diagnostics.append(source_diagnostic)
             articles.extend(source_articles)
 
     articles = [article for article in articles if is_relevant_article(article)]
     if not articles:
         warnings.append("No live news articles available right now.")
-    return articles, warnings
+    diagnostics.sort(key=lambda item: str(item.get("name") or ""))
+    return articles, warnings, diagnostics
 
 
 def dedupe_articles(articles: list[dict[str, Any]], window: str = DEFAULT_EVENT_WINDOW) -> list[dict[str, Any]]:
@@ -3214,7 +3335,7 @@ def build_refresh_payload(
     stock_fetcher = stock_fetcher or fetch_stock_quotes
     market_fetcher = market_fetcher or fetch_market_index
 
-    live_articles, news_warnings = news_fetcher()
+    live_articles, news_warnings, source_diagnostics = unpack_news_fetch_result(news_fetcher())
     articles = dedupe_articles(live_articles, normalized_window)
     watchlist = list(dict.fromkeys(requested))
     analyzed_articles = [analyze_article(article, watchlist, normalized_window) for article in articles]
@@ -3374,7 +3495,7 @@ def build_refresh_payload(
     if not quotes:
         warnings.append("No live stock quotes available.")
 
-    sources = sorted({event.get("source", "") for event in formatted_events if event.get("source")})
+    sources = source_diagnostics or summarize_source_diagnostics_from_articles(articles)
     payload = {
         "fetched_at": now_iso(),
         "from_cache": False,
