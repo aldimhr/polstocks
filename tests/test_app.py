@@ -1020,6 +1020,63 @@ def test_refresh_payload_exposes_batch_robustness_summary(monkeypatch):
     assert summary["thin_event_count"] >= 1
 
 
+def test_summarized_source_diagnostics_preserve_resolution_and_article_signals(monkeypatch):
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+
+    registry_article = {
+        "source": "Antara Terkini",
+        "headline": "Pemerintah dorong hilirisasi nikel untuk mendukung Antam",
+        "url": "https://www.antaranews.com/ekonomi/fallback-diagnostics-antam",
+        "published_at": appmod.now_wib(),
+        "summary": "Pemerintah mendorong hilirisasi nikel dan menyebut Antam sebagai pihak yang diuntungkan oleh proyek smelter baru.",
+        "source_weight": 0.86,
+        **appmod.source_metadata_for("Antara Terkini", "https://www.antaranews.com/ekonomi/fallback-diagnostics-antam"),
+    }
+    fallback_article = {
+        "source": "Lifestyle Blog",
+        "headline": "Opini umum soal Antam tanpa dasar kebijakan resmi",
+        "url": "https://example.com/fallback-diagnostics-opinion",
+        "published_at": appmod.now_wib() - timedelta(hours=2),
+        "summary": "Opini umum menyebut Antam tanpa dasar kebijakan, regulasi, atau sumber resmi yang jelas.",
+        "source_weight": 0.2,
+        **appmod.source_metadata_for("Lifestyle Blog", "https://example.com/fallback-diagnostics-opinion"),
+    }
+
+    def two_tuple_news_fetcher():
+        return ([registry_article, fallback_article], [])
+
+    payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=two_tuple_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    diagnostics_by_name = {item["name"]: item for item in payload["sources"]}
+    antara_diag = diagnostics_by_name["Antara News"]
+    blog_diag = diagnostics_by_name["Lifestyle Blog"]
+
+    assert antara_diag["resolution_method"] == registry_article["source_profile_resolution"]
+    assert antara_diag["used_registry_profile"] is True
+    assert antara_diag["status"] == "inferred_ok"
+    assert antara_diag["warning"] == ""
+    assert antara_diag["article_count"] == 1
+    assert antara_diag["date_enrichment_attempted"] is None
+    assert antara_diag["date_enrichment_success_count"] is None
+    assert antara_diag["date_fallback_count"] is None
+
+    assert blog_diag["resolution_method"] == fallback_article["source_profile_resolution"]
+    assert blog_diag["used_registry_profile"] is False
+    assert blog_diag["status"] == "inferred_ok"
+    assert blog_diag["warning"] == ""
+    assert blog_diag["article_count"] == 1
+    assert blog_diag["date_enrichment_attempted"] is None
+    assert blog_diag["date_enrichment_success_count"] is None
+    assert blog_diag["date_fallback_count"] is None
+
+
 def test_refresh_window_changes_article_set_and_tracking(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     weekly = appmod.build_refresh_payload(

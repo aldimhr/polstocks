@@ -1686,14 +1686,14 @@ def summarize_source_diagnostics_from_articles(articles: list[dict[str, Any]]) -
             {
                 "name": str(source_profile.get("canonical_name") or source_name).strip() or source_name,
                 "kind": str(first.get("source_kind") or "provided"),
-                "status": "ok" if group else "empty",
+                "status": "inferred_ok" if group else "empty",
                 "warning": "",
                 "article_count": len(group),
                 "used_registry_profile": bool(first.get("used_registry_profile", metadata.get("used_registry_profile", False))),
                 "resolution_method": resolution_method,
-                "date_enrichment_attempted": False,
-                "date_enrichment_success_count": 0,
-                "date_fallback_count": 0,
+                "date_enrichment_attempted": None,
+                "date_enrichment_success_count": None,
+                "date_fallback_count": None,
             }
         )
     return diagnostics
