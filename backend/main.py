@@ -1699,6 +1699,55 @@ def summarize_source_diagnostics_from_articles(articles: list[dict[str, Any]]) -
     return diagnostics
 
 
+def build_source_health_summary(sources: list[dict[str, Any]], events: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized_sources = sources if isinstance(sources, list) else []
+    normalized_events = events if isinstance(events, list) else []
+    relationships = [
+        relationship
+        for event in normalized_events
+        for relationship in (event.get("stock_relationships", []) if isinstance(event.get("stock_relationships", []), list) else [])
+        if isinstance(relationship, dict)
+    ]
+
+    ok_source_count = sum(1 for source in normalized_sources if str(source.get("status") or "").strip().lower() == "ok")
+    errored_source_count = sum(1 for source in normalized_sources if str(source.get("status") or "").strip().lower() == "error")
+    empty_source_count = sum(1 for source in normalized_sources if str(source.get("status") or "").strip().lower() == "empty")
+    warning_source_count = sum(1 for source in normalized_sources if str(source.get("warning") or "").strip())
+    registry_backed_source_count = sum(1 for source in normalized_sources if bool(source.get("used_registry_profile")))
+    fallback_source_count = sum(
+        1
+        for source in normalized_sources
+        if not bool(source.get("used_registry_profile"))
+        or str(source.get("resolution_method") or "").strip().lower() in {"inferred_fallback", "url_inference", "heuristic_fallback", "unknown"}
+    )
+    date_enrichment_success_count = sum(int(source.get("date_enrichment_success_count", 0) or 0) for source in normalized_sources)
+    date_fallback_count = sum(int(source.get("date_fallback_count", 0) or 0) for source in normalized_sources)
+
+    def event_warning_count(warning: str) -> int:
+        return sum(1 for event in normalized_events if str(event.get("coverage_warning") or "").strip() == warning)
+
+    return {
+        "source_count": len(normalized_sources),
+        "ok_source_count": ok_source_count,
+        "fallback_source_count": fallback_source_count,
+        "errored_source_count": errored_source_count,
+        "empty_source_count": empty_source_count,
+        "warning_source_count": warning_source_count,
+        "registry_backed_source_count": registry_backed_source_count,
+        "date_enrichment_success_count": date_enrichment_success_count,
+        "date_fallback_count": date_fallback_count,
+        "displayed_event_count": len(normalized_events),
+        "relationship_count": len(relationships),
+        "conflicted_relationship_count": sum(1 for relationship in relationships if bool(relationship.get("source_conflict"))),
+        "independent_corroborated_relationship_count": sum(1 for relationship in relationships if str(relationship.get("corroboration_label") or "") == "independently_corroborated"),
+        "weak_single_source_relationship_count": sum(1 for relationship in relationships if str(relationship.get("corroboration_label") or "") == "single_weak_source"),
+        "syndicated_coverage_count": sum(int(relationship.get("syndicated_coverage_count", 0) or 0) for relationship in relationships),
+        "stale_event_count": event_warning_count("stale_coverage"),
+        "thin_event_count": event_warning_count("thin_source_coverage"),
+        "duplicated_event_count": event_warning_count("duplicated_coverage"),
+    }
+
+
 def unpack_news_fetch_result(result: Any) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     if not isinstance(result, tuple):
         return [], ["News fetcher returned an invalid result shape."], []
@@ -3610,6 +3659,7 @@ def build_refresh_payload(
         warnings.append("No live stock quotes available.")
 
     sources = source_diagnostics or summarize_source_diagnostics_from_articles(articles)
+    source_health_summary = build_source_health_summary(sources, formatted_events)
     payload = {
         "fetched_at": now_iso(),
         "from_cache": False,
@@ -3634,6 +3684,7 @@ def build_refresh_payload(
         "tracking": tracking,
         "market_index": market_index,
         "sources": sources,
+        "source_health_summary": source_health_summary,
         "warnings": warnings,
     }
 

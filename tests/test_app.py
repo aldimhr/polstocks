@@ -882,6 +882,144 @@ def test_refresh_payload_exposes_source_fetch_diagnostics(monkeypatch):
     }.issubset(source_diag)
 
 
+def test_refresh_payload_exposes_batch_robustness_summary(monkeypatch):
+    robust_primary = {
+        "source": "Antara News",
+        "headline": "Pemerintah dorong hilirisasi nikel untuk mendukung Antam",
+        "url": "https://www.antaranews.com/ekonomi/antam-batch-summary-primary",
+        "published_at": appmod.now_wib(),
+        "summary": "Pemerintah mendorong hilirisasi nikel dan menyebut Antam sebagai pihak yang diuntungkan oleh proyek smelter baru.",
+        "source_weight": 0.86,
+        "source_type": "media",
+    }
+    robust_mirror = {
+        "source": "Antara Terkini",
+        "headline": "Update pasar: pemerintah dorong hilirisasi nikel untuk mendukung Antam",
+        "url": "https://www.antaranews.com/ekonomi/antam-batch-summary-mirror",
+        "published_at": appmod.now_wib() - timedelta(minutes=8),
+        "summary": "Update pasar menyebut pemerintah mendorong hilirisasi nikel dan Antam diuntungkan oleh proyek smelter baru.",
+        "source_weight": 0.86,
+        "source_type": "media",
+    }
+    robust_independent = {
+        "source": "Bisnis Indonesia",
+        "headline": "Bisnis: pemerintah dorong hilirisasi nikel untuk menopang Antam",
+        "url": "https://www.bisnis.com/market/antam-batch-summary-independent",
+        "published_at": appmod.now_wib() - timedelta(minutes=12),
+        "summary": "Bisnis Indonesia menyebut pemerintah mendorong hilirisasi nikel dan Antam diuntungkan oleh proyek smelter baru.",
+        "source_weight": 0.82,
+        "source_type": "media",
+    }
+    conflict_negative = {
+        "source": "Setkab",
+        "headline": "Pemerintah perketat pembatasan hilirisasi Antam dan tekan rencana smelter baru",
+        "url": "https://example.com/antam-batch-summary-conflict",
+        "published_at": appmod.now_wib() - timedelta(minutes=3),
+        "summary": "Pemerintah perketat pembatasan proyek hilirisasi mineral Antam sehingga rencana smelter baru tertekan dan realisasi nikel melemah.",
+        "source_weight": 0.95,
+        "source_type": "government",
+    }
+    stale_weak = {
+        "source": "Opinion Blog",
+        "headline": "Opini lama soal Antam tanpa dasar kebijakan resmi",
+        "url": "https://blog.example.com/antam-batch-summary-stale",
+        "published_at": appmod.now_wib() - timedelta(days=6, hours=18),
+        "summary": "Opini umum menyebut Antam tanpa dasar kebijakan, regulasi, atau sumber resmi yang jelas.",
+        "source_weight": 0.2,
+        "source_type": "other",
+    }
+
+    def batch_summary_news_fetcher():
+        return (
+            [robust_primary, robust_mirror, robust_independent, conflict_negative, stale_weak],
+            [],
+            [
+                {
+                    "name": "Antara News",
+                    "kind": "rss",
+                    "status": "ok",
+                    "warning": "",
+                    "article_count": 2,
+                    "used_registry_profile": True,
+                    "resolution_method": "registry_name_match",
+                    "date_enrichment_attempted": True,
+                    "date_enrichment_success_count": 2,
+                    "date_fallback_count": 0,
+                },
+                {
+                    "name": "Fallback Feed",
+                    "kind": "html",
+                    "status": "error",
+                    "warning": "Fallback Feed: timeout",
+                    "article_count": 0,
+                    "used_registry_profile": False,
+                    "resolution_method": "inferred_fallback",
+                    "date_enrichment_attempted": True,
+                    "date_enrichment_success_count": 0,
+                    "date_fallback_count": 1,
+                },
+                {
+                    "name": "Empty Feed",
+                    "kind": "rss",
+                    "status": "empty",
+                    "warning": "Empty Feed: no RSS items extracted",
+                    "article_count": 0,
+                    "used_registry_profile": False,
+                    "resolution_method": "inferred_fallback",
+                    "date_enrichment_attempted": False,
+                    "date_enrichment_success_count": 0,
+                    "date_fallback_count": 0,
+                },
+            ],
+        )
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=batch_summary_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    summary = payload["source_health_summary"]
+    assert {
+        "source_count",
+        "ok_source_count",
+        "fallback_source_count",
+        "errored_source_count",
+        "empty_source_count",
+        "warning_source_count",
+        "registry_backed_source_count",
+        "date_enrichment_success_count",
+        "date_fallback_count",
+        "displayed_event_count",
+        "conflicted_relationship_count",
+        "independent_corroborated_relationship_count",
+        "weak_single_source_relationship_count",
+        "syndicated_coverage_count",
+        "stale_event_count",
+        "thin_event_count",
+    }.issubset(summary)
+    assert summary["source_count"] == 3
+    assert summary["ok_source_count"] == 1
+    assert summary["fallback_source_count"] == 2
+    assert summary["errored_source_count"] == 1
+    assert summary["empty_source_count"] == 1
+    assert summary["warning_source_count"] == 2
+    assert summary["registry_backed_source_count"] == 1
+    assert summary["date_enrichment_success_count"] == 2
+    assert summary["date_fallback_count"] == 1
+    assert summary["displayed_event_count"] == payload["displayed_event_count"]
+    assert summary["conflicted_relationship_count"] >= 1
+    assert summary["independent_corroborated_relationship_count"] >= 1
+    assert summary["weak_single_source_relationship_count"] == 0
+    assert summary["syndicated_coverage_count"] >= 1
+    assert summary["stale_event_count"] == 0
+    assert summary["thin_event_count"] >= 1
+
+
 def test_refresh_window_changes_article_set_and_tracking(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     weekly = appmod.build_refresh_payload(
