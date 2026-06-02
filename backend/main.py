@@ -3586,6 +3586,93 @@ def build_reasoning_summary(events: list[dict[str, Any]], event_threads: list[di
     }
 
 
+def build_dashboard_cues(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = payload if isinstance(payload, dict) else {}
+    source_health = normalized_payload.get("source_health_summary", {}) if isinstance(normalized_payload.get("source_health_summary", {}), dict) else {}
+    reasoning = normalized_payload.get("reasoning_summary", {}) if isinstance(normalized_payload.get("reasoning_summary", {}), dict) else {}
+    stocks = normalized_payload.get("stocks", []) if isinstance(normalized_payload.get("stocks", []), list) else []
+    events = normalized_payload.get("events", []) if isinstance(normalized_payload.get("events", []), list) else []
+
+    conflicted_relationship_count = int(source_health.get("conflicted_relationship_count", 0) or 0)
+    weak_single_source_relationship_count = int(source_health.get("weak_single_source_relationship_count", 0) or 0)
+    fallback_source_count = int(source_health.get("fallback_source_count", 0) or 0)
+    stale_event_count = int(source_health.get("stale_event_count", 0) or 0)
+    thin_event_count = int(source_health.get("thin_event_count", 0) or 0)
+    duplicated_event_count = int(source_health.get("duplicated_event_count", 0) or 0)
+    displayed_event_count = int(source_health.get("displayed_event_count", normalized_payload.get("displayed_event_count", 0) or 0) or 0)
+    relationship_count = int(source_health.get("relationship_count", 0) or 0)
+    source_count = int(source_health.get("source_count", 0) or 0)
+
+    historical_sample_count = sum(
+        1
+        for stock in stocks
+        if isinstance(stock, dict) and int(stock.get("historical_outcome_sample_size", 0) or 0) > 0
+    )
+    contested_thread_count = sum(
+        1
+        for event in events
+        if isinstance(event, dict) and str(event.get("thread_status") or "").strip().lower() in {"contested", "reversed"}
+    )
+    confirmed_count = next(
+        (int(item.get("count", 0) or 0) for item in reasoning.get("validation_breakdown", []) if str(item.get("name") or "") == "confirmed"),
+        0,
+    ) if isinstance(reasoning.get("validation_breakdown", []), list) else 0
+    predicted_count = next(
+        (int(item.get("count", 0) or 0) for item in reasoning.get("validation_breakdown", []) if str(item.get("name") or "") == "predicted_only"),
+        0,
+    ) if isinstance(reasoning.get("validation_breakdown", []), list) else 0
+
+    status = "healthy"
+    if conflicted_relationship_count > 0 or contested_thread_count > 0:
+        status = "fragile"
+    elif weak_single_source_relationship_count > 0 or fallback_source_count > 0 or stale_event_count > 0 or thin_event_count > 0 or duplicated_event_count > 0 or predicted_count > confirmed_count:
+        status = "watch"
+
+    chips: list[dict[str, Any]] = []
+    if conflicted_relationship_count > 0:
+        chips.append({"label": f"{conflicted_relationship_count} conflicting signal{'s' if conflicted_relationship_count != 1 else ''}", "tone": "neg"})
+    if contested_thread_count > 0:
+        chips.append({"label": f"{contested_thread_count} contested thread{'s' if contested_thread_count != 1 else ''}", "tone": "warn"})
+    if weak_single_source_relationship_count > 0:
+        chips.append({"label": f"{weak_single_source_relationship_count} weak single-source link{'s' if weak_single_source_relationship_count != 1 else ''}", "tone": "warn"})
+    if fallback_source_count > 0:
+        chips.append({"label": f"{fallback_source_count} fallback source profile{'s' if fallback_source_count != 1 else ''}", "tone": "warn"})
+    if stale_event_count > 0:
+        chips.append({"label": f"{stale_event_count} stale event{'s' if stale_event_count != 1 else ''}", "tone": "warn"})
+    if historical_sample_count > 0:
+        chips.append({"label": f"{historical_sample_count} source histor{'y' if historical_sample_count == 1 else 'ies'} calibrated", "tone": "info"})
+    if confirmed_count > 0:
+        chips.append({"label": f"{confirmed_count} confirmed link{'s' if confirmed_count != 1 else ''}", "tone": "pos"})
+    if not chips:
+        chips.append({"label": "No major robustness alerts", "tone": "muted"})
+
+    if status == "fragile":
+        headline = "Robustness signals need caution: conflicts or contested threads are affecting the batch."
+    elif status == "watch":
+        headline = "Source mix is usable but still leaning on thin, fallback, or predicted-only evidence."
+    else:
+        headline = "Coverage looks healthy: stronger source support with no major robustness alerts in the current batch."
+
+    return {
+        "headline": headline,
+        "status": status,
+        "chips": chips[:5],
+        "counts": {
+            "displayed_event_count": displayed_event_count,
+            "relationship_count": relationship_count,
+            "source_count": source_count,
+            "conflicted_relationship_count": conflicted_relationship_count,
+            "weak_single_source_relationship_count": weak_single_source_relationship_count,
+            "fallback_source_count": fallback_source_count,
+            "contested_thread_count": contested_thread_count,
+            "historical_sample_count": historical_sample_count,
+            "stale_event_count": stale_event_count,
+            "thin_event_count": thin_event_count,
+            "duplicated_event_count": duplicated_event_count,
+        },
+    }
+
+
 def build_refresh_payload(
     tickers: list[str],
     force: bool = False,
@@ -3898,7 +3985,8 @@ def api_get_watchlist() -> dict[str, Any]:
 def api_dashboard(window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     watchlist = get_watchlist()
     payload = build_refresh_payload(watchlist, force=False, window=window)
-    return {"watchlist": watchlist, "reasoning_summary": payload.get("reasoning_summary", {}), "payload": payload}
+    dashboard_cues = build_dashboard_cues(payload)
+    return {"watchlist": watchlist, "reasoning_summary": payload.get("reasoning_summary", {}), "dashboard_cues": dashboard_cues, "payload": payload}
 
 
 @app.get("/api/ticker/{ticker}")

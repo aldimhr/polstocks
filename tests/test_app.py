@@ -704,6 +704,10 @@ def test_dashboard_contains_runtime_hooks():
         'renderProvenanceBadges(',
         'renderConflictBadges(',
         'renderSourceDiagnosticBadges(',
+        'renderDashboardCues(',
+        'id="robustnessStrip"',
+        'Source robustness',
+        'robustness-strip-headline',
         'provenance-chips',
         'Official',
         'Fresh',
@@ -832,6 +836,29 @@ def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
     assert data["payload"]["sources"]
     assert {"source_type", "source_quality_score", "source_freshness_score", "coverage_warning"}.issubset(data["payload"]["events"][0])
     assert {"relationship_confidence", "confidence_label", "source_confidence", "evidence_strength"}.issubset(data["payload"]["stocks"][0])
+
+
+def test_dashboard_endpoint_exposes_compact_robustness_cues(monkeypatch, tmp_path):
+    monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
+    monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
+    monkeypatch.setattr(appmod, "fetch_market_index", fake_market_fetcher)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", tmp_path / "dashboard_source_history.json", raising=False)
+
+    response = client.get("/api/dashboard?window=7d")
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "dashboard_cues" in data
+    cues = data["dashboard_cues"]
+    assert {"headline", "status", "chips", "counts"}.issubset(cues)
+    assert cues["status"] in {"healthy", "watch", "fragile"}
+    assert isinstance(cues["chips"], list)
+    assert cues["chips"]
+    assert all({"label", "tone"}.issubset(chip) for chip in cues["chips"])
+    assert {"displayed_event_count", "conflicted_relationship_count", "weak_single_source_relationship_count", "fallback_source_count"}.issubset(cues["counts"])
+    assert cues["counts"]["displayed_event_count"] == data["payload"]["displayed_event_count"]
+    assert any(chip["label"] for chip in cues["chips"])
 
 
 def test_refresh_builds_expected_payload_and_uses_cache(monkeypatch):

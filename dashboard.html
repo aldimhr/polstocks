@@ -449,9 +449,36 @@
   }
 
   .reasoning-summary-line {
-    font-size: 12px;
-    color: var(--muted2);
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+
+  .robustness-strip {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+  }
+
+  .robustness-strip.fragile { border-color: rgba(255,92,92,0.28); background: var(--red-dim); }
+  .robustness-strip.watch { border-color: rgba(245,166,35,0.28); background: var(--amber-dim); }
+  .robustness-strip.healthy { border-color: rgba(77,219,142,0.22); background: rgba(77,219,142,0.08); }
+
+  .robustness-strip-title {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     font-family: 'DM Mono', monospace;
+    margin-bottom: 6px;
+  }
+
+  .robustness-strip-headline {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 8px;
   }
 
   .reasoning-chips {
@@ -1122,6 +1149,11 @@
       <div class="reasoning-strip" id="reasoningStrip">
         <div class="reasoning-summary-line">Loading reasoning summary…</div>
       </div>
+      <div class="robustness-strip" id="robustnessStrip">
+        <div class="robustness-strip-title">Source robustness</div>
+        <div class="robustness-strip-headline">Loading robustness cues…</div>
+        <div class="reasoning-chips"><span class="reasoning-chip muted">Waiting for robustness metadata</span></div>
+      </div>
       <div class="event-list" id="eventList">
         <div class="event-item">Loading live events…</div>
       </div>
@@ -1447,6 +1479,29 @@
     root.innerHTML = `
       <div class="reasoning-summary-line">${escapeHtml(summaryLine)}</div>
       <div class="reasoning-chips">${chips || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div>
+    `;
+  }
+
+  function renderDashboardCues(cues = {}, payload = {}) {
+    const root = $('robustnessStrip');
+    if (!root) return;
+    const status = String(cues?.status || 'watch').trim().toLowerCase();
+    root.classList.remove('healthy', 'watch', 'fragile');
+    root.classList.add(['healthy', 'watch', 'fragile'].includes(status) ? status : 'watch');
+    const headline = cues?.headline || 'Robustness cues are not available yet.';
+    const chipList = Array.isArray(cues?.chips) ? cues.chips : [];
+    const counts = cues?.counts || {};
+    const summaryChip = Number(counts?.displayed_event_count || payload?.displayed_event_count || 0) > 0
+      ? `<span class="reasoning-chip muted">${escapeHtml(String(Number(counts?.displayed_event_count || payload?.displayed_event_count || 0)))} events</span>`
+      : '';
+    const chips = [
+      ...chipList.map((chip) => `<span class="reasoning-chip ${escapeHtml(String(chip?.tone || 'muted'))}">${escapeHtml(String(chip?.label || ''))}</span>`),
+      summaryChip,
+    ].filter(Boolean).join('');
+    root.innerHTML = `
+      <div class="robustness-strip-title">Source robustness</div>
+      <div class="robustness-strip-headline">${escapeHtml(headline)}</div>
+      <div class="reasoning-chips">${chips || '<span class="reasoning-chip muted">No robustness metadata</span>'}</div>
     `;
   }
 
@@ -1810,7 +1865,7 @@
     }
   }
 
-  function renderPayload(payload) {
+  function renderPayload(payload, dashboardCues = null) {
     state.payload = payload;
     state.window = payload.window || state.window || '24h';
     $('windowSelect').value = state.window;
@@ -1838,6 +1893,7 @@
     renderStocks(stocks);
     renderTracking(payload.tracking || {});
     renderReasoningSummary(payload.reasoning_summary || {});
+    renderDashboardCues(dashboardCues || payload.dashboard_cues || {}, payload);
     renderEvents(events);
     renderSectorGrid(payload.sector_summary || {});
     renderSources(payload.sources || [], events);
@@ -1851,10 +1907,11 @@
     state.loading = true;
     setBusy(force ? 'Refreshing live data…' : 'Loading dashboard…', true);
     try {
-      const payload = force
-        ? await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) })
-        : (await apiJson(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`)).payload;
-      renderPayload(payload);
+      const dashboardData = force
+        ? { payload: await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) }) }
+        : await apiJson(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`);
+      const payload = dashboardData?.payload || {};
+      renderPayload(payload, dashboardData?.dashboard_cues || null);
       setBusy('Ready', false);
     } catch (err) {
       setBusy(String(err.message || err), false);
