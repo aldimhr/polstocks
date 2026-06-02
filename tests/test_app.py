@@ -1079,6 +1079,133 @@ def test_weak_source_requires_corroboration_to_raise_confidence():
     assert corroborated_link["corroboration_label"] in {"independently_corroborated", "corroborated"}
 
 
+def test_mirrored_coverage_does_not_count_as_independent_corroboration():
+    mirrored_articles = appmod.merge_duplicate_articles([
+        {
+            "source": "Antara News",
+            "headline": "Antam disebut di tengah dorongan hilirisasi mineral nasional",
+            "url": "https://www.antaranews.com/ekonomi/antam-hilirisasi-mirror-1",
+            "published_at": appmod.now_wib(),
+            "summary": "Antam disebut dalam laporan soal dorongan hilirisasi mineral dan penguatan proyek smelter nasional.",
+            "source_weight": 0.86,
+            "source_type": "media",
+        },
+        {
+            "source": "Antara Terkini",
+            "headline": "Antam disebut di tengah dorongan hilirisasi mineral nasional",
+            "url": "https://www.antaranews.com/ekonomi/antam-hilirisasi-mirror-2",
+            "published_at": appmod.now_wib(),
+            "summary": "Antam disebut dalam laporan soal dorongan hilirisasi mineral dan penguatan proyek smelter nasional.",
+            "source_weight": 0.86,
+            "source_type": "media",
+        },
+    ])
+
+    mirrored = appmod.analyze_article(mirrored_articles[0], ["ANTM.JK"], window="7d")
+    mirrored_link = next(item for item in mirrored["stock_relationships"] if item["ticker"] == "ANTM.JK")
+
+    assert mirrored_articles[0]["duplicate_count"] == 2
+    assert mirrored_link["raw_coverage_count"] == 2
+    assert mirrored_link["independent_coverage_count"] == 1
+    assert mirrored_link["syndicated_coverage_count"] == 1
+    assert mirrored_link["corroboration_source_count"] == 1
+    assert mirrored_link["corroboration_domain_count"] == 1
+
+
+
+def test_truly_independent_domains_still_raise_corroboration(monkeypatch):
+    weak_article = {
+        "source": "Opinion Blog",
+        "headline": "Pemerintah dorong hilirisasi nikel yang menguntungkan Antam",
+        "url": "https://blog.example.com/opinion-antam",
+        "published_at": appmod.now_wib(),
+        "summary": "Opini pasar menyebut Pemerintah dorong hilirisasi nikel yang menguntungkan Antam, tetapi tanpa dasar resmi yang jelas.",
+        "source_weight": 0.2,
+        "source_type": "other",
+    }
+    mirrored_support_articles = [
+        weak_article,
+        {
+            "source": "Antara News",
+            "headline": "Pemerintah dorong hilirisasi nikel untuk mendukung Antam",
+            "url": "https://www.antaranews.com/ekonomi/antam-support-1",
+            "published_at": appmod.now_wib() - timedelta(minutes=4),
+            "summary": "Pemerintah mendorong hilirisasi nikel dan menyebut Antam sebagai pihak yang diuntungkan oleh proyek smelter baru.",
+            "source_weight": 0.86,
+            "source_type": "media",
+        },
+        {
+            "source": "Antara Terkini",
+            "headline": "Update pasar: pemerintah dorong hilirisasi nikel untuk mendukung Antam",
+            "url": "https://www.antaranews.com/ekonomi/antam-support-2",
+            "published_at": appmod.now_wib() - timedelta(minutes=8),
+            "summary": "Update pasar menyebut pemerintah mendorong hilirisasi nikel dan Antam diuntungkan oleh proyek smelter baru.",
+            "source_weight": 0.86,
+            "source_type": "media",
+        },
+    ]
+    independent_support_articles = [
+        weak_article,
+        {
+            "source": "Antara News",
+            "headline": "Pemerintah dorong hilirisasi nikel untuk mendukung Antam",
+            "url": "https://www.antaranews.com/ekonomi/antam-support-1-independent",
+            "published_at": appmod.now_wib() - timedelta(minutes=4),
+            "summary": "Pemerintah mendorong hilirisasi nikel dan menyebut Antam sebagai pihak yang diuntungkan oleh proyek smelter baru.",
+            "source_weight": 0.86,
+            "source_type": "media",
+        },
+        {
+            "source": "Bisnis Indonesia",
+            "headline": "Bisnis: pemerintah dorong hilirisasi nikel untuk menopang Antam",
+            "url": "https://www.bisnis.com/market/antam-support-independent",
+            "published_at": appmod.now_wib() - timedelta(minutes=9),
+            "summary": "Bisnis Indonesia menyebut pemerintah mendorong hilirisasi nikel dan Antam diuntungkan oleh proyek smelter baru.",
+            "source_weight": 0.82,
+            "source_type": "media",
+        },
+    ]
+
+    def mirrored_news_fetcher():
+        return mirrored_support_articles, []
+
+    def independent_news_fetcher():
+        return independent_support_articles, []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    mirrored_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        window="7d",
+        force=True,
+        news_fetcher=mirrored_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    independent_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        window="7d",
+        force=True,
+        news_fetcher=independent_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    mirrored_event = next(event for event in mirrored_payload["events"] if event["url"] == weak_article["url"])
+    independent_event = next(event for event in independent_payload["events"] if event["url"] == weak_article["url"])
+    mirrored_link = next(item for item in mirrored_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    independent_link = next(item for item in independent_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+
+    assert mirrored_link["raw_coverage_count"] == 3
+    assert mirrored_link["independent_coverage_count"] == 2
+    assert mirrored_link["syndicated_coverage_count"] == 1
+    assert independent_link["raw_coverage_count"] == 3
+    assert independent_link["independent_coverage_count"] == 3
+    assert independent_link["syndicated_coverage_count"] == 0
+    assert independent_link["corroboration_multiplier"] > mirrored_link["corroboration_multiplier"]
+    assert independent_link["relationship_confidence"] > mirrored_link["relationship_confidence"]
+
+
+
 def test_official_source_stays_strong_without_many_corroborators():
     official = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK"], window="7d")
     official_link = next(item for item in official["stock_relationships"] if item["ticker"] == "ANTM.JK")

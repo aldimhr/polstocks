@@ -1109,15 +1109,33 @@ def source_quality_metrics_for_article(article: dict[str, Any]) -> dict[str, Any
     }
 
 
-def source_corroboration_metrics_for_article(article: dict[str, Any]) -> dict[str, Any]:
+def corroboration_family_key(profile: dict[str, Any], source_name: str = "", url: str = "") -> str:
+    candidates = [
+        normalize_match_text(str(profile.get("syndication_group") or "")),
+        normalize_match_text(str(profile.get("duplicate_grouping") or "")),
+        normalize_domain(str(profile.get("canonical_domain") or "")),
+        normalize_domain(canonicalize_article_url(url)),
+        normalize_match_text(source_name),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return "unknown"
+
+
+def corroboration_domain_key(profile: dict[str, Any], source_name: str = "", url: str = "") -> str:
+    syndication_group = normalize_match_text(str(profile.get("syndication_group") or ""))
+    if syndication_group:
+        return syndication_group
+    domain = normalize_domain(str(profile.get("canonical_domain") or "")) or normalize_domain(canonicalize_article_url(url))
+    if domain:
+        return domain
+    return corroboration_family_key(profile, source_name, url)
+
+
+def corroboration_coverage_items(article: dict[str, Any]) -> list[dict[str, Any]]:
     profile = article.get("source_profile", {}) if isinstance(article.get("source_profile", {}), dict) else {}
-    if not profile:
-        profile = source_metadata_for(str(article.get("source") or ""), str(article.get("url") or "")).get("source_profile", {})
     source_type = str(article.get("source_type") or profile.get("source_type") or infer_source_type(str(article.get("source") or ""), str(article.get("url") or "")))
-    try:
-        source_tier = int(article.get("source_tier", profile.get("tier", 4)) or 4)
-    except Exception:
-        source_tier = 4
     try:
         duplicate_count = max(1, int(article.get("duplicate_count", 1) or 1))
     except Exception:
@@ -1133,16 +1151,54 @@ def source_corroboration_metrics_for_article(article: dict[str, Any]) -> dict[st
     if not source_types and source_type:
         source_types = [source_type]
 
-    domains: list[str] = []
-    for url in source_urls:
-        domain = normalize_domain(urlsplit(url).netloc or url)
-        if domain and domain not in domains:
-            domains.append(domain)
+    item_count = max(duplicate_count, len(source_names), len(source_urls), len(source_types), 1)
+    items: list[dict[str, Any]] = []
+    default_quality = float(article.get("source_quality_score", source_quality_score_for_profile(profile)) or 0.0)
+    for idx in range(item_count):
+        item_source_name = source_names[idx] if idx < len(source_names) else (source_names[-1] if source_names else str(article.get("source") or "").strip())
+        item_url = source_urls[idx] if idx < len(source_urls) else (source_urls[-1] if source_urls else str(article.get("url") or "").strip())
+        metadata = source_metadata_for(item_source_name, item_url)
+        item_profile = metadata.get("source_profile", {}) if isinstance(metadata.get("source_profile", {}), dict) else {}
+        item_source_type = source_types[idx] if idx < len(source_types) else str(metadata.get("source_type") or source_type or "other")
+        try:
+            item_source_tier = int(metadata.get("source_tier", item_profile.get("tier", article.get("source_tier", 4))) or 4)
+        except Exception:
+            item_source_tier = 4
+        item_quality = float(metadata.get("source_quality_score", default_quality) or default_quality)
+        family_key = corroboration_family_key(item_profile, item_source_name, item_url)
+        items.append(
+            {
+                "source_name": item_source_name,
+                "url": item_url,
+                "source_type": item_source_type,
+                "source_tier": item_source_tier,
+                "source_quality_score": item_quality,
+                "family_key": family_key,
+                "domain_key": corroboration_domain_key(item_profile, item_source_name, item_url),
+            }
+        )
+    return items
 
+
+def source_corroboration_metrics_for_article(article: dict[str, Any]) -> dict[str, Any]:
+    profile = article.get("source_profile", {}) if isinstance(article.get("source_profile", {}), dict) else {}
+    if not profile:
+        profile = source_metadata_for(str(article.get("source") or ""), str(article.get("url") or "")).get("source_profile", {})
+    source_type = str(article.get("source_type") or profile.get("source_type") or infer_source_type(str(article.get("source") or ""), str(article.get("url") or "")))
+    try:
+        source_tier = int(article.get("source_tier", profile.get("tier", 4)) or 4)
+    except Exception:
+        source_tier = 4
+
+    coverage_items = corroboration_coverage_items(article)
+    raw_coverage_count = max(1, len(coverage_items))
+    unique_families = {str(item.get("family_key") or "").strip() for item in coverage_items if str(item.get("family_key") or "").strip()}
+    unique_domains = {str(item.get("domain_key") or "").strip() for item in coverage_items if str(item.get("domain_key") or "").strip()}
+    independent_source_count = max(1, len(unique_families))
+    independent_domain_count = max(1, len(unique_domains))
+    syndicated_coverage_count = max(0, raw_coverage_count - independent_source_count)
+    source_type_count = max(1, len({str(item.get("source_type") or "").strip().lower() for item in coverage_items if str(item.get("source_type") or "").strip()}))
     source_quality = float(article.get("source_quality_score", source_quality_score_for_profile(profile)) or 0.0)
-    independent_source_count = max(1, len(source_names), len(source_urls), duplicate_count)
-    independent_domain_count = max(1, len(domains) or len(source_urls) or len(source_names))
-    source_type_count = max(1, len(set(source_types)))
     official_source = source_type in {"government", "regulator", "company"} or source_tier <= 2
 
     corroboration_agreement_score = clamp(
@@ -1173,6 +1229,10 @@ def source_corroboration_metrics_for_article(article: dict[str, Any]) -> dict[st
 
     return {
         "source_tier": source_tier,
+        "raw_coverage_count": raw_coverage_count,
+        "independent_coverage_count": independent_source_count,
+        "syndicated_coverage_count": syndicated_coverage_count,
+        "independent_domain_count": independent_domain_count,
         "corroboration_source_count": independent_source_count,
         "corroboration_domain_count": independent_domain_count,
         "corroboration_source_type_count": source_type_count,
@@ -2491,20 +2551,35 @@ def corroboration_group_key(article: dict[str, Any], relationship: dict[str, Any
     return ticker, direction, policy_channel
 
 
-def corroboration_multiplier_for_group(supports: list[dict[str, Any]]) -> tuple[float, int, int, int]:
-    support_count = len(supports)
-    domain_count = len({str(item.get("domain") or "").strip() for item in supports if str(item.get("domain") or "").strip()})
-    source_count = len({str(item.get("source_key") or "").strip() for item in supports if str(item.get("source_key") or "").strip()})
-    official_count = sum(1 for item in supports if int(item.get("source_tier", 4) or 4) <= 1)
-    avg_quality = sum(float(item.get("source_quality_score", 0.0) or 0.0) for item in supports) / support_count if support_count else 0.0
+def corroboration_multiplier_for_group(supports: list[dict[str, Any]]) -> tuple[float, int, int, int, int]:
+    coverage_items = [coverage for item in supports for coverage in item.get("coverage_items", [])]
+    raw_coverage_count = max(1, len(coverage_items))
+    unique_family_records: dict[str, dict[str, Any]] = {}
+    for coverage in coverage_items:
+        family_key = str(coverage.get("family_key") or "").strip()
+        if not family_key:
+            continue
+        existing = unique_family_records.get(family_key)
+        if existing is None or float(coverage.get("source_quality_score", 0.0) or 0.0) > float(existing.get("source_quality_score", 0.0) or 0.0):
+            unique_family_records[family_key] = coverage
 
-    if support_count <= 1:
-        multiplier = 0.66 + (0.18 if official_count else 0.0) + 0.10 * avg_quality + 0.04 * min(domain_count, 2)
+    independent_source_count = max(1, len(unique_family_records))
+    independent_domain_count = max(1, len({str(item.get("domain_key") or "").strip() for item in unique_family_records.values() if str(item.get("domain_key") or "").strip()}))
+    syndicated_coverage_count = max(0, raw_coverage_count - independent_source_count)
+    official_count = sum(1 for item in unique_family_records.values() if int(item.get("source_tier", 4) or 4) <= 1)
+    avg_quality = (
+        sum(float(item.get("source_quality_score", 0.0) or 0.0) for item in unique_family_records.values()) / independent_source_count
+        if independent_source_count
+        else 0.0
+    )
+
+    if independent_source_count <= 1:
+        multiplier = 0.66 + (0.18 if official_count else 0.0) + 0.10 * avg_quality + 0.04 * min(independent_domain_count, 2)
     else:
-        multiplier = 0.70 + 0.12 * min(support_count, 4) + 0.09 * min(domain_count, 3) + 0.08 * avg_quality + 0.12 * min(official_count, 2)
-        if support_count >= 2 and domain_count >= 2:
+        multiplier = 0.70 + 0.12 * min(independent_source_count, 4) + 0.09 * min(independent_domain_count, 3) + 0.08 * avg_quality + 0.12 * min(official_count, 2)
+        if independent_source_count >= 2 and independent_domain_count >= 2:
             multiplier += 0.03
-    return clamp(multiplier, 0.55, 1.25), support_count, domain_count, source_count
+    return clamp(multiplier, 0.55, 1.25), raw_coverage_count, independent_domain_count, independent_source_count, syndicated_coverage_count
 
 
 def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
@@ -2514,6 +2589,7 @@ def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
         source_domain = article_source_domain(event)
         source_tier = int(event.get("source_tier", 4) or 4)
         source_quality_score = float(event.get("source_quality_score", 0.0) or 0.0)
+        coverage_items = corroboration_coverage_items(event)
         for relationship in event.get("stock_relationships", []):
             key = corroboration_group_key(event, relationship)
             if not key[0]:
@@ -2526,11 +2602,12 @@ def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
                     "domain": source_domain,
                     "source_tier": source_tier,
                     "source_quality_score": source_quality_score,
+                    "coverage_items": coverage_items,
                 }
             )
 
     for supports in groups.values():
-        multiplier, support_count, domain_count, source_count = corroboration_multiplier_for_group(supports)
+        multiplier, raw_coverage_count, domain_count, source_count, syndicated_coverage_count = corroboration_multiplier_for_group(supports)
         corroboration_score = clamp((multiplier - 0.55) / 0.70, 0.0, 1.0)
         for item in supports:
             relationship = item["relationship"]
@@ -2538,7 +2615,11 @@ def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
             evidence_strength = clamp(float(relationship.get("evidence_strength", 0.0) or 0.0) * max(1.0, min(multiplier, 1.15)), 0.0, 1.0)
             relationship.update(
                 {
-                    "corroboration_count": support_count,
+                    "corroboration_count": raw_coverage_count,
+                    "raw_coverage_count": raw_coverage_count,
+                    "independent_coverage_count": source_count,
+                    "syndicated_coverage_count": syndicated_coverage_count,
+                    "independent_domain_count": domain_count,
                     "corroboration_domain_count": domain_count,
                     "corroboration_source_count": source_count,
                     "corroboration_multiplier": round(multiplier, 3),
@@ -2546,11 +2627,11 @@ def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
                     "corroboration_agreement_score": round(corroboration_score, 3),
                     "corroboration_label": (
                         "official_source"
-                        if support_count <= 1 and any(int(item.get("source_tier", 4) or 4) <= 1 for item in supports)
+                        if source_count <= 1 and any(int(item.get("source_tier", 4) or 4) <= 1 for item in supports)
                         else "independently_corroborated"
-                        if support_count >= 2 and domain_count >= 2
+                        if source_count >= 2 and domain_count >= 2
                         else "corroborated"
-                        if support_count > 1
+                        if source_count > 1
                         else "single_weak_source"
                         if any(int(item.get("source_tier", 4) or 4) >= 4 for item in supports)
                         else "single_source"
@@ -2795,6 +2876,10 @@ def build_stock_relationships(
                 "company_evidence": knowledge.get("evidence", []),
                 "evidence": evidence[:7],
                 "source_tier": source_tier,
+                "raw_coverage_count": corroboration.get("raw_coverage_count", 1),
+                "independent_coverage_count": corroboration.get("independent_coverage_count", corroboration.get("corroboration_source_count", 1)),
+                "syndicated_coverage_count": corroboration.get("syndicated_coverage_count", 0),
+                "independent_domain_count": corroboration.get("independent_domain_count", corroboration.get("corroboration_domain_count", 1)),
                 "corroboration_source_count": corroboration.get("corroboration_source_count", 1),
                 "corroboration_domain_count": corroboration.get("corroboration_domain_count", 1),
                 "corroboration_source_type_count": corroboration.get("corroboration_source_type_count", 1),
