@@ -1,0 +1,28 @@
+{
+  "sources": {
+    "antaranews.com": {
+      "sample_size": 20,
+      "weighted_outcome_sum": 0.664
+    },
+    "bisnis.com": {
+      "sample_size": 6,
+      "weighted_outcome_sum": 0.1992
+    },
+    "blog.example.com": {
+      "sample_size": 8,
+      "weighted_outcome_sum": 0.2656
+    },
+    "example.com": {
+      "sample_size": 8,
+      "weighted_outcome_sum": 0.2656
+    },
+    "ojk.go.id": {
+      "sample_size": 4,
+      "weighted_outcome_sum": 0.1328
+    },
+    "setkab.go.id": {
+      "sample_size": 20,
+      "weighted_outcome_sum": 2.4369
+    }
+  }
+}

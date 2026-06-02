@@ -40,6 +40,7 @@ COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
 POLICY_SIGNAL_RULES_FILE = PROJECT_ROOT / "policy_signal_rules.json"
 MARKET_VALIDATION_CONFIG_FILE = PROJECT_ROOT / "market_validation_config.json"
 SOURCE_REGISTRY_FILE = PROJECT_ROOT / "source_registry.json"
+SOURCE_OUTCOME_HISTORY_FILE = PROJECT_ROOT / "data/source_outcome_history.json"
 
 APP_TITLE = "Indonesia Political-Stock Impact System"
 CACHE_TTL_SECONDS = 300
@@ -2693,6 +2694,119 @@ def apply_corroboration_to_events(events: list[dict[str, Any]]) -> None:
             )
 
 
+def _source_outcome_history_defaults() -> dict[str, Any]:
+    return {"sources": {}}
+
+
+def normalize_source_outcome_history(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return _source_outcome_history_defaults()
+    normalized_sources: dict[str, dict[str, Any]] = {}
+    for key, value in raw.get("sources", {}).items() if isinstance(raw.get("sources", {}), dict) else {}:
+        normalized_key = str(key or "").strip().lower()
+        if not normalized_key or not isinstance(value, dict):
+            continue
+        try:
+            sample_size = max(0, int(value.get("sample_size", 0) or 0))
+        except Exception:
+            sample_size = 0
+        try:
+            weighted_outcome_sum = float(value.get("weighted_outcome_sum", 0.0) or 0.0)
+        except Exception:
+            weighted_outcome_sum = 0.0
+        normalized_sources[normalized_key] = {
+            "sample_size": sample_size,
+            "weighted_outcome_sum": weighted_outcome_sum,
+        }
+    return {"sources": normalized_sources}
+
+
+def load_source_outcome_history() -> dict[str, Any]:
+    try:
+        raw = json.loads(SOURCE_OUTCOME_HISTORY_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return _source_outcome_history_defaults()
+    except Exception:
+        return _source_outcome_history_defaults()
+    return normalize_source_outcome_history(raw)
+
+
+def save_source_outcome_history(history: dict[str, Any]) -> None:
+    normalized = normalize_source_outcome_history(history)
+    SOURCE_OUTCOME_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SOURCE_OUTCOME_HISTORY_FILE.write_text(json.dumps(normalized, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def source_reliability_history_key(source_name: str = "", url: str = "", source_profile: dict[str, Any] | None = None) -> str:
+    profile = source_profile if isinstance(source_profile, dict) else {}
+    parsed = urlsplit(url or "")
+    candidates = [
+        normalize_domain(str(profile.get("canonical_domain") or "")),
+        normalize_domain(parsed.netloc or (url if "." in url and "/" not in url else "")),
+        normalize_match_text(str(profile.get("canonical_name") or "")),
+        normalize_match_text(source_name),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return "unknown"
+
+
+def source_outcome_weight(validation_status: str, validation_score: float) -> float:
+    status = str(validation_status or "unvalidated").strip().lower() or "unvalidated"
+    try:
+        score = clamp(float(validation_score or 0.0), 0.0, 1.0)
+    except Exception:
+        score = 0.0
+    if status == "confirmed":
+        return 0.6 + 0.4 * score
+    if status == "rejected":
+        return -(0.6 + 0.4 * score)
+    if status == "predicted_only":
+        return 0.1 * score
+    return 0.0
+
+
+def historical_reliability_metrics(history: dict[str, Any], history_key: str) -> dict[str, Any]:
+    sources = history.get("sources", {}) if isinstance(history, dict) else {}
+    entry = sources.get(str(history_key or "").strip().lower(), {}) if isinstance(sources, dict) else {}
+    try:
+        sample_size = max(0, int(entry.get("sample_size", 0) or 0))
+    except Exception:
+        sample_size = 0
+    try:
+        weighted_outcome_sum = float(entry.get("weighted_outcome_sum", 0.0) or 0.0)
+    except Exception:
+        weighted_outcome_sum = 0.0
+    reliability_score = clamp(weighted_outcome_sum / sample_size, -1.0, 1.0) if sample_size else 0.0
+    stability = clamp(sample_size / 5.0, 0.0, 1.0)
+    multiplier = clamp(1.0 + 0.1 * reliability_score * stability, 0.9, 1.1)
+    return {
+        "historical_reliability_multiplier": round(multiplier, 3),
+        "historical_outcome_sample_size": sample_size,
+        "historical_reliability_score": round(reliability_score, 3),
+    }
+
+
+def record_source_outcome(history: dict[str, Any], history_key: str, validation_status: str, validation_score: float) -> dict[str, Any]:
+    normalized = normalize_source_outcome_history(history)
+    key = str(history_key or "").strip().lower()
+    if not key or key == "unknown":
+        return normalized
+    weight = source_outcome_weight(validation_status, validation_score)
+    if abs(weight) <= 1e-9:
+        return normalized
+    entry = normalized.setdefault("sources", {}).setdefault(key, {"sample_size": 0, "weighted_outcome_sum": 0.0})
+    sample_size = max(0, int(entry.get("sample_size", 0) or 0))
+    weighted_outcome_sum = float(entry.get("weighted_outcome_sum", 0.0) or 0.0)
+    if sample_size >= 20:
+        sample_size = 19
+        weighted_outcome_sum *= 0.95
+    entry["sample_size"] = sample_size + 1
+    entry["weighted_outcome_sum"] = round(clamp(weighted_outcome_sum + weight, -20.0, 20.0), 4)
+    return normalized
+
+
 def validation_outcome_multiplier(validation_status: str, validation_score: float) -> float:
     status = str(validation_status or "unvalidated").strip().lower() or "unvalidated"
     try:
@@ -2717,13 +2831,22 @@ def validation_outcome_multiplier(validation_status: str, validation_score: floa
     return round(clamp(base, 0.8, 1.15), 3)
 
 
-def calibrate_source_confidence_from_validation(source_confidence: float, validation_status: str, validation_score: float) -> float:
+def calibrate_source_confidence_from_validation(
+    source_confidence: float,
+    validation_status: str,
+    validation_score: float,
+    historical_reliability_multiplier: float = 1.0,
+) -> float:
     try:
         base_confidence = clamp(float(source_confidence or 0.0), 0.0, 1.0)
     except Exception:
         base_confidence = 0.0
+    try:
+        historical_multiplier = clamp(float(historical_reliability_multiplier or 1.0), 0.9, 1.1)
+    except Exception:
+        historical_multiplier = 1.0
     multiplier = validation_outcome_multiplier(validation_status, validation_score)
-    return round(clamp(base_confidence * multiplier, 0.0, 1.0), 3)
+    return round(clamp(base_confidence * historical_multiplier * multiplier, 0.0, 1.0), 3)
 
 
 def source_conflict_scope_key(event: dict[str, Any], ticker: str) -> str:
@@ -3509,7 +3632,15 @@ def build_refresh_payload(
     market_index, market_warnings = market_fetcher()
     validation_warnings: list[str] = []
     validation_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    source_outcome_history = load_source_outcome_history()
+    updated_source_outcome_history = source_outcome_history
     for event in events:
+        history_key = source_reliability_history_key(
+            str(event.get("source") or ""),
+            str(event.get("url") or ""),
+            event.get("source_profile", {}) if isinstance(event.get("source_profile", {}), dict) else {},
+        )
+        history_metrics = historical_reliability_metrics(source_outcome_history, history_key)
         for relationship in event.get("stock_relationships", []):
             ticker = normalize_ticker(relationship.get("ticker", ""))
             validation = validate_market_reaction(
@@ -3519,19 +3650,31 @@ def build_refresh_payload(
                 relationship,
                 series_cache=validation_cache,
             )
+            validation_status = str(validation.get("validation_status", "unvalidated"))
+            validation_score = float(validation.get("validation_score", 0.0) or 0.0)
             validation["validation_multiplier"] = validation_outcome_multiplier(
-                str(validation.get("validation_status", "unvalidated")),
-                float(validation.get("validation_score", 0.0) or 0.0),
+                validation_status,
+                validation_score,
             )
             relationship.update(validation)
+            relationship.update(history_metrics)
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
-                str(relationship.get("validation_status", "unvalidated")),
-                float(relationship.get("validation_score", 0.0) or 0.0),
+                validation_status,
+                validation_score,
+                historical_reliability_multiplier=float(history_metrics.get("historical_reliability_multiplier", 1.0) or 1.0),
+            )
+            updated_source_outcome_history = record_source_outcome(
+                updated_source_outcome_history,
+                history_key,
+                validation_status,
+                validation_score,
             )
             for warning in validation.get("validation_warnings", []):
                 if warning:
                     validation_warnings.append(f"{ticker} validation: {warning}")
+    if updated_source_outcome_history != source_outcome_history:
+        save_source_outcome_history(updated_source_outcome_history)
     stocks: list[dict[str, Any]] = []
     for ticker in watchlist:
         quote = quotes.get(ticker)
@@ -3595,6 +3738,9 @@ def build_refresh_payload(
                 "abnormal_volume_ratio": strongest_link[1].get("abnormal_volume_ratio") if strongest_link else 0.0,
                 "validation_score": strongest_link[1].get("validation_score") if strongest_link else 0.0,
                 "validation_multiplier": strongest_link[1].get("validation_multiplier") if strongest_link else 1.0,
+                "historical_reliability_multiplier": strongest_link[1].get("historical_reliability_multiplier") if strongest_link else 1.0,
+                "historical_outcome_sample_size": strongest_link[1].get("historical_outcome_sample_size") if strongest_link else 0,
+                "historical_reliability_score": strongest_link[1].get("historical_reliability_score") if strongest_link else 0.0,
                 "validation_reason": strongest_link[1].get("validation_reason") if strongest_link else "",
                 "source_conflict": strongest_link[1].get("source_conflict") if strongest_link else False,
                 "source_conflict_count": strongest_link[1].get("source_conflict_count") if strongest_link else 0,

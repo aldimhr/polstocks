@@ -235,6 +235,19 @@ def fake_validation_series_flat(ticker, range_name, interval):
     }
 
 
+def fake_validation_series_rejected(ticker, range_name, interval):
+    return {
+        "ticker": ticker,
+        "range": range_name,
+        "interval": interval,
+        "prices": [100.0, 99.4, 98.7, 98.1, 97.8, 96.2],
+        "volumes": [1000, 1040, 1090, 1140, 1180, 2400],
+        "market_time": appmod.now_iso(),
+        "source": "fake-validation",
+        "warnings": [],
+    }
+
+
 def fake_validation_series_unavailable(ticker, range_name, interval):
     return {
         "ticker": ticker,
@@ -1649,10 +1662,11 @@ def test_validation_outcome_nudges_stock_impact_score(monkeypatch):
     assert confirmed_stock["impact_score"] >= flat_stock["impact_score"]
 
 
-def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monkeypatch):
+def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monkeypatch, tmp_path):
     def direct_news_fetcher():
         return [DIRECT_MENTION_ARTICLE], []
 
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", tmp_path / "confirmed_source_history.json", raising=False)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
     confirmed = appmod.build_refresh_payload(
         ["ANTM"],
@@ -1663,6 +1677,7 @@ def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monk
         market_fetcher=fake_market_fetcher,
     )
 
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", tmp_path / "flat_source_history.json", raising=False)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     flat = appmod.build_refresh_payload(
         ["ANTM"],
@@ -1685,6 +1700,163 @@ def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monk
     assert confirmed_link["validation_multiplier"] > flat_link["validation_multiplier"]
     assert confirmed_link["source_confidence"] > flat_link["source_confidence"]
     assert confirmed_stock["source_confidence"] > flat_stock["source_confidence"]
+
+
+def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monkeypatch, tmp_path):
+    baseline_history = tmp_path / "baseline_source_history.json"
+    warmed_history = tmp_path / "warmed_source_history.json"
+
+    def direct_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE], []
+
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", baseline_history, raising=False)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    baseline = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", warmed_history, raising=False)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    warmed = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    baseline_link = next(item for item in baseline["events"][0]["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    warmed_link = next(item for item in warmed["events"][0]["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    baseline_stock = baseline["stocks"][0]
+    warmed_stock = warmed["stocks"][0]
+
+    assert warmed_link["historical_outcome_sample_size"] >= 1
+    assert 1.0 < warmed_link["historical_reliability_multiplier"] <= 1.1
+    assert warmed_link["source_confidence"] > baseline_link["source_confidence"]
+    assert warmed_stock["historical_reliability_multiplier"] == warmed_link["historical_reliability_multiplier"]
+    assert warmed_stock["source_confidence"] > baseline_stock["source_confidence"]
+
+
+def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monkeypatch, tmp_path):
+    baseline_history = tmp_path / "baseline_source_history.json"
+    cooled_history = tmp_path / "cooled_source_history.json"
+
+    def direct_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE], []
+
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", baseline_history, raising=False)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    baseline = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", cooled_history, raising=False)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
+    appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    cooled = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=direct_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    baseline_link = next(item for item in baseline["events"][0]["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    cooled_link = next(item for item in cooled["events"][0]["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    baseline_stock = baseline["stocks"][0]
+    cooled_stock = cooled["stocks"][0]
+
+    assert cooled_link["historical_outcome_sample_size"] >= 1
+    assert 0.9 <= cooled_link["historical_reliability_multiplier"] < 1.0
+    assert cooled_link["source_confidence"] < baseline_link["source_confidence"]
+    assert cooled_stock["historical_reliability_multiplier"] == cooled_link["historical_reliability_multiplier"]
+    assert cooled_stock["source_confidence"] < baseline_stock["source_confidence"]
+
+
+def test_registry_trust_remains_the_base_signal(monkeypatch, tmp_path):
+    history_file = tmp_path / "source_history.json"
+    weak_direct_article = {
+        **DIRECT_MENTION_ARTICLE,
+        "source": "Market Gossip Blog",
+        "source_type": "other",
+        "url": "https://blog.example.com/market-gossip-antam",
+    }
+
+    def strong_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE], []
+
+    def weak_news_fetcher():
+        return [weak_direct_article], []
+
+    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", history_file, raising=False)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    for _ in range(3):
+        appmod.build_refresh_payload(
+            ["ANTM"],
+            force=True,
+            window="7d",
+            news_fetcher=weak_news_fetcher,
+            stock_fetcher=fake_stock_fetcher,
+            market_fetcher=fake_market_fetcher,
+        )
+
+    weak_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=weak_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    strong_payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=strong_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    weak_link = next(item for item in weak_payload["events"][0]["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    strong_link = next(item for item in strong_payload["events"][0]["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    weak_stock = weak_payload["stocks"][0]
+    strong_stock = strong_payload["stocks"][0]
+
+    assert weak_link["historical_reliability_multiplier"] > 1.0
+    assert weak_link["historical_reliability_multiplier"] <= 1.1
+    assert strong_link["source_confidence"] > weak_link["source_confidence"]
+    assert strong_stock["source_confidence"] > weak_stock["source_confidence"]
 
 
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
