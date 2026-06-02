@@ -2596,6 +2596,21 @@ def calibrate_source_confidence_from_validation(source_confidence: float, valida
     return round(clamp(base_confidence * multiplier, 0.0, 1.0), 3)
 
 
+def source_conflict_scope_key(event: dict[str, Any], ticker: str) -> str:
+    def normalized(value: Any) -> str:
+        text = str(value or "").strip().lower()
+        return text
+
+    scope_parts = [normalize_ticker(ticker)]
+    for value in [event.get("thread_id"), event.get("duplicate_group_id"), event.get("claim_signature")]:
+        token = normalized(value)
+        if token:
+            scope_parts.append(token)
+            return "::".join(scope_parts)
+    return scope_parts[0]
+
+
+
 def apply_source_conflicts_to_events(events: list[dict[str, Any]]) -> None:
     groups: dict[str, list[dict[str, Any]]] = {}
     for event in events:
@@ -2609,7 +2624,7 @@ def apply_source_conflicts_to_events(events: list[dict[str, Any]]) -> None:
             ticker = normalize_ticker(str(relationship.get("ticker") or ""))
             if not ticker:
                 continue
-            groups.setdefault(ticker, []).append(
+            groups.setdefault(source_conflict_scope_key(event, ticker), []).append(
                 {
                     "event": event,
                     "relationship": relationship,

@@ -1090,15 +1090,90 @@ def test_official_source_stays_strong_without_many_corroborators():
     assert official_link["confidence_label"] in {"high_confidence", "confirmed"}
 
 
-def test_source_conflict_flags_opposite_direction_coverage_and_downgrades_confidence(monkeypatch):
-    negative_article = {
+def test_source_conflict_ignores_same_ticker_different_claims(monkeypatch):
+    different_claim_negative_article = {
         "source": "Antara News",
         "headline": "Pemerintah batasi ekspor nikel dan tekan Antam",
-        "url": "https://example.com/antam-negative",
+        "url": "https://example.com/antam-negative-different-claim",
         "published_at": appmod.now_wib(),
         "summary": "Pemerintah memperketat pembatasan ekspor nikel sehingga Antam menghadapi tekanan margin dan produksi.",
         "source_weight": 0.86,
         "source_type": "media",
+    }
+
+    def different_claim_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE, different_claim_negative_article], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=different_claim_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    direct_event = next(event for event in payload["events"] if event["url"] == DIRECT_MENTION_ARTICLE["url"])
+    direct_link = next(item for item in direct_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+
+    assert direct_event["thread_id"] != next(event for event in payload["events"] if event["url"] == different_claim_negative_article["url"])["thread_id"]
+    assert direct_link["source_conflict"] is False
+    assert direct_link["source_conflict_count"] == 0
+    assert direct_link["source_conflict_penalty"] == 1.0
+    assert payload["stocks"][0]["source_conflict"] is False
+    assert not any("conflicting" in warning.lower() for warning in payload["warnings"])
+
+
+
+def test_source_conflict_still_flags_same_ticker_same_claim_opposite_direction(monkeypatch):
+    same_claim_negative_article = {
+        "source": "Setkab",
+        "headline": "Pemerintah perketat pembatasan hilirisasi Antam dan tekan rencana smelter baru",
+        "url": "https://example.com/antam-negative-same-claim",
+        "published_at": appmod.now_wib(),
+        "summary": "Pemerintah perketat pembatasan proyek hilirisasi mineral Antam sehingga rencana smelter baru tertekan dan realisasi nikel melemah.",
+        "source_weight": 1.0,
+        "source_type": "government",
+    }
+
+    def same_claim_news_fetcher():
+        return [DIRECT_MENTION_ARTICLE, same_claim_negative_article], []
+
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["ANTM"],
+        force=True,
+        window="7d",
+        news_fetcher=same_claim_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+
+    direct_event = next(event for event in payload["events"] if event["url"] == DIRECT_MENTION_ARTICLE["url"])
+    same_claim_event = next(event for event in payload["events"] if event["url"] == same_claim_negative_article["url"])
+    direct_link = next(item for item in direct_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+    same_claim_link = next(item for item in same_claim_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
+
+    assert direct_event["thread_id"] == same_claim_event["thread_id"]
+    assert direct_link["source_conflict"] is True
+    assert same_claim_link["source_conflict"] is True
+    assert direct_link["source_conflict_count"] >= 1
+    assert direct_link["source_conflict_penalty"] < 1.0
+    assert payload["stocks"][0]["source_conflict"] is True
+    assert any("conflicting" in warning.lower() for warning in payload["warnings"])
+
+
+
+def test_source_conflict_flags_opposite_direction_coverage_and_downgrades_confidence(monkeypatch):
+    negative_article = {
+        "source": "Setkab",
+        "headline": "Pemerintah perketat pembatasan hilirisasi Antam dan tekan rencana smelter baru",
+        "url": "https://example.com/antam-negative",
+        "published_at": appmod.now_wib(),
+        "summary": "Pemerintah perketat pembatasan proyek hilirisasi mineral Antam sehingga rencana smelter baru tertekan dan realisasi nikel melemah.",
+        "source_weight": 1.0,
+        "source_type": "government",
     }
 
     def solo_news_fetcher():
