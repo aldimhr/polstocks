@@ -12,17 +12,25 @@
       "sample_size": 8,
       "weighted_outcome_sum": 0.2656
     },
+    "cnbcindonesia.com": {
+      "sample_size": 8,
+      "weighted_outcome_sum": 0.0282
+    },
     "example.com": {
       "sample_size": 8,
       "weighted_outcome_sum": 0.2656
     },
+    "finance.detik.com": {
+      "sample_size": 20,
+      "weighted_outcome_sum": -1.3566
+    },
     "ojk.go.id": {
-      "sample_size": 4,
-      "weighted_outcome_sum": 0.1328
+      "sample_size": 20,
+      "weighted_outcome_sum": 0.2264
     },
     "setkab.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 2.4369
+      "weighted_outcome_sum": -1.0212
     }
   }
 }

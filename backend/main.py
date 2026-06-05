@@ -3673,6 +3673,24 @@ def build_dashboard_cues(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _background_refresh(
+    cache_key: tuple,
+    tickers: list[str],
+    window: str,
+    news_fetcher: Callable | None,
+    stock_fetcher: Callable | None,
+    market_fetcher: Callable | None,
+) -> None:
+    """Rebuild cache in background (stale-while-revalidate)."""
+    try:
+        build_refresh_payload(
+            tickers, force=True, window=window,
+            news_fetcher=news_fetcher, stock_fetcher=stock_fetcher, market_fetcher=market_fetcher,
+        )
+    except Exception:
+        pass  # keep stale cache alive
+
+
 def build_refresh_payload(
     tickers: list[str],
     force: bool = False,
@@ -3697,6 +3715,27 @@ def build_refresh_payload(
                 payload["cache_key"] = list(cache_key)
                 payload["window"] = normalized_window
                 payload["window_label"] = event_window_label(normalized_window)
+                return payload
+            # Stale-while-revalidate: return stale data immediately,
+            # refresh in background so the user never sees a 502.
+            if cached["payload"]:
+                payload = json.loads(json.dumps(cached["payload"], default=str))
+                payload["from_cache"] = True
+                payload["stale"] = True
+                payload["cache_key"] = list(cache_key)
+                payload["window"] = normalized_window
+                payload["window_label"] = event_window_label(normalized_window)
+                _bg_key = cache_key
+                _bg_tickers = list(requested)
+                _bg_window = normalized_window
+                _bg_nf = news_fetcher
+                _bg_sf = stock_fetcher
+                _bg_mf = market_fetcher
+                threading.Thread(
+                    target=_background_refresh,
+                    args=(_bg_key, _bg_tickers, _bg_window, _bg_nf, _bg_sf, _bg_mf),
+                    daemon=True,
+                ).start()
                 return payload
 
     news_fetcher = news_fetcher or fetch_news_bundle
