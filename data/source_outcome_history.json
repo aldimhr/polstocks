@@ -22,15 +22,15 @@
     },
     "finance.detik.com": {
       "sample_size": 20,
-      "weighted_outcome_sum": -1.3566
+      "weighted_outcome_sum": -2.4103
     },
     "ojk.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.2264
+      "weighted_outcome_sum": 0.2154
     },
     "setkab.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": -1.0212
+      "weighted_outcome_sum": 0.0494
     }
   }
 }

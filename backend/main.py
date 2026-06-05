@@ -3707,16 +3707,16 @@ def build_refresh_payload(
 
     with CACHE_LOCK:
         cached = CACHE.get(cache_key)
-        if cached and not force:
+        if cached:
             age = (now_wib() - cached["cached_at"]).total_seconds()
-            if age <= CACHE_TTL_SECONDS:
+            if age <= CACHE_TTL_SECONDS and not force:
                 payload = json.loads(json.dumps(cached["payload"], default=str))
                 payload["from_cache"] = True
                 payload["cache_key"] = list(cache_key)
                 payload["window"] = normalized_window
                 payload["window_label"] = event_window_label(normalized_window)
                 return payload
-            # Stale-while-revalidate: return stale data immediately,
+            # Stale or force-refresh: return stale data immediately,
             # refresh in background so the user never sees a 502.
             if cached["payload"]:
                 payload = json.loads(json.dumps(cached["payload"], default=str))
@@ -4067,6 +4067,15 @@ def reset_runtime_state() -> None:
     SOURCE_REGISTRY.update(load_source_registry())
     with CACHE_LOCK:
         CACHE.clear()
+
+
+@app.on_event("startup")
+def _prewarm_cache() -> None:
+    """Warm the cache in background so the first request is never cold."""
+    threading.Thread(
+        target=lambda: build_refresh_payload(get_watchlist(), force=True, window=DEFAULT_EVENT_WINDOW),
+        daemon=True,
+    ).start()
 
 
 def main() -> None:
