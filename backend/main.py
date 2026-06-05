@@ -2780,7 +2780,7 @@ def historical_reliability_metrics(history: dict[str, Any], history_key: str) ->
         weighted_outcome_sum = 0.0
     reliability_score = clamp(weighted_outcome_sum / sample_size, -1.0, 1.0) if sample_size else 0.0
     stability = clamp(sample_size / 5.0, 0.0, 1.0)
-    multiplier = clamp(1.0 + 0.1 * reliability_score * stability, 0.9, 1.1)
+    multiplier = clamp(1.0 + 0.1 * reliability_score * stability, 0.85, 1.15)
     return {
         "historical_reliability_multiplier": round(multiplier, 3),
         "historical_outcome_sample_size": sample_size,
@@ -2842,7 +2842,7 @@ def calibrate_source_confidence_from_validation(
     except Exception:
         base_confidence = 0.0
     try:
-        historical_multiplier = clamp(float(historical_reliability_multiplier or 1.0), 0.9, 1.1)
+        historical_multiplier = clamp(float(historical_reliability_multiplier or 1.0), 0.85, 1.15)
     except Exception:
         historical_multiplier = 1.0
     multiplier = validation_outcome_multiplier(validation_status, validation_score)

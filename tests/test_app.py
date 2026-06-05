@@ -1774,7 +1774,7 @@ def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monk
     warmed_stock = warmed["stocks"][0]
 
     assert warmed_link["historical_outcome_sample_size"] >= 1
-    assert 1.0 < warmed_link["historical_reliability_multiplier"] <= 1.1
+    assert 1.0 < warmed_link["historical_reliability_multiplier"] <= 1.15
     assert warmed_link["source_confidence"] > baseline_link["source_confidence"]
     assert warmed_stock["historical_reliability_multiplier"] == warmed_link["historical_reliability_multiplier"]
     assert warmed_stock["source_confidence"] > baseline_stock["source_confidence"]
@@ -1825,7 +1825,7 @@ def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monke
     cooled_stock = cooled["stocks"][0]
 
     assert cooled_link["historical_outcome_sample_size"] >= 1
-    assert 0.9 <= cooled_link["historical_reliability_multiplier"] < 1.0
+    assert 0.85 <= cooled_link["historical_reliability_multiplier"] < 1.0
     assert cooled_link["source_confidence"] < baseline_link["source_confidence"]
     assert cooled_stock["historical_reliability_multiplier"] == cooled_link["historical_reliability_multiplier"]
     assert cooled_stock["source_confidence"] < baseline_stock["source_confidence"]
@@ -1881,7 +1881,7 @@ def test_registry_trust_remains_the_base_signal(monkeypatch, tmp_path):
     strong_stock = strong_payload["stocks"][0]
 
     assert weak_link["historical_reliability_multiplier"] > 1.0
-    assert weak_link["historical_reliability_multiplier"] <= 1.1
+    assert weak_link["historical_reliability_multiplier"] <= 1.15
     assert strong_link["source_confidence"] > weak_link["source_confidence"]
     assert strong_stock["source_confidence"] > weak_stock["source_confidence"]
 
