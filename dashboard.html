@@ -143,6 +143,47 @@
   .btn-update:hover { background: #c8e050; transform: translateY(-1px); }
   .btn-update:active { transform: translateY(0); }
   .btn-update.loading { opacity: 0.6; pointer-events: none; }
+  .btn-update.pulse { animation: pulse-btn 1.5s ease-in-out infinite; }
+  @keyframes pulse-btn { 0%,100% { box-shadow: 0 0 0 0 rgba(212,240,96,0.4); } 50% { box-shadow: 0 0 0 8px rgba(212,240,96,0); } }
+
+  /* Staleness bar */
+  .staleness-bar { height: 2px; background: var(--surface2); border-radius: 1px; overflow: hidden; margin-top: 4px; }
+  .staleness-fill { height: 100%; background: var(--green); border-radius: 1px; transition: width 1s linear, background 1s; }
+  .staleness-fill.warn { background: var(--amber); }
+  .staleness-fill.stale { background: var(--red); }
+
+  /* Toast notifications */
+  .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast { background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 16px; font-size: 13px; color: var(--text); pointer-events: auto; animation: toast-in 0.3s ease-out; box-shadow: 0 4px 20px rgba(0,0,0,0.4); max-width: 320px; }
+  .toast.fade-out { animation: toast-out 0.3s ease-in forwards; }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info { border-left: 3px solid var(--blue); }
+  .toast.warn { border-left: 3px solid var(--amber); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-8px); } }
+
+  /* Skeleton loading */
+  .skeleton { background: linear-gradient(90deg, var(--surface2) 25%, rgba(255,255,255,0.04) 50%, var(--surface2) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skeleton-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .skeleton-cell { height: 16px; }
+  .skeleton-cell.short { width: 60%; }
+  .skeleton-cell.tiny { width: 40%; }
+
+  /* Connection indicator */
+  .connection-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; transition: background 0.3s; }
+  .connection-dot.connected { background: var(--green); box-shadow: 0 0 6px rgba(77,219,142,0.4); }
+  .connection-dot.stale { background: var(--amber); box-shadow: 0 0 6px rgba(245,166,35,0.3); }
+  .connection-dot.error { background: var(--red); box-shadow: 0 0 6px rgba(255,92,92,0.3); }
+  .connection-dot.refreshing { animation: pulse-dot 1s ease-in-out infinite; background: var(--blue); }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Empty state */
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted2); }
+  .empty-state-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.6; }
+  .empty-state-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .empty-state-hint { font-size: 13px; line-height: 1.6; max-width: 400px; margin: 0 auto; }
 
   .btn-icon {
     width: 14px;
@@ -1052,8 +1093,9 @@
     </div>
     <div class="header-right">
       <div class="status-dot">
-        <div class="dot"></div>
+        <div class="connection-dot" id="connectionDot"></div>
         <span id="lastUpdated">Loading…</span>
+        <div class="staleness-bar" style="width:80px;display:inline-block;vertical-align:middle;margin-left:8px;"><div class="staleness-fill" id="stalenessFill" style="width:0%;"></div></div>
       </div>
       <label class="watchlist-note" for="windowSelect" style="display:flex; align-items:center; gap:8px;">
         Window
@@ -1223,8 +1265,89 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tickerModal: { ticker: '', loading: false, data: null } };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tickerModal: { ticker: '', loading: false, data: null }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
   const $ = (id) => document.getElementById(id);
+
+  // ── Toast system ──
+  function showToast(message, type = 'info', duration = 3000) {
+    const container = $('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 300); }, duration);
+  }
+
+  // ── Connection indicator ──
+  function updateConnectionDot() {
+    const dot = $('connectionDot');
+    if (!dot) return;
+    if (state.loading) { dot.className = 'connection-dot refreshing'; return; }
+    const age = Date.now() - (state.lastSuccess || 0);
+    if (state.failCount >= 3) dot.className = 'connection-dot error';
+    else if (age > 15 * 60 * 1000) dot.className = 'connection-dot error';
+    else if (age > 5 * 60 * 1000) dot.className = 'connection-dot stale';
+    else dot.className = 'connection-dot connected';
+  }
+
+  // ── Staleness bar ──
+  const STALENESS_INTERVAL_MS = 5 * 60 * 1000;
+  function startStalenessBar() {
+    clearInterval(state.stalenessTimer);
+    const fill = $('stalenessFill');
+    if (!fill) return;
+    fill.style.width = '0%';
+    fill.className = 'staleness-fill';
+    state.stalenessTimer = setInterval(() => {
+      const elapsed = Date.now() - (state.lastSuccess || 0);
+      const pct = Math.min(100, (elapsed / STALENESS_INTERVAL_MS) * 100);
+      fill.style.width = pct + '%';
+      fill.className = 'staleness-fill' + (pct > 80 ? ' stale' : pct > 50 ? ' warn' : '');
+      updateConnectionDot();
+    }, 1000);
+  }
+
+  // ── Auto-refresh ──
+  function startAutoRefresh() {
+    clearInterval(state.autoRefreshTimer);
+    state.autoRefreshTimer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (state.failCount >= 3) { showToast('Auto-refresh paused after failures. Click Update to retry.', 'warn', 5000); clearInterval(state.autoRefreshTimer); return; }
+      loadDashboard(true, true);
+    }, STALENESS_INTERVAL_MS);
+  }
+
+  // ── Skeleton rendering ──
+  function renderSkeletons(targetId, count = 4) {
+    const el = $(targetId);
+    if (!el) return;
+    let html = '';
+    for (let i = 0; i < count; i++) {
+      html += `<div class="skeleton-row"><div class="skeleton skeleton-cell"></div><div class="skeleton skeleton-cell short"></div><div class="skeleton skeleton-cell tiny"></div><div class="skeleton skeleton-cell tiny"></div></div>`;
+    }
+    el.innerHTML = html;
+  }
+
+  // ── Scroll preservation ──
+  let savedScrollY = 0;
+  function saveScroll() { savedScrollY = window.scrollY; }
+  function restoreScroll() { requestAnimationFrame(() => window.scrollTo(0, savedScrollY)); }
+
+  // ── URL hash persistence ──
+  function writeHash() {
+    const params = new URLSearchParams();
+    params.set('window', state.window || '24h');
+    if (state.payload?.watchlist?.length) params.set('watchlist', state.payload.watchlist.join(','));
+    history.replaceState(null, '', '#' + params.toString());
+  }
+  function readHash() {
+    const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const win = params.get('window');
+    if (win && ['24h', '7d', '30d'].includes(win)) state.window = win;
+    const wl = params.get('watchlist');
+    if (wl) return wl.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    return null;
+  }
 
   function formatNumber(value, digits = 0) {
     if (value === null || value === undefined || value === '') return '—';
@@ -1666,20 +1789,25 @@
     const ticker = normalizeTicker(input.value);
     if (!ticker) return;
     input.value = '';
-    if (state.watchlist.includes(ticker)) return;
+    if (state.watchlist.includes(ticker)) { showToast(`${ticker} already in watchlist`, 'warn', 2000); return; }
     await persistWatchlist([...state.watchlist, ticker]);
+    showToast(`${ticker} added`, 'success');
   }
 
   async function removeTicker(ticker) {
     await persistWatchlist(state.watchlist.filter((item) => item !== ticker));
+    showToast(`${ticker} removed`, 'info');
   }
 
   async function resetWatchlist() {
     await persistWatchlist([]);
+    showToast('Watchlist reset to defaults', 'info');
   }
 
   async function handleWindowChange(value) {
     state.window = value || '24h';
+    writeHash();
+    showToast(`Window: ${state.window}`, 'info', 1500);
     await loadDashboard(true);
     if (state.tickerModal.ticker && !$('tickerModalBackdrop').hidden) {
       await loadTickerModal(state.tickerModal.ticker);
@@ -1690,7 +1818,7 @@
     const body = $('stockBody');
     const rows = Array.isArray(stocks) ? stocks : [];
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="4" style="padding:18px 0; color:var(--muted);">No live stock data yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="empty-state-icon">\u{1F4CA}</div><div class="empty-state-title">No stock signals found</div><div class="empty-state-hint">No political signals matched your watchlist in this window. Try a longer window (7d, 30d) or add more tickers. This is normal during quiet policy periods.</div></div></td></tr>';
       return;
     }
     body.innerHTML = rows.map((stock) => {
@@ -1734,7 +1862,7 @@
     const root = $('eventList');
     const rows = Array.isArray(events) ? events : [];
     if (!rows.length) {
-      root.innerHTML = '<div class="event-item">No live events yet.</div>';
+      root.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\u{1F5DE}</div><div class="empty-state-title">No events detected</div><div class="empty-state-hint">No political news matched in this time window. Try expanding to 7d or 30d, or check back later during active policy periods.</div></div>';
       return;
     }
     root.innerHTML = rows.map((event) => {
@@ -1899,6 +2027,7 @@
     state.payload = payload;
     state.window = payload.window || state.window || '24h';
     $('windowSelect').value = state.window;
+    writeHash();
     const events = payload.events || [];
     const stocks = payload.stocks || [];
     const highest = [...stocks].sort((a, b) => Math.abs(Number(b.impact_score) || 0) - Math.abs(Number(a.impact_score) || 0))[0];
@@ -1932,27 +2061,84 @@
     $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || '24 jam terakhir'} · cache TTL 5 menit`;
   }
 
-  async function loadDashboard(force = false) {
+  async function loadDashboard(force = false, isAutoRefresh = false) {
     if (state.loading) return;
     state.loading = true;
-    setBusy(force ? 'Refreshing live data…' : 'Loading dashboard…', true);
-    try {
-      const dashboardData = force
-        ? { payload: await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) }) }
-        : await apiJson(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`);
-      const payload = dashboardData?.payload || {};
-      renderPayload(payload, dashboardData?.dashboard_cues || null);
-      setBusy('Ready', false);
-    } catch (err) {
-      setBusy(String(err.message || err), false);
-    } finally {
-      state.loading = false;
+    const btnText = $('btnText');
+    const btnIcon = $('btnIcon');
+    if (!isAutoRefresh) {
+      setBusy(force ? 'Refreshing live data…' : 'Loading dashboard…', true);
+      if (!state.payload) { renderSkeletons('stockBody', 5); renderSkeletons('eventList', 3); }
+    } else {
+      if (btnIcon) btnIcon.classList.add('spinning');
+      if (btnText) btnText.textContent = 'Auto…';
     }
+    saveScroll();
+    const MAX_RETRIES = 3;
+    const BACKOFF = [2000, 4000, 8000];
+    let lastErr = null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          setBusy(`Retrying… (${attempt + 1}/${MAX_RETRIES})`, true);
+          await new Promise(r => setTimeout(r, BACKOFF[attempt - 1]));
+        }
+        const dashboardData = force
+          ? { payload: await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) }) }
+          : await apiJson(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`);
+        const payload = dashboardData?.payload || {};
+        renderPayload(payload, dashboardData?.dashboard_cues || null);
+        state.lastSuccess = Date.now();
+        state.failCount = 0;
+        setBusy('Ready', false);
+        restoreScroll();
+        if (isAutoRefresh) showToast('Auto-refreshed', 'success', 2000);
+        startStalenessBar();
+        updateConnectionDot();
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        state.failCount++;
+      }
+    }
+    if (lastErr) {
+      const msg = state.failCount >= 3 ? `Failed after ${MAX_RETRIES} attempts — click Update to retry` : String(lastErr.message || lastErr);
+      setBusy(msg, false);
+      $('refreshBtn')?.classList.add('pulse');
+      showToast(msg, 'error', 5000);
+      updateConnectionDot();
+    }
+    state.loading = false;
+    if (btnIcon) btnIcon.classList.remove('spinning');
+    if (btnText) btnText.textContent = 'Update';
   }
 
-  function triggerRefresh() { loadDashboard(true); }
+  function triggerRefresh() { $('refreshBtn')?.classList.remove('pulse'); loadDashboard(true); }
   document.addEventListener('DOMContentLoaded', () => {
+    // URL hash persistence — restore state from hash
+    const hashWatchlist = readHash();
     $('windowSelect').value = state.window;
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !$('tickerModalBackdrop').hidden) { closeTickerModal(); return; }
+      if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
+      if (event.key === 'r' || event.key === 'R') { triggerRefresh(); return; }
+      if (event.key === '1') { $('windowSelect').value = '24h'; handleWindowChange('24h'); return; }
+      if (event.key === '2') { $('windowSelect').value = '7d'; handleWindowChange('7d'); return; }
+      if (event.key === '3') { $('windowSelect').value = '30d'; handleWindowChange('30d'); return; }
+    });
+
+    // Visibility change — pause auto-refresh when tab hidden
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        const age = Date.now() - (state.lastSuccess || 0);
+        if (age > STALENESS_INTERVAL_MS) loadDashboard(false, true);
+        startStalenessBar();
+      }
+    });
+
     $('watchlistInput').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -1976,13 +2162,16 @@
         openTickerModal(tickerButton.dataset.ticker || '');
       }
     });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !$('tickerModalBackdrop').hidden) {
-        closeTickerModal();
-      }
-    });
+
+    // Initial load — if hash had watchlist, use it
+    if (hashWatchlist && hashWatchlist.length) {
+      state.payload = { ...(state.payload || {}), watchlist: hashWatchlist };
+    }
     loadDashboard(false);
+    startAutoRefresh();
+    startStalenessBar();
   });
 </script>
+<div class="toast-container" id="toastContainer"></div>
 </body>
 </html>

@@ -2,7 +2,7 @@
   "sources": {
     "antaranews.com": {
       "sample_size": 20,
-      "weighted_outcome_sum": -1.006
+      "weighted_outcome_sum": -0.8345
     },
     "bisnis.com": {
       "sample_size": 20,
@@ -26,11 +26,11 @@
     },
     "ojk.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.533
+      "weighted_outcome_sum": 0.5457
     },
     "setkab.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.9131
+      "weighted_outcome_sum": 1.2856
     }
   }
 }
