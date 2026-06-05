@@ -3716,9 +3716,10 @@ def build_refresh_payload(
                 payload["window"] = normalized_window
                 payload["window_label"] = event_window_label(normalized_window)
                 return payload
-            # Stale or force-refresh: return stale data immediately,
+            # Stale refresh: return stale data immediately,
             # refresh in background so the user never sees a 502.
-            if cached["payload"]:
+            # Skip this when force=True — caller wants a fresh computation.
+            if cached["payload"] and not force:
                 payload = json.loads(json.dumps(cached["payload"], default=str))
                 payload["from_cache"] = True
                 payload["stale"] = True
