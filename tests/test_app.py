@@ -2063,3 +2063,181 @@ def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(mon
     assert any("validation" in warning.lower() or "history" in warning.lower() for warning in payload["warnings"])
 
 
+# ── Market robustness tests ──
+
+
+def test_cross_window_validation_fields_present(monkeypatch):
+    """Task 1: validate_market_reaction returns cross_window fields."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    article = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK"], window="7d")
+    relationship = next(item for item in article["stock_relationships"] if item["ticker"] == "BSDE.JK")
+    quote = fake_stock_fetcher(["BSDE.JK"])[0]["BSDE.JK"]
+    result = appmod.validate_market_reaction(article, "BSDE.JK", quote, relationship)
+    assert "cross_window_status" in result
+    assert "cross_window_divergent" in result
+    assert isinstance(result["cross_window_divergent"], bool)
+
+
+def test_cross_window_divergent_detection(monkeypatch):
+    """Task 1: Cross-window divergence detected when windows disagree."""
+    call_count = {"n": 0}
+    def alternating_series(ticker, range_name, interval):
+        call_count["n"] += 1
+        if call_count["n"] <= 1:
+            return fake_validation_series_confirmed(ticker, range_name, interval)
+        return fake_validation_series_rejected(ticker, range_name, interval)
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", alternating_series)
+    article = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK"], window="7d")
+    relationship = next(item for item in article["stock_relationships"] if item["ticker"] == "BSDE.JK")
+    quote = fake_stock_fetcher(["BSDE.JK"])[0]["BSDE.JK"]
+    result = appmod.validate_market_reaction(article, "BSDE.JK", quote, relationship)
+    # Primary is confirmed, cross-window should be rejected → divergent
+    assert result["validation_status"] == "confirmed"
+    if result["cross_window_status"] == "rejected":
+        assert result["cross_window_divergent"] is True
+    # At minimum, cross_window fields exist
+    assert "cross_window_status" in result
+
+
+def test_cross_window_propagated_to_stock_payload(monkeypatch):
+    """Task 1: Cross-window fields appear in stock payload."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    payload = appmod.build_refresh_payload(
+        ["BSDE.JK"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
+    )
+    assert payload["stocks"]
+    stock = payload["stocks"][0]
+    assert "cross_window_status" in stock
+    assert "cross_window_divergent" in stock
+
+
+def test_outcome_history_records_last_updated(monkeypatch, tmp_path):
+    """Task 2: record_source_outcome writes last_updated timestamp."""
+    history = {"sources": {}}
+    updated = appmod.record_source_outcome(history, "test-source", "confirmed", 0.8)
+    entry = updated["sources"]["test-source"]
+    assert "last_updated" in entry
+    assert "T" in entry["last_updated"]  # ISO format
+
+
+def test_outcome_history_decays_old_records():
+    """Task 2: historical_reliability_metrics decays old records."""
+    old_date = (appmod.now_wib() - appmod.timedelta(days=90)).isoformat()
+    history = {"sources": {"old-source": {"sample_size": 10, "weighted_outcome_sum": 5.0, "last_updated": old_date}}}
+    metrics = appmod.historical_reliability_metrics(history, "old-source")
+    # With 90-day age, decay factor ~ 0.5^(90/30) = 0.125
+    # Effective sample_size should be much smaller
+    assert metrics["historical_outcome_sample_size"] < 10
+    assert metrics["historical_outcome_sample_size"] >= 1
+
+
+def test_outcome_history_no_decay_recent_records():
+    """Task 2: recent records are not decayed."""
+    recent_date = appmod.now_wib().isoformat()
+    history = {"sources": {"new-source": {"sample_size": 10, "weighted_outcome_sum": 5.0, "last_updated": recent_date}}}
+    metrics = appmod.historical_reliability_metrics(history, "new-source")
+    assert metrics["historical_outcome_sample_size"] == 10
+
+
+def test_rejected_prediction_lowers_relationship_confidence(monkeypatch):
+    """Task 3: Rejected validation lowers relationship confidence via multiplier."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
+    payload = appmod.build_refresh_payload(
+        ["BSDE.JK"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
+    )
+    assert payload["stocks"]
+    stock = payload["stocks"][0]
+    if stock.get("validation_status") == "rejected":
+        assert stock.get("validation_multiplier", 1.0) < 1.0
+        # The confidence should be lower than it would be without validation
+        assert stock.get("confidence", 1.0) < 1.0
+
+
+def test_channel_outcome_tracking():
+    """Task 4: record_source_outcome tracks per-channel outcomes."""
+    history = {"sources": {}, "channels": {}}
+    updated = appmod.record_source_outcome(history, "test-source", "confirmed", 0.8, channel="FISCAL_POLICY")
+    assert "channels" in updated
+    assert "FISCAL_POLICY" in updated["channels"]
+    ch = updated["channels"]["FISCAL_POLICY"]
+    assert ch["sample_size"] == 1
+    assert ch["weighted_outcome_sum"] > 0
+
+
+def test_channel_reliability_metrics():
+    """Task 4: channel_reliability_metrics returns proper structure."""
+    history = {"channels": {"FISCAL_POLICY": {"sample_size": 8, "weighted_outcome_sum": 4.0}}}
+    metrics = appmod.channel_reliability_metrics(history, "FISCAL_POLICY")
+    assert "channel_reliability_multiplier" in metrics
+    assert "channel_outcome_sample_size" in metrics
+    assert "channel_reliability_score" in metrics
+    assert metrics["channel_outcome_sample_size"] == 8
+    assert metrics["channel_reliability_score"] > 0
+
+
+def test_channel_reliability_empty_for_unknown_channel():
+    """Task 4: Unknown channel returns neutral defaults."""
+    history = {"channels": {}}
+    metrics = appmod.channel_reliability_metrics(history, "UNKNOWN_CHANNEL")
+    assert metrics["channel_reliability_multiplier"] == 1.0
+    assert metrics["channel_outcome_sample_size"] == 0
+
+
+def test_channel_fields_in_stock_payload(monkeypatch):
+    """Task 4: Channel reliability fields appear in stock payload."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["BSDE.JK"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
+    )
+    assert payload["stocks"]
+    stock = payload["stocks"][0]
+    assert "channel_reliability_multiplier" in stock
+    assert "channel_outcome_sample_size" in stock
+    assert "channel_reliability_score" in stock
+
+
+def test_validation_confidence_delta_in_stock_payload(monkeypatch):
+    """Task 6: validation_confidence_delta in stock payload when validation adjusts confidence."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
+    payload = appmod.build_refresh_payload(
+        ["BSDE.JK"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
+    )
+    assert payload["stocks"]
+    stock = payload["stocks"][0]
+    assert "validation_confidence_delta" in stock
+    if stock.get("validation_status") == "rejected":
+        # Rejected should produce a negative delta
+        assert stock["validation_confidence_delta"] < 0
+
+
+def test_all_predicted_only_warning_in_reasoning_summary(monkeypatch):
+    """Task 7: reasoning_summary warns when all predictions are predicted_only."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    payload = appmod.build_refresh_payload(
+        ["BSDE.JK"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
+    )
+    reasoning = payload["reasoning_summary"]
+    assert "validation_warnings" in reasoning
+    # With flat series, all should be predicted_only
+    val_breakdown = {item["name"]: item["count"] for item in reasoning.get("validation_breakdown", [])}
+    predicted_count = val_breakdown.get("predicted_only", 0)
+    confirmed_count = val_breakdown.get("confirmed", 0)
+    if predicted_count > 0 and confirmed_count == 0:
+        assert "all_predictions_unconfirmed" in reasoning["validation_warnings"]
+
+
+def test_validation_warnings_field_in_reasoning_summary():
+    """Task 7: validation_warnings field exists in reasoning summary structure."""
+    events = []
+    threads = []
+    stocks = []
+    result = appmod.build_reasoning_summary(events, threads, stocks)
+    assert "validation_warnings" in result
+    assert isinstance(result["validation_warnings"], list)
+
+

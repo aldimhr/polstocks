@@ -1707,9 +1707,18 @@
       const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
       const reasoningLine = [directionChip, validationChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
-      const validationMeta = stock.validation_status
-        ? `${escapeHtml(labelText(stock.validation_status))}${stock.validation_window ? ` · ${escapeHtml(stock.validation_window)}` : ''}${Number.isFinite(Number(stock.validation_score)) ? ` · score ${Number(stock.validation_score || 0).toFixed(2)}` : ''}`
-        : '';
+      const validationParts = [];
+      if (stock.validation_status) {
+        validationParts.push(escapeHtml(labelText(stock.validation_status)));
+        if (stock.validation_window) validationParts.push(escapeHtml(stock.validation_window));
+        if (Number.isFinite(Number(stock.validation_score))) validationParts.push(`score ${Number(stock.validation_score || 0).toFixed(2)}`);
+        if (Number.isFinite(Number(stock.abnormal_return)) && Number(stock.abnormal_return) !== 0) validationParts.push(`ret ${Number(stock.abnormal_return) > 0 ? '+' : ''}${(Number(stock.abnormal_return) * 100).toFixed(1)}%`);
+        if (Number.isFinite(Number(stock.abnormal_volume_ratio)) && Number(stock.abnormal_volume_ratio) > 0) validationParts.push(`vol ${Number(stock.abnormal_volume_ratio).toFixed(1)}x`);
+        if (stock.cross_window_divergent) validationParts.push('⚠ divergent');
+        if (Number.isFinite(Number(stock.channel_reliability_multiplier)) && Number(stock.channel_reliability_multiplier) !== 1.0) validationParts.push(`ch×${Number(stock.channel_reliability_multiplier).toFixed(2)}`);
+        if (Number.isFinite(Number(stock.validation_confidence_delta)) && Number(stock.validation_confidence_delta) !== 0) validationParts.push(`Δconf ${Number(stock.validation_confidence_delta) > 0 ? '+' : ''}${Number(stock.validation_confidence_delta).toFixed(2)}`);
+      }
+      const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
           <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
@@ -1753,7 +1762,8 @@
       const threadBadge = renderReasoningChip('Thread', event.thread_status || 'active', 'thread');
       const directionBadge = renderReasoningChip('Direction', topLink?.impact_direction || 'neutral', 'direction');
       const validationBadge = renderReasoningChip('Validation', topLink?.validation_status || 'unvalidated', 'validation');
-      const reasoningBadges = [relevanceBadge, stageBadge, threadBadge, directionBadge, validationBadge, conflictBadges].filter(Boolean).join(' ');
+      const divergentBadge = topLink?.cross_window_divergent ? renderReasoningChip('Cross', 'divergent', 'conflict') : '';
+      const reasoningBadges = [relevanceBadge, stageBadge, threadBadge, directionBadge, validationBadge, divergentBadge, conflictBadges].filter(Boolean).join(' ');
       const threadLine = event.thread_id
         ? `Thread: ${event.thread_status || 'active'} · ${event.thread_id}${Number(event.thread_contradiction_count || 0) > 0 ? ` · contradictions ${Number(event.thread_contradiction_count || 0)}` : ''}`
         : 'Thread: standalone coverage';

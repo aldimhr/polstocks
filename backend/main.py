@@ -2100,10 +2100,19 @@ def fetch_market_validation_series(ticker: str, range_name: str, interval: str) 
 
 
 def validation_window_for_article(article: dict[str, Any]) -> str:
+    forced = str(article.get("_force_window", "") or "").strip()
+    if forced in EVENT_WINDOWS:
+        return forced
     published_at = article.get("published_at")
     if isinstance(published_at, datetime) and (now_wib() - published_at) <= timedelta(days=1):
         return "30m"
     return "1d"
+
+
+def _alternate_validation_window(primary_window: str) -> str | None:
+    """Return the other validation window for cross-checking, or None if not applicable."""
+    mapping = {"30m": "1d", "1d": "30m"}
+    return mapping.get(str(primary_window or "").strip())
 
 
 def sample_stddev(values: list[float]) -> float:
@@ -2221,6 +2230,57 @@ def validate_market_reaction(
         status = "predicted_only"
         reason = "market move is too weak or noisy to confirm the prediction"
 
+    # Cross-window validation: check alternate window for divergence
+    alt_window = _alternate_validation_window(validation_window)
+    cross_window_status = None
+    cross_window_divergent = False
+    if alt_window:
+        alt_config = windows.get(alt_window)
+        if alt_config:
+            alt_range = str(alt_config.get("range", "1mo"))
+            alt_interval = str(alt_config.get("interval", "1d"))
+            alt_cache_key = (normalize_ticker(ticker), alt_window)
+            if series_cache is not None and alt_cache_key in series_cache:
+                alt_series = series_cache[alt_cache_key]
+            else:
+                alt_series = fetcher(ticker, alt_range, alt_interval)
+                if series_cache is not None:
+                    series_cache[alt_cache_key] = alt_series
+            alt_prices = [float(v) for v in alt_series.get("prices", []) if v is not None]
+            alt_volumes = [float(v) for v in alt_series.get("volumes", []) if v is not None]
+            alt_warnings = [str(w) for w in alt_series.get("warnings", []) if str(w).strip()]
+            if len(alt_prices) >= min_points and len(alt_volumes) >= min_points:
+                alt_returns = []
+                for prev, cur in zip(alt_prices[:-1], alt_prices[1:]):
+                    if prev not in (None, 0):
+                        alt_returns.append((cur - prev) / prev)
+                if len(alt_returns) >= max(2, min_points - 1):
+                    alt_baseline = alt_returns[:-1] or alt_returns
+                    alt_observed = alt_returns[-1]
+                    alt_mean = sum(alt_baseline) / len(alt_baseline)
+                    alt_sigma = sample_stddev(alt_baseline)
+                    alt_z = abs(alt_observed - alt_mean) / alt_sigma if alt_sigma > 1e-9 else abs(alt_observed - alt_mean) * 100.0
+                    alt_baseline_vols = alt_volumes[:-1] or alt_volumes
+                    alt_avg_vol = sum(alt_baseline_vols) / len(alt_baseline_vols) if alt_baseline_vols else 0.0
+                    alt_vol_ratio = (alt_volumes[-1] / alt_avg_vol) if alt_avg_vol > 0 else 0.0
+                    alt_aligned = True
+                    if expected_direction == "positive":
+                        alt_aligned = alt_observed > 0
+                    elif expected_direction == "negative":
+                        alt_aligned = alt_observed < 0
+                    if alt_aligned and alt_z >= price_sigma_threshold and alt_vol_ratio >= volume_ratio_threshold:
+                        cross_window_status = "confirmed"
+                    elif not alt_aligned and abs(alt_observed) > 0.002:
+                        cross_window_status = "rejected"
+                    else:
+                        cross_window_status = "predicted_only"
+                    status_set = {status, cross_window_status}
+                    if "confirmed" in status_set and "rejected" in status_set:
+                        cross_window_divergent = True
+                        warnings.append(f"cross-window divergence: {validation_window}={status}, {alt_window}={cross_window_status}")
+            elif alt_warnings:
+                cross_window_status = "insufficient_data"
+
     return {
         "validation_status": status,
         "validation_window": validation_window,
@@ -2230,6 +2290,8 @@ def validate_market_reaction(
         "validation_reason": reason,
         "validation_warnings": warnings,
         "validation_series_source": series.get("source", "unavailable"),
+        "cross_window_status": cross_window_status,
+        "cross_window_divergent": cross_window_divergent,
     }
 
 
@@ -2778,6 +2840,18 @@ def historical_reliability_metrics(history: dict[str, Any], history_key: str) ->
         weighted_outcome_sum = float(entry.get("weighted_outcome_sum", 0.0) or 0.0)
     except Exception:
         weighted_outcome_sum = 0.0
+    # Time-decay: apply 30-day half-life to stale outcome history
+    last_updated_raw = entry.get("last_updated")
+    if last_updated_raw and sample_size > 0:
+        try:
+            last_updated = datetime.fromisoformat(str(last_updated_raw))
+            age_days = max(0.0, (now_wib() - last_updated).total_seconds() / 86400.0)
+            decay = 0.5 ** (age_days / 30.0)
+            if decay < 0.95:  # only apply if >1.5 days old
+                weighted_outcome_sum *= decay
+                sample_size = max(1, int(sample_size * decay))
+        except Exception:
+            pass
     reliability_score = clamp(weighted_outcome_sum / sample_size, -1.0, 1.0) if sample_size else 0.0
     stability = clamp(sample_size / 5.0, 0.0, 1.0)
     multiplier = clamp(1.0 + 0.1 * reliability_score * stability, 0.85, 1.15)
@@ -2788,7 +2862,44 @@ def historical_reliability_metrics(history: dict[str, Any], history_key: str) ->
     }
 
 
-def record_source_outcome(history: dict[str, Any], history_key: str, validation_status: str, validation_score: float) -> dict[str, Any]:
+def channel_reliability_metrics(history: dict[str, Any], channel: str) -> dict[str, Any]:
+    """Get reliability metrics for a specific policy channel from outcome history."""
+    channels = history.get("channels", {}) if isinstance(history, dict) else {}
+    channel_key = str(channel or "").strip().upper()
+    entry = channels.get(channel_key, {}) if isinstance(channels, dict) and channel_key else {}
+    if not entry:
+        return {"channel_reliability_multiplier": 1.0, "channel_outcome_sample_size": 0, "channel_reliability_score": 0.0}
+    try:
+        sample_size = max(0, int(entry.get("sample_size", 0) or 0))
+    except Exception:
+        sample_size = 0
+    try:
+        weighted_outcome_sum = float(entry.get("weighted_outcome_sum", 0.0) or 0.0)
+    except Exception:
+        weighted_outcome_sum = 0.0
+    # Apply same time-decay as source outcomes
+    last_updated_raw = entry.get("last_updated")
+    if last_updated_raw and sample_size > 0:
+        try:
+            last_updated = datetime.fromisoformat(str(last_updated_raw))
+            age_days = max(0.0, (now_wib() - last_updated).total_seconds() / 86400.0)
+            decay = 0.5 ** (age_days / 30.0)
+            if decay < 0.95:
+                weighted_outcome_sum *= decay
+                sample_size = max(1, int(sample_size * decay))
+        except Exception:
+            pass
+    reliability_score = clamp(weighted_outcome_sum / sample_size, -1.0, 1.0) if sample_size else 0.0
+    stability = clamp(sample_size / 5.0, 0.0, 1.0)
+    multiplier = clamp(1.0 + 0.08 * reliability_score * stability, 0.88, 1.12)
+    return {
+        "channel_reliability_multiplier": round(multiplier, 3),
+        "channel_outcome_sample_size": sample_size,
+        "channel_reliability_score": round(reliability_score, 3),
+    }
+
+
+def record_source_outcome(history: dict[str, Any], history_key: str, validation_status: str, validation_score: float, *, channel: str = "") -> dict[str, Any]:
     normalized = normalize_source_outcome_history(history)
     key = str(history_key or "").strip().lower()
     if not key or key == "unknown":
@@ -2804,6 +2915,20 @@ def record_source_outcome(history: dict[str, Any], history_key: str, validation_
         weighted_outcome_sum *= 0.95
     entry["sample_size"] = sample_size + 1
     entry["weighted_outcome_sum"] = round(clamp(weighted_outcome_sum + weight, -20.0, 20.0), 4)
+    entry["last_updated"] = now_iso()
+    # Per-channel outcome tracking
+    channel_key = str(channel or "").strip().upper()
+    if channel_key:
+        channels = normalized.setdefault("channels", {})
+        ch_entry = channels.setdefault(channel_key, {"sample_size": 0, "weighted_outcome_sum": 0.0})
+        ch_sample = max(0, int(ch_entry.get("sample_size", 0) or 0))
+        ch_outcome = float(ch_entry.get("weighted_outcome_sum", 0.0) or 0.0)
+        if ch_sample >= 20:
+            ch_sample = 19
+            ch_outcome *= 0.95
+        ch_entry["sample_size"] = ch_sample + 1
+        ch_entry["weighted_outcome_sum"] = round(clamp(ch_outcome + weight, -20.0, 20.0), 4)
+        ch_entry["last_updated"] = now_iso()
     return normalized
 
 
@@ -3586,12 +3711,21 @@ def build_reasoning_summary(events: list[dict[str, Any]], event_threads: list[di
     insufficient = validation_counts.get("insufficient_data", 0)
     contested = thread_counts.get("contested", 0)
     reversed_threads = thread_counts.get("reversed", 0)
+    total_validated = confirmed + predicted + int(validation_counts.get("rejected", 0))
+    validation_warnings_list: list[str] = []
+    if predicted > 0 and confirmed == 0 and total_validated == predicted:
+        validation_warnings_list.append("all_predictions_unconfirmed")
+    rejected = validation_counts.get("rejected", 0)
+    if rejected > 0 and rejected >= confirmed:
+        validation_warnings_list.append("more_rejected_than_confirmed")
     summary_bits = [
         f"{confirmed} confirmed links" if confirmed else None,
         f"{predicted} predicted-only links" if predicted else None,
         f"{insufficient} insufficient-data links" if insufficient else None,
         f"{contested} contested threads" if contested else None,
         f"{reversed_threads} reversed threads" if reversed_threads else None,
+        f"⚠ all predictions unconfirmed" if "all_predictions_unconfirmed" in validation_warnings_list else None,
+        f"⚠ more rejected than confirmed" if "more_rejected_than_confirmed" in validation_warnings_list else None,
     ]
     summary_line = " · ".join(bit for bit in summary_bits if bit) or "No reasoning summary yet"
 
@@ -3602,6 +3736,7 @@ def build_reasoning_summary(events: list[dict[str, Any]], event_threads: list[di
         "thread_breakdown": to_buckets(thread_counts, order=["active", "confirmed", "contested", "reversed"]),
         "validation_breakdown": to_buckets(validation_counts, order=["confirmed", "predicted_only", "rejected", "insufficient_data", "unvalidated"]),
         "direction_breakdown": to_buckets(direction_counts, order=["positive", "negative", "neutral", "mixed"]),
+        "validation_warnings": validation_warnings_list,
     }
 
 
@@ -3809,17 +3944,37 @@ def build_refresh_payload(
             )
             relationship.update(validation)
             relationship.update(history_metrics)
+            # Apply channel reliability metrics
+            primary_channel_for_metrics = str(relationship.get("policy_channel", ""))
+            ch_metrics = channel_reliability_metrics(updated_source_outcome_history, primary_channel_for_metrics)
+            relationship.update(ch_metrics)
+            # Apply validation multiplier directly to relationship confidence
+            raw_confidence = float(relationship.get("confidence", 0.0) or 0.0)
+            val_mult = float(validation.get("validation_multiplier", 1.0) or 1.0)
+            if val_mult != 1.0:
+                adjusted = clamp(raw_confidence * val_mult, 0.0, 1.0)
+                relationship["confidence"] = round(adjusted, 3)
+                relationship["relationship_confidence"] = round(adjusted, 3)
+                relationship["confidence_label"] = relationship_confidence_label(adjusted, str(relationship.get("coverage_warning", "")))
+                relationship["validation_confidence_delta"] = round(adjusted - raw_confidence, 3)
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
                 validation_status,
                 validation_score,
                 historical_reliability_multiplier=float(history_metrics.get("historical_reliability_multiplier", 1.0) or 1.0),
             )
+            primary_channel = ""
+            matched_channels = relationship.get("matched_policy_channels", [])
+            if isinstance(matched_channels, list) and matched_channels:
+                primary_channel = str(matched_channels[0].get("channel", "")) if isinstance(matched_channels[0], dict) else ""
+            if not primary_channel:
+                primary_channel = str(relationship.get("policy_channel", ""))
             updated_source_outcome_history = record_source_outcome(
                 updated_source_outcome_history,
                 history_key,
                 validation_status,
                 validation_score,
+                channel=primary_channel,
             )
             for warning in validation.get("validation_warnings", []):
                 if warning:
@@ -3893,6 +4048,12 @@ def build_refresh_payload(
                 "historical_outcome_sample_size": strongest_link[1].get("historical_outcome_sample_size") if strongest_link else 0,
                 "historical_reliability_score": strongest_link[1].get("historical_reliability_score") if strongest_link else 0.0,
                 "validation_reason": strongest_link[1].get("validation_reason") if strongest_link else "",
+                "cross_window_status": strongest_link[1].get("cross_window_status") if strongest_link else None,
+                "cross_window_divergent": strongest_link[1].get("cross_window_divergent", False) if strongest_link else False,
+                "channel_reliability_multiplier": strongest_link[1].get("channel_reliability_multiplier", 1.0) if strongest_link else 1.0,
+                "channel_outcome_sample_size": strongest_link[1].get("channel_outcome_sample_size", 0) if strongest_link else 0,
+                "channel_reliability_score": strongest_link[1].get("channel_reliability_score", 0.0) if strongest_link else 0.0,
+                "validation_confidence_delta": strongest_link[1].get("validation_confidence_delta", 0.0) if strongest_link else 0.0,
                 "source_conflict": strongest_link[1].get("source_conflict") if strongest_link else False,
                 "source_conflict_count": strongest_link[1].get("source_conflict_count") if strongest_link else 0,
                 "source_conflict_total_count": strongest_link[1].get("source_conflict_total_count") if strongest_link else 0,

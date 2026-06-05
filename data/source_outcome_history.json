@@ -2,23 +2,23 @@
   "sources": {
     "antaranews.com": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.664
+      "weighted_outcome_sum": -1.006
     },
     "bisnis.com": {
-      "sample_size": 6,
-      "weighted_outcome_sum": 0.1992
+      "sample_size": 20,
+      "weighted_outcome_sum": 0.664
     },
     "blog.example.com": {
-      "sample_size": 8,
-      "weighted_outcome_sum": 0.2656
+      "sample_size": 20,
+      "weighted_outcome_sum": 0.664
     },
     "cnbcindonesia.com": {
       "sample_size": 8,
       "weighted_outcome_sum": 0.0282
     },
     "example.com": {
-      "sample_size": 8,
-      "weighted_outcome_sum": 0.2656
+      "sample_size": 20,
+      "weighted_outcome_sum": 0.664
     },
     "finance.detik.com": {
       "sample_size": 20,
@@ -26,11 +26,11 @@
     },
     "ojk.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.2154
+      "weighted_outcome_sum": 0.533
     },
     "setkab.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.0494
+      "weighted_outcome_sum": 0.9131
     }
   }
 }
