@@ -2944,6 +2944,12 @@ def build_stock_relationships(
         direct_alias_hit = bool(alias_hits)
         if not knowledge and not direct_alias_hit:
             continue
+        relevance_label = str(article.get("relevance_label", "") or "")
+        source_type = str(article.get("source_type", "") or "")
+        if relevance_label == "not_political" and not direct_alias_hit and source_type == "other":
+            continue
+        if relevance_label == "maybe" and not direct_alias_hit and source_type not in {"government", "regulator", "company"}:
+            continue
 
         profile = TICKER_EXPOSURE_PROFILES.get(ticker, {"themes": [], "keywords": []})
         profile_theme_names = set(profile.get("themes", []))
@@ -2999,9 +3005,11 @@ def build_stock_relationships(
         company_evidence_rank = round(max((float(item.get("quality_rank") or source_type_rank(item.get("source_type"))) for item in knowledge.get("evidence", [])), default=0.0), 2)
         evidence_label = f"{article_source_type} article"
         if direct_alias_hit:
-            rationale = f"{company_name_for_ticker(ticker)} is mentioned directly in the article"
+            channel_hint = f" via {policy_channel}" if policy_channel else ""
+            rationale = f"{company_name_for_ticker(ticker)} mentioned directly{channel_hint}"
         else:
-            rationale = f"{ticker} survives through matched transmission paths instead of broad sector overlap"
+            channel_names = [ch["channel"] for ch in matched_channels[:2]]
+            rationale = f"Linked through policy channel: {', '.join(channel_names)}" if channel_names else f"{ticker} linked through sector/theme overlap"
         evidence = []
         if direct_alias_hit:
             evidence.append("company/entity mentioned in article")
@@ -3091,7 +3099,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         sector_hits.update(theme["sectors"])
 
     article_quality = source_quality_metrics_for_article(article)
-    article_context = {**article, **article_quality}
+    article_context = {**article, **article_quality, "relevance_label": relevance.get("relevance_label", "not_political")}
 
     stock_relationships = build_stock_relationships(
         article=article_context,
@@ -3906,6 +3914,7 @@ def build_refresh_payload(
                 "thread_status": event.get("thread_status", "active"),
                 "thread_contradiction_count": event.get("thread_contradiction_count", 0),
                 "confidence": event.get("confidence", 0.0),
+                "confidence_label": event.get("confidence_label", relationship_confidence_label(float(event.get("confidence", 0.0) or 0.0))),
                 "window": normalized_window,
                 "significance": event.get("significance", 0.0),
                 "source_age_hours": event.get("source_age_hours", 0.0),

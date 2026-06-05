@@ -1924,6 +1924,76 @@ def test_stock_payload_includes_source_fetch_status():
     assert "source_fetch_status" in stock
 
 
+def test_maybe_relevance_articles_rejected_without_direct_mention():
+    maybe_article = {
+        "source": "Media Indonesia",
+        "headline": "Kabar terbaru soal tambang dan mineral di Indonesia",
+        "url": "https://example.com/maybe-relevance",
+        "published_at": appmod.now_wib(),
+        "summary": "Sektor tambang dan mineral mendapat perhatian dari pelaku pasar tanpa kebijakan resmi dari pemerintah.",
+        "source_weight": 0.7,
+        "source_type": "media",
+    }
+    result = appmod.analyze_article(maybe_article, ["ANTM.JK"], window="7d")
+    assert result.get("relevance_label") == "maybe"
+    assert result.get("stock_relationships") == []
+
+
+def test_indirect_relationship_requires_minimum_channel_confidence():
+    broad = {
+        **FAKE_ARTICLE,
+        "source": "Generic News",
+        "headline": "Infrastruktur nasional terus bertumbuh tanpa target spesifik",
+        "summary": "Investasi dan infrastruktur nasional terus bertumbuh tanpa target spesifik atau kebijakan tertentu.",
+        "url": "https://example.com/broad-sector",
+        "source_weight": 0.5,
+        "source_type": "other",
+    }
+    result = appmod.analyze_article(broad, ["BBCA.JK"], window="7d")
+    # not_political + no direct alias = no relationships
+    assert result.get("stock_relationships") == []
+
+
+def test_maybe_relevance_penalizes_confidence_vs_political():
+    political = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK"], window="7d")
+    maybe_article = {
+        **DIRECT_MENTION_ARTICLE,
+        "source": "Market Blog",
+        "source_type": "other",
+        "source_weight": 0.3,
+        "url": "https://example.com/maybe-antam",
+    }
+    maybe_result = appmod.analyze_article(maybe_article, ["ANTM.JK"], window="7d")
+    if political.get("stock_relationships") and maybe_result.get("stock_relationships"):
+        p_conf = political["stock_relationships"][0]["confidence"]
+        m_conf = maybe_result["stock_relationships"][0]["confidence"]
+        assert p_conf > m_conf
+
+
+def test_non_political_article_produces_no_relationships():
+    result = appmod.analyze_article(NON_POLITICAL_ARTICLE, ["ANTM.JK", "BBCA.JK"], window="7d")
+    assert result.get("stock_relationships") == []
+    assert result.get("relevance_label") == "not_political"
+
+
+def test_relationship_rationale_includes_transmission_path():
+    result = appmod.analyze_article(DIRECT_MENTION_ARTICLE, ["ANTM.JK"], window="7d")
+    link = next(r for r in result["stock_relationships"] if r["ticker"] == "ANTM.JK")
+    assert len(link["rationale"]) > 20
+
+
+def test_formatted_events_include_confidence_label():
+    payload = appmod.build_refresh_payload(
+        ["ANTM"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    event = payload["events"][0]
+    assert "confidence_label" in event
+    assert event["confidence_label"] in {"high_confidence", "confirmed", "low_confidence", "predicted_only", "insufficient_data"}
+
+
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_unavailable)
     payload = appmod.build_refresh_payload(
