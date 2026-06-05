@@ -1886,6 +1886,44 @@ def test_registry_trust_remains_the_base_signal(monkeypatch, tmp_path):
     assert strong_stock["source_confidence"] > weak_stock["source_confidence"]
 
 
+def test_formatted_events_include_source_fetch_status():
+    payload = appmod.build_refresh_payload(
+        ["ANTM"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    event = payload["events"][0]
+    assert "source_fetch_status" in event
+    assert event["source_fetch_status"] in {
+        "registry_exact", "registry_alias", "registry_domain",
+        "inferred_fallback", "url_inference", "heuristic_fallback", "unknown",
+    }
+
+
+def test_stock_relationships_include_source_fetch_status():
+    payload = appmod.build_refresh_payload(
+        ["ANTM"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    link = payload["events"][0]["stock_relationships"][0]
+    assert "source_fetch_status" in link
+    assert isinstance(link["source_fetch_status"], str)
+
+
+def test_stock_payload_includes_source_fetch_status():
+    payload = appmod.build_refresh_payload(
+        ["ANTM"], force=True, window="7d",
+        news_fetcher=fake_news_fetcher,
+        stock_fetcher=fake_stock_fetcher,
+        market_fetcher=fake_market_fetcher,
+    )
+    stock = payload["stocks"][0]
+    assert "source_fetch_status" in stock
+
+
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_unavailable)
     payload = appmod.build_refresh_payload(

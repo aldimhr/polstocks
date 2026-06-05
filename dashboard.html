@@ -1386,6 +1386,18 @@
     return '';
   }
 
+  function provenanceFetchStatusLabel(fetchStatus) {
+    const map = {
+      registry_exact: 'Registry matched',
+      registry_alias: 'Registry alias',
+      registry_domain: 'Registry domain',
+      inferred_fallback: 'Inferred source',
+      url_inference: 'URL inferred',
+      heuristic_fallback: 'Heuristic source',
+    };
+    return map[String(fetchStatus || '').trim().toLowerCase()] || '';
+  }
+
   function provenanceChipClass(kind, value) {
     const normalized = String(value || '').toLowerCase();
     if (kind === 'source') {
@@ -1411,6 +1423,11 @@
       if (normalized === 'unverified') return 'muted';
       return 'neu';
     }
+    if (kind === 'fetch') {
+      if (normalized.includes('registry')) return 'pos';
+      if (normalized.includes('inferred') || normalized.includes('heuristic')) return 'warn';
+      return 'muted';
+    }
     return 'neu';
   }
 
@@ -1427,6 +1444,9 @@
 
     const confidenceLabel = provenanceConfidenceLabel(meta);
     if (confidenceLabel) chips.push(`<span class="reasoning-chip ${provenanceChipClass('confidence', confidenceLabel)}">${escapeHtml(confidenceLabel)}</span>`);
+
+    const fetchLabel = provenanceFetchStatusLabel(meta.source_fetch_status);
+    if (fetchLabel) chips.push(`<span class="reasoning-chip ${provenanceChipClass('fetch', fetchLabel)}">${escapeHtml(fetchLabel)}</span>`);
 
     return chips.join('');
   }

@@ -3064,6 +3064,7 @@ def build_stock_relationships(
                 "source_conflict_score": 0.0,
                 "source_conflict_penalty": 1.0,
                 "source_conflict_label": "aligned",
+                "source_fetch_status": str(article.get("source_profile_resolution", "unknown") or "unknown"),
             }
         )
 
@@ -3875,6 +3876,7 @@ def build_refresh_payload(
                 "source_conflict_score": strongest_link[1].get("source_conflict_score") if strongest_link else 0.0,
                 "source_conflict_penalty": strongest_link[1].get("source_conflict_penalty") if strongest_link else 1.0,
                 "source_conflict_label": strongest_link[1].get("source_conflict_label") if strongest_link else "aligned",
+                "source_fetch_status": strongest_link[1].get("source_fetch_status", "unknown") if strongest_link else "unknown",
                 "source": (quote or {}).get("source", "unavailable"),
             }
         )
@@ -3910,6 +3912,7 @@ def build_refresh_payload(
                 "source_freshness_score": event.get("source_freshness_score", 0.0),
                 "source_quality_score": event.get("source_quality_score", 0.0),
                 "coverage_warning": event.get("coverage_warning", ""),
+                "source_fetch_status": str(event.get("source_profile_resolution", "unknown") or "unknown"),
             }
         )
 
