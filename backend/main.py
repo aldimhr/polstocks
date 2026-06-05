@@ -2991,6 +2991,16 @@ def build_stock_relationships(
             + 0.12 * evidence_quality
         )
         confidence = clamp((score / 5.0) * (0.7 + 0.3 * sentiment_confidence), 0.0, 1.0)
+        # Mixed direction penalty — ambiguous signals get lower confidence
+        impact_direction = direction.get("impact_direction", "neutral")
+        if impact_direction == "mixed":
+            confidence *= 0.7
+        # Sentiment-direction alignment — mismatch penalizes confidence
+        article_sentiment = str(article.get("sentiment", "neutral") or "neutral").strip().lower()
+        if article_sentiment == "positive" and impact_direction == "negative":
+            confidence *= 0.85
+        elif article_sentiment == "negative" and impact_direction == "positive":
+            confidence *= 0.85
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
@@ -3099,7 +3109,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         sector_hits.update(theme["sectors"])
 
     article_quality = source_quality_metrics_for_article(article)
-    article_context = {**article, **article_quality, "relevance_label": relevance.get("relevance_label", "not_political")}
+    article_context = {**article, **article_quality, "relevance_label": relevance.get("relevance_label", "not_political"), "sentiment": sentiment, "sentiment_score": sentiment_score}
 
     stock_relationships = build_stock_relationships(
         article=article_context,
@@ -3760,6 +3770,11 @@ def build_refresh_payload(
     meaningful_events = [article for article in analyzed_articles if float(article.get("significance", 0.0)) > 0.015]
     ranked_events = meaningful_events or analyzed_articles
     event_threads = group_articles_into_threads(ranked_events)
+    # Propagate thread_status to individual relationships
+    for event in ranked_events:
+        thread_status = str(event.get("thread_status", "active") or "active")
+        for relationship in event.get("stock_relationships", []):
+            relationship.setdefault("thread_status", thread_status)
     events = ranked_events[:10]
     apply_corroboration_to_events(events)
     apply_source_conflicts_to_events(events)
