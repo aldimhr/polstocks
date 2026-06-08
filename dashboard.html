@@ -2939,9 +2939,11 @@
       const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
       const rsiVal = stock.rsi_value;
       const rsiChip = rsiVal != null ? renderReasoningChip('RSI', `${rsiVal.toFixed(0)}${rsiVal > 70 ? ' ▲' : rsiVal < 30 ? ' ▼' : ''}`, 'rsi') : '';
-      const macdHist = stock.macd_histogram;
-      const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${macdHist.toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'rsi') : '';
-      const trendDir = stock.sma_trend;
+      const macdObj = stock.macd;
+      const macdHist = macdObj && typeof macdObj === 'object' ? macdObj.histogram : stock.macd_histogram;
+      const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${Number(macdHist).toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'rsi') : '';
+      const trendObj = stock.trend;
+      const trendDir = (trendObj && typeof trendObj === 'object' ? trendObj.trend : stock.sma_trend) || '';
       const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'rsi') : '';
       const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
