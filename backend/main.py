@@ -4555,6 +4555,14 @@ def api_backtest_backfill() -> dict[str, Any]:
     return backfill_from_cache()
 
 
+@app.post("/api/backtest/resolve")
+def api_backtest_resolve() -> dict[str, Any]:
+    """Manually trigger outcome resolution for pending predictions."""
+    from backend.backtest import resolve_pending_outcomes
+    resolved = resolve_pending_outcomes()
+    return {"resolved": resolved}
+
+
 # ---------------------------------------------------------------------------
 # Runtime helpers
 # ---------------------------------------------------------------------------
@@ -4587,7 +4595,7 @@ def _prewarm_cache() -> None:
     try:
         from backend.backtest import init_backtest_db, start_outcome_resolver
         init_backtest_db()
-        start_outcome_resolver(interval_seconds=3600)
+        start_outcome_resolver(interval_seconds=900)  # 15 min for faster data collection
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Backtest init failed: {e}")
