@@ -2812,6 +2812,22 @@
         badge.textContent = '📱 ' + (tgUser.first_name || 'Telegram User');
         document.body.appendChild(badge);
       }
+      // Deep link handling: startParam → auto-open ticker modal
+      const startParam = data.startParam;
+      if (startParam && startParam.startsWith('ticker:')) {
+        const ticker = startParam.replace('ticker:', '').toUpperCase();
+        if (ticker) {
+          // Wait for dashboard to load, then open the ticker modal
+          const tryOpen = () => {
+            if (state.payload && state.payload.stocks) {
+              openTickerModal(ticker);
+            } else {
+              setTimeout(tryOpen, 500);
+            }
+          };
+          setTimeout(tryOpen, 1000);
+        }
+      }
     });
   })();
 

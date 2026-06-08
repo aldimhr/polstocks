@@ -33,6 +33,7 @@
       iframe.contentWindow.postMessage({
         type: 'tg_init',
         user: tg.initDataUnsafe?.user || null,
+        startParam: tg.initDataUnsafe?.start_param || null,
         colorScheme: tg.colorScheme,
         themeParams: tg.themeParams,
         initData: tg.initData,
