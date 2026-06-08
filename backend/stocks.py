@@ -180,7 +180,7 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             c = raw_closes[i] if i < len(raw_closes) else None
             if all(v is not None for v in (o, h, l, c)):
                 ohlc_series.append({
-                    "time": datetime.fromtimestamp(int(ts), tz=WIB).strftime("%Y-%m-%d"),
+                    "time": int(ts),
                     "open": float(o),
                     "high": float(h),
                     "low": float(l),
@@ -196,7 +196,7 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             o = raw_opens[i] if i < len(raw_opens) else None
             if vol is not None:
                 volume_series.append({
-                    "time": datetime.fromtimestamp(int(ts), tz=WIB).strftime("%Y-%m-%d"),
+                    "time": int(ts),
                     "value": float(vol),
                     "color": "rgba(77,219,142,0.35)" if (c is not None and o is not None and float(c) >= float(o)) else "rgba(255,92,92,0.35)",
                 })

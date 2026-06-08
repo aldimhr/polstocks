@@ -792,8 +792,8 @@
     align-items: flex-end;
     justify-content: center;
     padding: 0;
-    background: rgba(8, 10, 16, 0.82);
-    backdrop-filter: blur(12px);
+    background: rgba(8, 10, 16, 0.88);
+    backdrop-filter: blur(8px);
   }
 
   .ticker-modal-backdrop[hidden] {
@@ -803,43 +803,43 @@
   .ticker-modal {
     width: 100%;
     max-width: 900px;
-    height: min(92vh, 960px);
+    height: 96vh;
     display: flex;
     flex-direction: column;
-    border-radius: 22px 22px 0 0;
+    border-radius: 16px 16px 0 0;
     border: 1px solid var(--border);
     border-bottom: none;
-    background: linear-gradient(180deg, rgba(19, 24, 33, 0.99), rgba(12, 15, 21, 0.99));
-    box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.5);
-    padding: 20px 20px 12px;
+    background: var(--bg);
+    box-shadow: 0 -6px 40px rgba(0, 0, 0, 0.6);
+    padding: 14px 14px 8px;
     overflow: hidden;
   }
 
   .ticker-modal-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
     flex-shrink: 0;
   }
 
   .ticker-modal-kicker {
-    font-size: 11px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--muted2);
-    margin-bottom: 4px;
+    color: var(--muted);
+    margin-bottom: 2px;
   }
 
   .ticker-modal-title {
-    font-size: 22px;
-    font-weight: 800;
+    font-size: 18px;
+    font-weight: 700;
     line-height: 1.1;
   }
 
   .ticker-modal-sub {
-    margin-top: 6px;
-    font-size: 12px;
+    margin-top: 4px;
+    font-size: 11px;
     color: var(--muted);
     font-family: 'DM Mono', monospace;
   }
@@ -848,30 +848,31 @@
     border: 1px solid var(--border);
     background: var(--surface2);
     color: var(--text);
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     border-radius: 999px;
     cursor: pointer;
     flex: 0 0 auto;
+    font-size: 16px;
   }
 
   .ticker-modal-close:hover,
   .ticker-modal-close:focus-visible {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(77, 211, 207, 0.15);
   }
 
   /* Timeframe buttons */
   .ticker-timeframes {
     display: flex;
-    gap: 6px;
-    margin-top: 14px;
+    gap: 5px;
+    margin-top: 10px;
     flex-shrink: 0;
   }
 
   .tf-btn {
-    padding: 6px 14px;
+    flex: 1;
+    padding: 7px 0;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: transparent;
@@ -881,13 +882,11 @@
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s;
-    letter-spacing: 0.02em;
+    text-align: center;
   }
 
-  .tf-btn:hover {
-    background: var(--surface2);
-    color: var(--text);
-    border-color: var(--border2);
+  .tf-btn:active {
+    transform: scale(0.96);
   }
 
   .tf-btn.active {
@@ -897,51 +896,51 @@
     font-weight: 600;
   }
 
-  /* Stat cards row */
+  /* Stat cards row — compact 4-col */
   .ticker-modal-stats {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 14px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 10px;
     flex-shrink: 0;
   }
 
   .ticker-stat {
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: var(--surface2);
+    padding: 8px;
+    border-radius: 10px;
+    background: var(--surface);
     border: 1px solid var(--border);
   }
 
   .ticker-stat .label {
     display: block;
-    font-size: 10px;
+    font-size: 9px;
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-family: 'DM Mono', monospace;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
   .ticker-stat .value {
     display: block;
-    font-size: 16px;
+    font-size: 13px;
     font-weight: 700;
-    font-family: 'Syne', sans-serif;
+    font-family: 'DM Mono', monospace;
   }
 
   .ticker-stat .value.up { color: var(--green); }
   .ticker-stat .value.down { color: var(--red); }
   .ticker-stat .value.flat { color: var(--text); }
 
-  /* Chart container */
+  /* Chart container — takes remaining space */
   .ticker-history-chart {
     flex: 1;
-    min-height: 0;
-    margin-top: 12px;
-    border-radius: 14px;
+    min-height: 180px;
+    margin-top: 8px;
+    border-radius: 10px;
     border: 1px solid var(--border);
-    background: rgba(0, 0, 0, 0.25);
+    background: rgba(0, 0, 0, 0.2);
     overflow: hidden;
     position: relative;
   }
@@ -957,27 +956,29 @@
     justify-content: center;
     height: 100%;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
+    padding: 16px;
+    text-align: center;
   }
 
-  /* OHLC crosshair overlay */
+  /* OHLC crosshair overlay — compact */
   .ohlc-overlay {
     position: absolute;
-    top: 10px;
-    left: 14px;
+    top: 6px;
+    left: 8px;
     display: flex;
-    gap: 14px;
+    gap: 8px;
     font-family: 'DM Mono', monospace;
-    font-size: 11px;
+    font-size: 10px;
     color: var(--muted2);
     z-index: 5;
     pointer-events: none;
-    transition: opacity 0.15s;
+    transition: opacity 0.12s;
   }
 
   .ohlc-overlay .ohlc-item {
     display: flex;
-    gap: 4px;
+    gap: 3px;
   }
 
   .ohlc-overlay .ohlc-label {
@@ -995,29 +996,30 @@
   .ticker-history-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
+    gap: 6px;
+    margin-top: 6px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10px;
     font-family: 'DM Mono', monospace;
     flex-shrink: 0;
   }
 
   .ticker-modal-note {
-    margin-top: 8px;
+    margin-top: 4px;
     color: var(--muted2);
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 11px;
+    line-height: 1.4;
     flex-shrink: 0;
   }
 
   @media (max-width: 720px) {
     .ticker-modal {
-      border-radius: 18px 18px 0 0;
-      height: 95vh;
+      border-radius: 14px 14px 0 0;
+      height: 97vh;
+      padding: 10px 10px 6px;
     }
     .ticker-modal-stats { grid-template-columns: repeat(2, 1fr); }
-    .ohlc-overlay { font-size: 10px; gap: 8px; flex-wrap: wrap; }
+    .ohlc-overlay { font-size: 9px; gap: 6px; flex-wrap: wrap; }
   }
 
   .bottom-grid {
@@ -1122,9 +1124,9 @@
       border-bottom: none;
     }
     .ticker-modal {
-      padding: 14px;
-      border-radius: 18px 18px 0 0;
-      height: 95vh;
+      padding: 10px 10px 6px;
+      border-radius: 14px 14px 0 0;
+      height: 97vh;
     }
     .ticker-modal-header {
       flex-direction: column;
@@ -1136,7 +1138,7 @@
       grid-template-columns: repeat(2, 1fr);
     }
     .ticker-history-chart {
-      border-radius: 12px;
+      border-radius: 8px;
     }
   }
 
@@ -1843,14 +1845,21 @@
     destroyTickerChart();
     if (!window.LightweightCharts || !ohlcData || ohlcData.length === 0) return;
 
+    // Detect intraday data (any timestamps within same day)
+    const hasIntraday = ohlcData.length > 1 && (() => {
+      const d1 = new Date(ohlcData[0].time * 1000);
+      const d2 = new Date(ohlcData[ohlcData.length - 1].time * 1000);
+      return d1.toDateString() === d2.toDateString() || ohlcData.length > 50;
+    })();
+
     const chart = LightweightCharts.createChart(container, {
       width: container.clientWidth,
-      height: container.clientHeight || 350,
+      height: container.clientHeight || 300,
       layout: {
         background: { type: 'solid', color: 'transparent' },
         textColor: '#6b6f78',
         fontFamily: "'DM Mono', monospace",
-        fontSize: 11,
+        fontSize: 10,
       },
       grid: {
         vertLines: { color: 'rgba(255,255,255,0.03)' },
@@ -1863,12 +1872,14 @@
       },
       rightPriceScale: {
         borderColor: 'rgba(255,255,255,0.07)',
-        scaleMargins: { top: 0.05, bottom: 0.25 },
+        scaleMargins: { top: 0.05, bottom: 0.22 },
       },
       timeScale: {
         borderColor: 'rgba(255,255,255,0.07)',
-        timeVisible: false,
+        timeVisible: hasIntraday,
         secondsVisible: false,
+        rightOffset: 5,
+        barSpacing: Math.max(3, Math.min(12, Math.floor(container.clientWidth / ohlcData.length))),
       },
       handleScroll: { vertTouchDrag: false },
     });
@@ -1888,7 +1899,7 @@
       priceScaleId: 'vol',
     });
     chart.priceScale('vol').applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
+      scaleMargins: { top: 0.82, bottom: 0 },
     });
     if (volData && volData.length) vol.setData(volData);
 
