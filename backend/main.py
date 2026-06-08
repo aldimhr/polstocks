@@ -2232,6 +2232,7 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             "ohlc_series": ohlc_series,
             "volume_series": volume_series,
             "market_time": market_dt.isoformat(timespec="seconds"),
+            "rsi": compute_rsi(prices),
             "source": "yahoo-finance",
             "warnings": warnings,
         }
@@ -2261,6 +2262,7 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             "ohlc_series": [],
             "volume_series": [],
             "market_time": now_iso(),
+            "rsi": None,
             "source": "unavailable",
             "warnings": warnings,
         }

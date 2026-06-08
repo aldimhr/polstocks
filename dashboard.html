@@ -896,10 +896,10 @@
     font-weight: 600;
   }
 
-  /* Stat cards row — compact 4-col */
+  /* Stat cards row — compact auto-fit */
   .ticker-modal-stats {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
     gap: 6px;
     margin-top: 10px;
     flex-shrink: 0;
@@ -1924,6 +1924,14 @@
       if (normalized === 'maybe') return 'warn';
       return 'muted';
     }
+    if (kind === 'rsi') {
+      const num = parseFloat(normalized);
+      if (Number.isFinite(num)) {
+        if (num > 70) return 'neg';   // overbought
+        if (num < 30) return 'pos';   // oversold
+      }
+      return 'neu';
+    }
     return 'neu';
   }
 
@@ -2275,6 +2283,13 @@
       { label: 'Today', value: Number.isFinite(dayChange) ? `${dayChange > 0 ? '+' : ''}${dayChange.toFixed(2)}%` : '—', cls: dayClass },
       { label: 'Volume', value: formatVolume(vol), cls: '' },
     ];
+    // Add RSI stat if available
+    const rsiVal = payload.rsi;
+    if (rsiVal != null) {
+      const rsiClass = rsiVal > 70 ? 'down' : rsiVal < 30 ? 'up' : 'flat';
+      const rsiLabel = rsiVal > 80 ? 'Overbought' : rsiVal > 70 ? 'High' : rsiVal < 20 ? 'Oversold' : rsiVal < 30 ? 'Low' : 'Neutral';
+      stats.push({ label: `RSI · ${rsiLabel}`, value: rsiVal.toFixed(1), cls: rsiClass });
+    }
     $('tickerModalStats').innerHTML = stats.map((item) => `
       <div class="ticker-stat">
         <span class="label">${escapeHtml(item.label)}</span>
@@ -2598,7 +2613,9 @@
         : 'No strong policy link';
       const directionChip = renderReasoningChip('Direction', stock.impact_direction || 'neutral', 'direction');
       const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
-      const reasoningLine = [directionChip, validationChip, conflictBadges].filter(Boolean).join(' ');
+      const rsiVal = stock.rsi_value;
+      const rsiChip = rsiVal != null ? renderReasoningChip('RSI', `${rsiVal.toFixed(0)}${rsiVal > 70 ? ' ▲' : rsiVal < 30 ? ' ▼' : ''}`, 'rsi') : '';
+      const reasoningLine = [directionChip, validationChip, rsiChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationParts = [];
       if (stock.validation_status) {
