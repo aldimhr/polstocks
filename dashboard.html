@@ -1679,6 +1679,7 @@
         <span class="ohlc-item"><span class="ohlc-label">L</span><span class="ohlc-val" id="ohlcLow">—</span></span>
         <span class="ohlc-item"><span class="ohlc-label">C</span><span class="ohlc-val" id="ohlcClose">—</span></span>
         <span class="ohlc-item"><span class="ohlc-label">Vol</span><span class="ohlc-val" id="ohlcVol">—</span></span>
+        <span class="ohlc-item" id="ohlcMacdWrap" style="display:none"><span class="ohlc-label" style="color:#5b9bf5">MACD</span><span class="ohlc-val" id="ohlcMacd">—</span></span>
       </div>
       <div class="footer-note">Select a ticker from the watchlist to view its chart.</div>
     </div>
@@ -2170,12 +2171,47 @@
     if (ticker) loadTickerModal(ticker, window);
   }
 
+  function computeMACDSeries(closes, fast = 12, slow = 26, signal = 9) {
+    if (closes.length < slow + signal) return null;
+    // EMA helper
+    function ema(vals, period) {
+      const k = 2 / (period + 1);
+      const result = [vals.slice(0, period).reduce((a, b) => a + b, 0) / period];
+      for (let i = period; i < vals.length; i++) {
+        result.push(vals[i] * k + result[result.length - 1] * (1 - k));
+      }
+      return result;
+    }
+    const emaFast = ema(closes, fast);
+    const emaSlow = ema(closes, slow);
+    const offset = emaFast.length - emaSlow.length;
+    const macdLine = emaSlow.map((s, i) => emaFast[i + offset] - s);
+    if (macdLine.length < signal) return null;
+    const signalLine = ema(macdLine, signal);
+    const sigOffset = macdLine.length - signalLine.length;
+    const result = [];
+    for (let i = 0; i < signalLine.length; i++) {
+      const mIdx = i + sigOffset;
+      const m = macdLine[mIdx];
+      const s = signalLine[i];
+      result.push({ macd: m, signal: s, histogram: m - s });
+    }
+    return { data: result, offset: slow + signal - 1 + sigOffset };
+  }
+
+  let macdHistogramSeries = null;
+  let macdLineSeries = null;
+  let macdSignalSeries = null;
+
   function destroyTickerChart() {
     if (tickerChart) {
       tickerChart.remove();
       tickerChart = null;
       candleSeries = null;
       volumeSeriesObj = null;
+      macdHistogramSeries = null;
+      macdLineSeries = null;
+      macdSignalSeries = null;
     }
   }
 
@@ -2214,7 +2250,7 @@
       },
       rightPriceScale: {
         borderColor: 'rgba(255,255,255,0.07)',
-        scaleMargins: { top: 0.05, bottom: 0.22 },
+        scaleMargins: { top: 0.05, bottom: 0.30 },
       },
       timeScale: {
         borderColor: 'rgba(255,255,255,0.07)',
@@ -2241,9 +2277,59 @@
       priceScaleId: 'vol',
     });
     chart.priceScale('vol').applyOptions({
-      scaleMargins: { top: 0.82, bottom: 0 },
+      scaleMargins: { top: 0.72, bottom: 0.30 },
     });
     if (volData && volData.length) vol.setData(volData);
+
+    // MACD indicator pane — compute from OHLC closes
+    const closes = ohlcData.map(d => d.close);
+    const macdResult = computeMACDSeries(closes);
+    if (macdResult) {
+      const { data: macdVals, offset: macdOffset } = macdResult;
+      // MACD histogram
+      macdHistogramSeries = chart.addHistogramSeries({
+        priceScaleId: 'macd',
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      });
+      // MACD line
+      macdLineSeries = chart.addLineSeries({
+        priceScaleId: 'macd',
+        color: '#5b9bf5',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      });
+      // Signal line
+      macdSignalSeries = chart.addLineSeries({
+        priceScaleId: 'macd',
+        color: '#f5a623',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      });
+      chart.priceScale('macd').applyOptions({
+        scaleMargins: { top: 0.76, bottom: 0 },
+        borderVisible: false,
+      });
+      // Map MACD data to chart times
+      const histData = [];
+      const macdLineData = [];
+      const sigLineData = [];
+      for (let i = 0; i < macdVals.length; i++) {
+        const ohlcIdx = i + macdOffset;
+        if (ohlcIdx >= ohlcData.length) break;
+        const time = ohlcData[ohlcIdx].time;
+        const h = macdVals[i].histogram;
+        histData.push({ time, value: h, color: h >= 0 ? 'rgba(77,219,142,0.6)' : 'rgba(255,92,92,0.6)' });
+        macdLineData.push({ time, value: macdVals[i].macd });
+        sigLineData.push({ time, value: macdVals[i].signal });
+      }
+      if (histData.length) macdHistogramSeries.setData(histData);
+      if (macdLineData.length) macdLineSeries.setData(macdLineData);
+      if (sigLineData.length) macdSignalSeries.setData(sigLineData);
+    }
 
     // OHLC crosshair tracking
     const overlay = $('ohlcOverlay');
@@ -2268,6 +2354,19 @@
       $('ohlcClose').className = 'ohlc-val ' + cls;
       $('ohlcVol').textContent = vd ? formatVolume(vd.value) : '—';
       $('ohlcVol').className = 'ohlc-val ' + cls;
+      // MACD crosshair value
+      const macdWrap = $('ohlcMacdWrap');
+      if (macdHistogramSeries) {
+        const md = param.seriesData.get(macdHistogramSeries);
+        if (md) {
+          macdWrap.style.display = '';
+          const mVal = md.value;
+          $('ohlcMacd').textContent = mVal.toFixed(2);
+          $('ohlcMacd').className = 'ohlc-val ' + (mVal >= 0 ? 'up' : 'down');
+        } else {
+          macdWrap.style.display = 'none';
+        }
+      }
     });
 
     chart.timeScale().fitContent();
@@ -2324,6 +2423,27 @@
       const rsiClass = rsiVal > 70 ? 'down' : rsiVal < 30 ? 'up' : 'flat';
       const rsiLabel = rsiVal > 80 ? 'Overbought' : rsiVal > 70 ? 'High' : rsiVal < 20 ? 'Oversold' : rsiVal < 30 ? 'Low' : 'Neutral';
       stats.push({ label: `RSI · ${rsiLabel}`, value: rsiVal.toFixed(1), cls: rsiClass });
+    }
+    // Add MACD stat if available
+    const macdData = payload.macd;
+    if (macdData) {
+      const hist = Number(macdData.histogram);
+      const macdClass = hist > 0 ? 'up' : hist < 0 ? 'down' : 'flat';
+      const macdLabel = hist > 0 ? 'Bullish' : hist < 0 ? 'Bearish' : 'Neutral';
+      stats.push({ label: `MACD · ${macdLabel}`, value: hist.toFixed(2), cls: macdClass });
+    }
+    // Add Trend stat if available
+    const trendData = payload.trend;
+    if (trendData) {
+      const trendDir = trendData.trend || 'flat';
+      const trendClass = trendDir === 'bullish' ? 'up' : trendDir === 'bearish' ? 'down' : 'flat';
+      const strength = Number(trendData.strength || 0);
+      const sma20 = trendData.sma20;
+      const sma50 = trendData.sma50;
+      const trendVal = sma20 != null && sma50 != null
+        ? `${formatPrice(sma20)} / ${formatPrice(sma50)}`
+        : strength > 0 ? `${(strength * 100).toFixed(1)}%` : '—';
+      stats.push({ label: `Trend · ${trendDir.charAt(0).toUpperCase() + trendDir.slice(1)}`, value: trendVal, cls: trendClass });
     }
     $('tickerModalStats').innerHTML = stats.map((item) => `
       <div class="ticker-stat">
@@ -2384,7 +2504,7 @@
 
     $('tickerModalNote').textContent = (payload.warnings && payload.warnings.length)
       ? payload.warnings.join(' · ')
-      : `Showing ${state.tickerModal.window || '24h'} view · Scroll left for more history`;
+      : `Showing ${state.tickerModal.window || '24h'} view · Scroll left for more history${macdData ? ' · MACD: blue line=MACD, orange=signal, bars=histogram' : ''}`;
   }
 
   function openTickerModal(ticker) {
@@ -2650,7 +2770,11 @@
       const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
       const rsiVal = stock.rsi_value;
       const rsiChip = rsiVal != null ? renderReasoningChip('RSI', `${rsiVal.toFixed(0)}${rsiVal > 70 ? ' ▲' : rsiVal < 30 ? ' ▼' : ''}`, 'rsi') : '';
-      const reasoningLine = [directionChip, validationChip, rsiChip, conflictBadges].filter(Boolean).join(' ');
+      const macdHist = stock.macd_histogram;
+      const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${macdHist.toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'rsi') : '';
+      const trendDir = stock.sma_trend;
+      const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'rsi') : '';
+      const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationParts = [];
       if (stock.validation_status) {
