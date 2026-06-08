@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from backend.config import (
     REQUEST_HEADERS,
     SOURCE_OUTCOME_HISTORY_FILE, SOURCE_REGISTRY_FILE,
     DEFAULT_EVENT_WINDOW, EVENT_WINDOWS,
+    PROJECT_ROOT,
 )
 from backend.state import MARKET_VALIDATION_CONFIG
 from backend.scoring import relationship_confidence_label
@@ -175,19 +177,43 @@ def normalize_source_outcome_history(raw: Any) -> dict[str, Any]:
 
 
 def load_source_outcome_history() -> dict[str, Any]:
+    """Load source outcome history from SQLite (falls back to JSON file on first run)."""
+    db_path = PROJECT_ROOT / "data" / "polstock_backend.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS source_outcomes (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))")
+        cur = conn.execute("SELECT data FROM source_outcomes WHERE id = 1")
+        row = cur.fetchone()
+        if row:
+            return normalize_source_outcome_history(json.loads(row[0]))
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    # Fallback: migrate from JSON file if exists
     try:
         raw = json.loads(SOURCE_OUTCOME_HISTORY_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return _source_outcome_history_defaults()
+        history = normalize_source_outcome_history(raw)
+        save_source_outcome_history(history)
+        return history
     except Exception:
         return _source_outcome_history_defaults()
-    return normalize_source_outcome_history(raw)
 
 
 def save_source_outcome_history(history: dict[str, Any]) -> None:
+    """Save source outcome history to SQLite."""
     normalized = normalize_source_outcome_history(history)
-    SOURCE_OUTCOME_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SOURCE_OUTCOME_HISTORY_FILE.write_text(json.dumps(normalized, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    db_path = PROJECT_ROOT / "data" / "polstock_backend.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO source_outcomes (id, data, updated_at) VALUES (1, ?, datetime('now'))",
+            (json.dumps(normalized, ensure_ascii=False, sort_keys=True),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def source_reliability_history_key(source_name: str = "", url: str = "", source_profile: dict[str, Any] | None = None) -> str:

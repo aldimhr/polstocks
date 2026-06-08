@@ -104,6 +104,105 @@ def save_user_watchlist_to_bot_db(user_id: int, tickers: list[str]) -> None:
         conn.close()
     except Exception:
         pass
+
+# ── Backend-owned SQLite DB (source outcomes, event cache) ──────────
+BACKEND_DB_PATH = PROJECT_ROOT / "data" / "polstock_backend.db"
+
+def init_backend_db() -> None:
+    """Create backend-owned tables if they don't exist."""
+    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS source_outcomes (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                data TEXT NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS events_cache (
+                event_id TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                cached_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+def load_source_outcome_history() -> dict[str, Any]:
+    """Load source outcome history from SQLite (falls back to JSON file on first run)."""
+    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS source_outcomes (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))")
+        cur = conn.execute("SELECT data FROM source_outcomes WHERE id = 1")
+        row = cur.fetchone()
+        if row:
+            return normalize_source_outcome_history(json.loads(row[0]))
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    # Fallback: migrate from JSON file if exists
+    try:
+        raw = json.loads(SOURCE_OUTCOME_HISTORY_FILE.read_text(encoding="utf-8"))
+        history = normalize_source_outcome_history(raw)
+        save_source_outcome_history(history)  # persist to SQLite
+        return history
+    except Exception:
+        return _source_outcome_history_defaults()
+
+def save_source_outcome_history(history: dict[str, Any]) -> None:
+    """Save source outcome history to SQLite."""
+    normalized = normalize_source_outcome_history(history)
+    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO source_outcomes (id, data, updated_at) VALUES (1, ?, datetime('now'))",
+            (json.dumps(normalized, ensure_ascii=False, sort_keys=True),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_cache_to_db(cache_key: tuple, payload: dict[str, Any]) -> None:
+    """Persist a cache entry to SQLite for cold-start recovery."""
+    key_str = json.dumps(list(cache_key))
+    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO events_cache (event_id, data, cached_at) VALUES (?, ?, datetime('now'))",
+            (key_str, json.dumps(payload, default=str)),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def load_cache_from_db() -> dict[tuple, dict[str, Any]]:
+    """Load cached payloads from SQLite on startup."""
+    result: dict[tuple, dict[str, Any]] = {}
+    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    try:
+        cur = conn.execute("SELECT event_id, data, cached_at FROM events_cache")
+        for row in cur.fetchall():
+            try:
+                key_tuple = tuple(json.loads(row[0]))
+                payload = json.loads(row[1])
+                cached_at = parse_datetime(row[2]) if row[2] else now_wib()
+                result[key_tuple] = {"cached_at": cached_at, "payload": payload}
+            except Exception:
+                continue
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return result
+
+
 SOURCE_TYPE_RANKS = {
     "government": 5.0,
     "regulator": 4.8,
@@ -2891,22 +2990,6 @@ def normalize_source_outcome_history(raw: Any) -> dict[str, Any]:
     return {"sources": normalized_sources}
 
 
-def load_source_outcome_history() -> dict[str, Any]:
-    try:
-        raw = json.loads(SOURCE_OUTCOME_HISTORY_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return _source_outcome_history_defaults()
-    except Exception:
-        return _source_outcome_history_defaults()
-    return normalize_source_outcome_history(raw)
-
-
-def save_source_outcome_history(history: dict[str, Any]) -> None:
-    normalized = normalize_source_outcome_history(history)
-    SOURCE_OUTCOME_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SOURCE_OUTCOME_HISTORY_FILE.write_text(json.dumps(normalized, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
 def source_reliability_history_key(source_name: str = "", url: str = "", source_profile: dict[str, Any] | None = None) -> str:
     profile = source_profile if isinstance(source_profile, dict) else {}
     parsed = urlsplit(url or "")
@@ -4260,6 +4343,9 @@ def build_refresh_payload(
     with CACHE_LOCK:
         CACHE[cache_key] = {"cached_at": now_wib(), "payload": payload}
 
+    # Persist to SQLite for cold-start recovery
+    save_cache_to_db(cache_key, payload)
+
     return payload
 
 
@@ -4385,7 +4471,13 @@ def reset_runtime_state() -> None:
 
 @app.on_event("startup")
 def _prewarm_cache() -> None:
-    """Warm the cache in background so the first request is never cold."""
+    """Initialize backend DB, load cached data, and warm the cache in background."""
+    init_backend_db()
+    # Load persisted cache so dashboard has data immediately
+    persisted = load_cache_from_db()
+    if persisted:
+        with CACHE_LOCK:
+            CACHE.update(persisted)
     threading.Thread(
         target=lambda: build_refresh_payload(get_watchlist(), force=True, window=DEFAULT_EVENT_WINDOW),
         daemon=True,

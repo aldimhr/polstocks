@@ -3,8 +3,31 @@ from fastapi.testclient import TestClient
 import json
 
 from backend import main as appmod
+from backend import validation as valmod
 
 client = TestClient(appmod.app)
+
+
+def patch_source_history_file(monkeypatch, path):
+    """Monkeypatch source outcome history to use a temp file instead of SQLite."""
+
+    def load():
+        try:
+            import json as _json
+            return appmod.normalize_source_outcome_history(_json.loads(path.read_text(encoding="utf-8")))
+        except Exception:
+            return appmod._source_outcome_history_defaults()
+
+    def save(history):
+        import json as _json
+        normalized = appmod.normalize_source_outcome_history(history)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(normalized, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(appmod, "load_source_outcome_history", load)
+    monkeypatch.setattr(appmod, "save_source_outcome_history", save)
+    monkeypatch.setattr(valmod, "load_source_outcome_history", load)
+    monkeypatch.setattr(valmod, "save_source_outcome_history", save)
 
 
 FAKE_ARTICLE = {
@@ -842,7 +865,7 @@ def test_dashboard_endpoint_exposes_compact_robustness_cues(monkeypatch, tmp_pat
     monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
     monkeypatch.setattr(appmod, "fetch_market_index", fake_market_fetcher)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", tmp_path / "dashboard_source_history.json", raising=False)
+    patch_source_history_file(monkeypatch, tmp_path / "dashboard_source_history.json")
 
     response = client.get("/api/dashboard?window=7d")
     assert response.status_code == 200
@@ -1692,7 +1715,7 @@ def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monk
     def direct_news_fetcher():
         return [DIRECT_MENTION_ARTICLE], []
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", tmp_path / "confirmed_source_history.json", raising=False)
+    patch_source_history_file(monkeypatch, tmp_path / "confirmed_source_history.json")
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
     confirmed = appmod.build_refresh_payload(
         ["ANTM"],
@@ -1703,7 +1726,7 @@ def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monk
         market_fetcher=fake_market_fetcher,
     )
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", tmp_path / "flat_source_history.json", raising=False)
+    patch_source_history_file(monkeypatch, tmp_path / "flat_source_history.json")
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     flat = appmod.build_refresh_payload(
         ["ANTM"],
@@ -1735,7 +1758,7 @@ def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monk
     def direct_news_fetcher():
         return [DIRECT_MENTION_ARTICLE], []
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", baseline_history, raising=False)
+    patch_source_history_file(monkeypatch, baseline_history)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     baseline = appmod.build_refresh_payload(
         ["ANTM"],
@@ -1746,7 +1769,7 @@ def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monk
         market_fetcher=fake_market_fetcher,
     )
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", warmed_history, raising=False)
+    patch_source_history_file(monkeypatch, warmed_history)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
     appmod.build_refresh_payload(
         ["ANTM"],
@@ -1786,7 +1809,7 @@ def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monke
     def direct_news_fetcher():
         return [DIRECT_MENTION_ARTICLE], []
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", baseline_history, raising=False)
+    patch_source_history_file(monkeypatch, baseline_history)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
     baseline = appmod.build_refresh_payload(
         ["ANTM"],
@@ -1797,7 +1820,7 @@ def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monke
         market_fetcher=fake_market_fetcher,
     )
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", cooled_history, raising=False)
+    patch_source_history_file(monkeypatch, cooled_history)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
     appmod.build_refresh_payload(
         ["ANTM"],
@@ -1845,7 +1868,7 @@ def test_registry_trust_remains_the_base_signal(monkeypatch, tmp_path):
     def weak_news_fetcher():
         return [weak_direct_article], []
 
-    monkeypatch.setattr(appmod, "SOURCE_OUTCOME_HISTORY_FILE", history_file, raising=False)
+    patch_source_history_file(monkeypatch, history_file)
     monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
     for _ in range(3):
         appmod.build_refresh_payload(
