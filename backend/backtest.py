@@ -9,6 +9,7 @@ Tables:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -539,3 +540,207 @@ def resolve_pending_outcomes() -> int:
     if resolved_count > 0:
         logger.info(f"Backtest: resolved {resolved_count} prediction outcomes")
     return resolved_count
+
+
+# ── Backfill from Cache ───────────────────────────────────────────
+
+def backfill_from_cache() -> dict[str, int]:
+    """Backfill predictions and outcomes from cached events + Yahoo Finance history.
+
+    Uses the events_cache table (monolithic JSON blobs) to extract past events,
+    then fetches historical stock prices to compute 1h/4h/24h outcomes.
+    Only processes events older than 24h (so all outcome windows are available).
+
+    Returns: {"recorded": N, "resolved": N, "skipped": N, "errors": N}
+    """
+    from backend.stocks import fetch_ticker_history
+
+    stats = {"recorded": 0, "resolved": 0, "skipped": 0, "errors": 0}
+
+    # 1. Load all cached event payloads
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT data FROM events_cache").fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        logger.info("Backfill: no cached events found")
+        return stats
+
+    now = datetime.utcnow()
+    cutoff_24h = now - timedelta(hours=24)
+
+    # 2. Extract events from all cache blobs
+    all_events: list[dict] = []
+    for row in rows:
+        try:
+            payload = json.loads(row["data"])
+            events = payload.get("events", [])
+            all_events.extend(events)
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    # Deduplicate by event URL
+    seen_urls: set[str] = set()
+    unique_events: list[dict] = []
+    for event in all_events:
+        url = event.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_events.append(event)
+        elif not url:
+            # Use headline as fallback identifier
+            headline = event.get("headline", "")
+            if headline not in seen_urls:
+                seen_urls.add(headline)
+                unique_events.append(event)
+
+    logger.info(f"Backfill: found {len(unique_events)} unique cached events")
+
+    # 3. Group tickers by event for batch history fetch
+    ticker_set: set[str] = set()
+    event_ticker_pairs: list[tuple[dict, str, dict]] = []  # (event, ticker, relationship)
+
+    for event in unique_events:
+        pub_str = event.get("published_at", "")
+        try:
+            pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00").split("+")[0])
+        except (ValueError, AttributeError):
+            continue
+
+        # Only backfill events older than 24h
+        if pub_dt > cutoff_24h:
+            continue
+
+        for rel in event.get("stock_relationships", []):
+            ticker = rel.get("ticker", "")
+            if not ticker:
+                continue
+            ticker_set.add(ticker)
+            event_ticker_pairs.append((event, ticker, rel))
+
+    if not event_ticker_pairs:
+        logger.info("Backfill: no events older than 24h with stock relationships")
+        return stats
+
+    # 4. Fetch historical prices for all tickers (30d window for coverage)
+    price_history: dict[str, list[dict]] = {}  # ticker -> [{time, value}, ...]
+    for ticker in ticker_set:
+        try:
+            history = fetch_ticker_history(ticker, window="30d")
+            if history and history.get("history"):
+                price_history[ticker] = history["history"]
+        except Exception as e:
+            logger.warning(f"Backfill: failed to fetch history for {ticker}: {e}")
+            stats["errors"] += 1
+
+    logger.info(f"Backfill: fetched price history for {len(price_history)}/{len(ticker_set)} tickers")
+
+    # 5. Record predictions and compute outcomes
+    for event, ticker, rel in event_ticker_pairs:
+        if ticker not in price_history:
+            stats["skipped"] += 1
+            continue
+
+        # Use URL-based stable ID (not cache-assigned evt_XXX which collides across cache entries)
+        event_url = event.get("url", "")
+        event_id = hashlib.md5(event_url.encode()).hexdigest()[:12] if event_url else hashlib.md5(event.get("headline", "").encode()).hexdigest()[:12]
+        pub_str = event.get("published_at", "")
+        try:
+            pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00").split("+")[0])
+        except (ValueError, AttributeError):
+            stats["skipped"] += 1
+            continue
+
+        predicted_direction = rel.get("impact_direction", "neutral")
+        rel_confidence = float(rel.get("relationship_confidence", 0.0) or 0.0)
+        relevance = float(rel.get("relevance_score", 0.0) or 0.0)
+        relevance_norm = min(1.0, relevance / 5.0)
+        dir_sign = {"positive": 1, "negative": -1}.get(predicted_direction, 0)
+        predicted_score = round(dir_sign * relevance_norm * rel_confidence, 4)
+
+        # Find prices at event time and +1h/+4h/+24h
+        prices = price_history[ticker]
+        price_at = _find_closest_price(prices, pub_dt)
+        price_1h = _find_closest_price(prices, pub_dt + timedelta(hours=1))
+        price_4h = _find_closest_price(prices, pub_dt + timedelta(hours=4))
+        price_24h = _find_closest_price(prices, pub_dt + timedelta(hours=24))
+
+        if not price_at:
+            stats["skipped"] += 1
+            continue
+
+        # Record prediction (ignore if duplicate)
+        record_prediction(
+            event_id=event_id,
+            event_headline=event.get("headline", ""),
+            published_at=pub_str,
+            ticker=ticker,
+            predicted_direction=predicted_direction,
+            predicted_score=predicted_score,
+            significance=float(event.get("significance", 0.0) or 0.0),
+            confidence=rel_confidence,
+            relationship_type=rel.get("relationship_type", ""),
+            categories=event.get("categories", []),
+            source_type=event.get("source_type", ""),
+            event_stage=event.get("event_stage", ""),
+            price_at_event=price_at,
+        )
+        stats["recorded"] += 1
+
+        # Record outcomes if we have the data
+        if any([price_1h, price_4h, price_24h]):
+            conn2 = _get_conn()
+            try:
+                row = conn2.execute(
+                    "SELECT id FROM predictions WHERE event_id = ? AND ticker = ?",
+                    (event_id, ticker),
+                ).fetchone()
+                if row:
+                    record_outcome(
+                        row[0],
+                        price_after_1h=price_1h,
+                        price_after_4h=price_4h,
+                        price_after_24h=price_24h,
+                    )
+                    stats["resolved"] += 1
+            finally:
+                conn2.close()
+
+    logger.info(
+        f"Backfill complete: recorded={stats['recorded']}, resolved={stats['resolved']}, "
+        f"skipped={stats['skipped']}, errors={stats['errors']}"
+    )
+    return stats
+
+
+def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minutes: int = 1440) -> float | None:
+    """Find the price closest to target_dt in historical data.
+    Args:
+        history: list of {"time": ISO_string, "value": float} from Yahoo Finance
+        target_dt: datetime to find price for
+        max_delta_minutes: max acceptable time difference (2h default)
+
+    Returns:
+        Closest price within max_delta, or None
+    """
+    best_price = None
+    best_delta = timedelta(minutes=max_delta_minutes + 1)
+
+    for entry in history:
+        try:
+            raw_time = entry["time"]
+            entry_dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+            # Strip timezone for comparison (target_dt is naive/UTC)
+            entry_dt = entry_dt.replace(tzinfo=None)
+        except (ValueError, KeyError, AttributeError, TypeError):
+            continue
+
+        delta = abs(entry_dt - target_dt)
+        if delta < best_delta:
+            best_delta = delta
+            best_price = entry.get("value")
+
+    return best_price if best_price and best_price > 0 else None

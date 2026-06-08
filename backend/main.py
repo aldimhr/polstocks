@@ -4525,6 +4525,13 @@ def api_backtest(window_days: int = 30) -> dict[str, Any]:
     return compute_accuracy_metrics(window_days=window_days)
 
 
+@app.post("/api/backtest/backfill")
+def api_backtest_backfill() -> dict[str, Any]:
+    """Backfill predictions from cached events + Yahoo Finance history."""
+    from backend.backtest import backfill_from_cache
+    return backfill_from_cache()
+
+
 # ---------------------------------------------------------------------------
 # Runtime helpers
 # ---------------------------------------------------------------------------
