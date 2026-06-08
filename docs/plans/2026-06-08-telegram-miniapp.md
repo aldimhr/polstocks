@@ -122,7 +122,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "519613720"))
 
 **.env:**
 ```
-BOT_TOKEN=***REDACTED***
+BOT_TOKEN=<your-bot-token>
 POLSTOCK_API=http://127.0.0.1:8001
 MINI_APP_URL=https://polstock.aldimhr.dev
 ADMIN_ID=519613720
