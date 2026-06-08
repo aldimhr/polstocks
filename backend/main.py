@@ -1960,6 +1960,10 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
         quote_data = result.get("indicators", {}).get("quote", [{}])[0]
         raw_timestamps = list(result.get("timestamp", []) or [])
         raw_closes = list(quote_data.get("close", []) or [])
+        raw_opens = list(quote_data.get("open", []) or [])
+        raw_highs = list(quote_data.get("high", []) or [])
+        raw_lows = list(quote_data.get("low", []) or [])
+        raw_volumes = list(quote_data.get("volume", []) or [])
         series_pairs = [
             (int(ts), float(price))
             for ts, price in zip(raw_timestamps, raw_closes)
@@ -1973,7 +1977,38 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             }
             for ts, price in series_pairs
         ]
-        volumes = [float(value) for value in quote_data.get("volume", []) if value is not None]
+        # Build OHLC series for candlestick chart
+        ohlc_series = []
+        for i, ts in enumerate(raw_timestamps):
+            if ts is None:
+                continue
+            o = raw_opens[i] if i < len(raw_opens) else None
+            h = raw_highs[i] if i < len(raw_highs) else None
+            l = raw_lows[i] if i < len(raw_lows) else None
+            c = raw_closes[i] if i < len(raw_closes) else None
+            if all(v is not None for v in (o, h, l, c)):
+                ohlc_series.append({
+                    "time": datetime.fromtimestamp(int(ts), tz=WIB).strftime("%Y-%m-%d"),
+                    "open": float(o),
+                    "high": float(h),
+                    "low": float(l),
+                    "close": float(c),
+                })
+        # Build volume series with color
+        volume_series = []
+        for i, ts in enumerate(raw_timestamps):
+            if ts is None:
+                continue
+            vol = raw_volumes[i] if i < len(raw_volumes) else None
+            c = raw_closes[i] if i < len(raw_closes) else None
+            o = raw_opens[i] if i < len(raw_opens) else None
+            if vol is not None:
+                volume_series.append({
+                    "time": datetime.fromtimestamp(int(ts), tz=WIB).strftime("%Y-%m-%d"),
+                    "value": float(vol),
+                    "color": "rgba(77,219,142,0.35)" if (c is not None and o is not None and float(c) >= float(o)) else "rgba(255,92,92,0.35)",
+                })
+        volumes = [float(value) for value in raw_volumes if value is not None]
         price = meta.get("regularMarketPrice")
         change_pct = meta.get("regularMarketChangePercent")
         change_points = meta.get("regularMarketChange")
@@ -2011,6 +2046,8 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             "series_end": series[-1]["time"] if series else None,
             "series_high": max(prices) if prices else None,
             "series_low": min(prices) if prices else None,
+            "ohlc_series": ohlc_series,
+            "volume_series": volume_series,
             "market_time": market_dt.isoformat(timespec="seconds"),
             "source": "yahoo-finance",
             "warnings": warnings,
@@ -2038,6 +2075,8 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
             "series_end": None,
             "series_high": None,
             "series_low": None,
+            "ohlc_series": [],
+            "volume_series": [],
             "market_time": now_iso(),
             "source": "unavailable",
             "warnings": warnings,

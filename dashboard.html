@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     --bg: #0c0d0f;
@@ -788,11 +789,11 @@
     inset: 0;
     z-index: 50;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: center;
-    padding: 20px;
-    background: rgba(8, 10, 16, 0.76);
-    backdrop-filter: blur(10px);
+    padding: 0;
+    background: rgba(8, 10, 16, 0.82);
+    backdrop-filter: blur(12px);
   }
 
   .ticker-modal-backdrop[hidden] {
@@ -800,14 +801,18 @@
   }
 
   .ticker-modal {
-    width: min(720px, 100%);
-    max-height: min(88vh, 900px);
-    overflow: auto;
-    border-radius: 22px;
+    width: 100%;
+    max-width: 900px;
+    height: min(92vh, 960px);
+    display: flex;
+    flex-direction: column;
+    border-radius: 22px 22px 0 0;
     border: 1px solid var(--border);
-    background: linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(12, 15, 21, 0.98));
-    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
-    padding: 20px;
+    border-bottom: none;
+    background: linear-gradient(180deg, rgba(19, 24, 33, 0.99), rgba(12, 15, 21, 0.99));
+    box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.5);
+    padding: 20px 20px 12px;
+    overflow: hidden;
   }
 
   .ticker-modal-header {
@@ -815,6 +820,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
+    flex-shrink: 0;
   }
 
   .ticker-modal-kicker {
@@ -822,7 +828,7 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted2);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .ticker-modal-title {
@@ -832,7 +838,7 @@
   }
 
   .ticker-modal-sub {
-    margin-top: 8px;
+    margin-top: 6px;
     font-size: 12px;
     color: var(--muted);
     font-family: 'DM Mono', monospace;
@@ -856,67 +862,162 @@
     box-shadow: 0 0 0 2px rgba(77, 211, 207, 0.15);
   }
 
+  /* Timeframe buttons */
+  .ticker-timeframes {
+    display: flex;
+    gap: 6px;
+    margin-top: 14px;
+    flex-shrink: 0;
+  }
+
+  .tf-btn {
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.02em;
+  }
+
+  .tf-btn:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--border2);
+  }
+
+  .tf-btn.active {
+    background: var(--accent);
+    color: #0c0d0f;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Stat cards row */
   .ticker-modal-stats {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 18px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+    flex-shrink: 0;
   }
 
   .ticker-stat {
-    padding: 12px;
-    border-radius: 16px;
+    padding: 10px 12px;
+    border-radius: 12px;
     background: var(--surface2);
     border: 1px solid var(--border);
   }
 
   .ticker-stat .label {
     display: block;
-    font-size: 11px;
-    color: var(--muted2);
+    font-size: 10px;
+    color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 6px;
+    letter-spacing: 0.06em;
+    font-family: 'DM Mono', monospace;
+    margin-bottom: 4px;
   }
 
   .ticker-stat .value {
     display: block;
-    font-size: 18px;
-    font-weight: 800;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
   }
+
+  .ticker-stat .value.up { color: var(--green); }
+  .ticker-stat .value.down { color: var(--red); }
+  .ticker-stat .value.flat { color: var(--text); }
+
+  /* Chart container */
+  .ticker-history-chart {
+    flex: 1;
+    min-height: 0;
+    margin-top: 12px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .ticker-history-chart .chart-inner {
+    width: 100%;
+    height: 100%;
+  }
+
+  .ticker-history-chart .footer-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* OHLC crosshair overlay */
+  .ohlc-overlay {
+    position: absolute;
+    top: 10px;
+    left: 14px;
+    display: flex;
+    gap: 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted2);
+    z-index: 5;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+
+  .ohlc-overlay .ohlc-item {
+    display: flex;
+    gap: 4px;
+  }
+
+  .ohlc-overlay .ohlc-label {
+    color: var(--muted);
+  }
+
+  .ohlc-overlay .ohlc-val {
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .ohlc-overlay .ohlc-val.up { color: var(--green); }
+  .ohlc-overlay .ohlc-val.down { color: var(--red); }
 
   .ticker-history-meta {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 10px;
     color: var(--muted);
     font-size: 12px;
-  }
-
-  .ticker-history-chart {
-    margin-top: 16px;
-    padding: 16px;
-    border-radius: 18px;
-    border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .ticker-history-chart svg {
-    width: 100%;
-    height: 180px;
-    display: block;
+    font-family: 'DM Mono', monospace;
+    flex-shrink: 0;
   }
 
   .ticker-modal-note {
-    margin-top: 12px;
+    margin-top: 8px;
     color: var(--muted2);
     font-size: 12px;
     line-height: 1.45;
+    flex-shrink: 0;
   }
 
   @media (max-width: 720px) {
-    .ticker-modal-stats { grid-template-columns: 1fr; }
+    .ticker-modal {
+      border-radius: 18px 18px 0 0;
+      height: 95vh;
+    }
+    .ticker-modal-stats { grid-template-columns: repeat(2, 1fr); }
+    .ohlc-overlay { font-size: 10px; gap: 8px; flex-wrap: wrap; }
   }
 
   .bottom-grid {
@@ -1021,8 +1122,9 @@
       border-bottom: none;
     }
     .ticker-modal {
-      padding: 16px;
-      border-radius: 18px;
+      padding: 14px;
+      border-radius: 18px 18px 0 0;
+      height: 95vh;
     }
     .ticker-modal-header {
       flex-direction: column;
@@ -1031,10 +1133,10 @@
       align-self: flex-end;
     }
     .ticker-modal-stats {
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, 1fr);
     }
     .ticker-history-chart {
-      padding: 12px;
+      border-radius: 12px;
     }
   }
 
@@ -1276,14 +1378,27 @@
   <div class="ticker-modal" role="dialog" aria-modal="true" aria-labelledby="tickerModalTitle" onclick="event.stopPropagation()">
     <div class="ticker-modal-header">
       <div>
-        <div class="ticker-modal-kicker">Watchlist detail</div>
+        <div class="ticker-modal-kicker">Stock detail</div>
         <div class="ticker-modal-title" id="tickerModalTitle">Ticker detail</div>
       </div>
       <button class="ticker-modal-close" type="button" aria-label="Close ticker details" onclick="closeTickerModal()">×</button>
     </div>
     <div class="ticker-modal-sub" id="tickerModalSub">Click a ticker to load its history.</div>
+    <div class="ticker-timeframes" id="tickerTimeframes">
+      <button class="tf-btn active" data-window="24h" onclick="switchTickerWindow('24h')">1D</button>
+      <button class="tf-btn" data-window="7d" onclick="switchTickerWindow('7d')">7D</button>
+      <button class="tf-btn" data-window="30d" onclick="switchTickerWindow('30d')">1M</button>
+      <button class="tf-btn" data-window="3mo" onclick="switchTickerWindow('3mo')">3M</button>
+    </div>
     <div class="ticker-modal-stats" id="tickerModalStats"></div>
     <div class="ticker-history-chart" id="tickerModalChart">
+      <div class="ohlc-overlay" id="ohlcOverlay" style="opacity:0">
+        <span class="ohlc-item"><span class="ohlc-label">O</span><span class="ohlc-val" id="ohlcOpen">—</span></span>
+        <span class="ohlc-item"><span class="ohlc-label">H</span><span class="ohlc-val" id="ohlcHigh">—</span></span>
+        <span class="ohlc-item"><span class="ohlc-label">L</span><span class="ohlc-val" id="ohlcLow">—</span></span>
+        <span class="ohlc-item"><span class="ohlc-label">C</span><span class="ohlc-val" id="ohlcClose">—</span></span>
+        <span class="ohlc-item"><span class="ohlc-label">Vol</span><span class="ohlc-val" id="ohlcVol">—</span></span>
+      </div>
       <div class="footer-note">Select a ticker from the watchlist to view its chart.</div>
     </div>
     <div class="ticker-history-meta" id="tickerModalMeta"></div>
@@ -1292,7 +1407,10 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tickerModal: { ticker: '', loading: false, data: null }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
+  let tickerChart = null;
+  let candleSeries = null;
+  let volumeSeriesObj = null;
   const $ = (id) => document.getElementById(id);
 
   // ── Toast system ──
@@ -1690,6 +1808,127 @@
     return `${num > 0 ? '+' : ''}${num.toFixed(digits)}`;
   }
 
+  function formatVolume(v) {
+    if (v == null || !Number.isFinite(v)) return '—';
+    if (v >= 1e9) return (v / 1e9).toFixed(1) + 'B';
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+    return v.toFixed(0);
+  }
+
+  function syncTimeframeButtons(window) {
+    const btns = $('tickerTimeframes').querySelectorAll('.tf-btn');
+    btns.forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.window === window);
+    });
+  }
+
+  function switchTickerWindow(window) {
+    state.tickerModal.window = window;
+    syncTimeframeButtons(window);
+    const ticker = state.tickerModal.ticker;
+    if (ticker) loadTickerModal(ticker, window);
+  }
+
+  function destroyTickerChart() {
+    if (tickerChart) {
+      tickerChart.remove();
+      tickerChart = null;
+      candleSeries = null;
+      volumeSeriesObj = null;
+    }
+  }
+
+  function initTickerChart(container, ohlcData, volData) {
+    destroyTickerChart();
+    if (!window.LightweightCharts || !ohlcData || ohlcData.length === 0) return;
+
+    const chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: container.clientHeight || 350,
+      layout: {
+        background: { type: 'solid', color: 'transparent' },
+        textColor: '#6b6f78',
+        fontFamily: "'DM Mono', monospace",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.03)' },
+        horzLines: { color: 'rgba(255,255,255,0.03)' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: 'rgba(212,240,96,0.3)', width: 1, style: 2, labelBackgroundColor: '#1c1e21' },
+        horzLine: { color: 'rgba(212,240,96,0.3)', width: 1, style: 2, labelBackgroundColor: '#1c1e21' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255,255,255,0.07)',
+        scaleMargins: { top: 0.05, bottom: 0.25 },
+      },
+      timeScale: {
+        borderColor: 'rgba(255,255,255,0.07)',
+        timeVisible: false,
+        secondsVisible: false,
+      },
+      handleScroll: { vertTouchDrag: false },
+    });
+
+    const candle = chart.addCandlestickSeries({
+      upColor: '#4ddb8e',
+      downColor: '#ff5c5c',
+      borderUpColor: '#4ddb8e',
+      borderDownColor: '#ff5c5c',
+      wickUpColor: '#4ddb8e',
+      wickDownColor: '#ff5c5c',
+    });
+    candle.setData(ohlcData);
+
+    const vol = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'vol',
+    });
+    chart.priceScale('vol').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+    if (volData && volData.length) vol.setData(volData);
+
+    // OHLC crosshair tracking
+    const overlay = $('ohlcOverlay');
+    chart.subscribeCrosshairMove((param) => {
+      if (!param || !param.time || !param.seriesData) {
+        overlay.style.opacity = '0';
+        return;
+      }
+      const cd = param.seriesData.get(candle);
+      const vd = param.seriesData.get(vol);
+      if (!cd) { overlay.style.opacity = '0'; return; }
+      overlay.style.opacity = '1';
+      const isUp = cd.close >= cd.open;
+      const cls = isUp ? 'up' : 'down';
+      $('ohlcOpen').textContent = cd.open.toFixed(0);
+      $('ohlcOpen').className = 'ohlc-val ' + cls;
+      $('ohlcHigh').textContent = cd.high.toFixed(0);
+      $('ohlcHigh').className = 'ohlc-val ' + cls;
+      $('ohlcLow').textContent = cd.low.toFixed(0);
+      $('ohlcLow').className = 'ohlc-val ' + cls;
+      $('ohlcClose').textContent = cd.close.toFixed(0);
+      $('ohlcClose').className = 'ohlc-val ' + cls;
+      $('ohlcVol').textContent = vd ? formatVolume(vd.value) : '—';
+      $('ohlcVol').className = 'ohlc-val ' + cls;
+    });
+
+    chart.timeScale().fitContent();
+    tickerChart = chart;
+    candleSeries = candle;
+    volumeSeriesObj = vol;
+
+    // Resize observer
+    const ro = new ResizeObserver(() => {
+      chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 350 });
+    });
+    ro.observe(container);
+  }
+
   function renderTickerModal(tickerPayload) {
     const payload = tickerPayload || state.tickerModal.data || {};
     const ticker = payload.ticker || state.tickerModal.ticker || '';
@@ -1702,47 +1941,75 @@
     const changePct = Number(payload.period_change_pct);
     const dayChange = Number(payload.change_pct);
     const currentPrice = payload.price;
+    const vol = payload.volume;
+    const changeClass = Number.isFinite(changePct) ? (changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat') : 'flat';
+    const dayClass = Number.isFinite(dayChange) ? (dayChange > 0 ? 'up' : dayChange < 0 ? 'down' : 'flat') : 'flat';
     const stats = [
-      { label: 'Harga terakhir', value: formatPrice(currentPrice) },
-      { label: 'Periode', value: Number.isFinite(changePct) ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—' },
-      { label: 'Hari ini', value: Number.isFinite(dayChange) ? `${dayChange > 0 ? '+' : ''}${dayChange.toFixed(2)}%` : '—' },
+      { label: 'Price', value: formatPrice(currentPrice), cls: '' },
+      { label: 'Period', value: Number.isFinite(changePct) ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—', cls: changeClass },
+      { label: 'Today', value: Number.isFinite(dayChange) ? `${dayChange > 0 ? '+' : ''}${dayChange.toFixed(2)}%` : '—', cls: dayClass },
+      { label: 'Volume', value: formatVolume(vol), cls: '' },
     ];
     $('tickerModalStats').innerHTML = stats.map((item) => `
       <div class="ticker-stat">
         <span class="label">${escapeHtml(item.label)}</span>
-        <span class="value">${escapeHtml(item.value)}</span>
+        <span class="value ${item.cls}">${escapeHtml(item.value)}</span>
       </div>
     `).join('');
 
-    const series = Array.isArray(payload.series) ? payload.series : [];
-    const path = sparklinePath(series, 620, 180);
+    // Sync timeframe buttons
+    const modalWindow = state.tickerModal.window || '24h';
+    syncTimeframeButtons(modalWindow);
+
+    // Render chart with lightweight-charts
+    const ohlcData = Array.isArray(payload.ohlc_series) ? payload.ohlc_series : [];
+    const volData = Array.isArray(payload.volume_series) ? payload.volume_series : [];
+    const chartContainer = $('tickerModalChart');
+
+    if (ohlcData.length > 0 && window.LightweightCharts) {
+      // Keep the OHLC overlay, clear only the chart inner
+      const existingInner = chartContainer.querySelector('.chart-inner');
+      if (existingInner) existingInner.remove();
+      // Remove the footer-note if present
+      const footerNote = chartContainer.querySelector('.footer-note');
+      if (footerNote) footerNote.remove();
+      const inner = document.createElement('div');
+      inner.className = 'chart-inner';
+      chartContainer.appendChild(inner);
+      requestAnimationFrame(() => {
+        initTickerChart(inner, ohlcData, volData);
+      });
+    } else {
+      // Fallback: simple sparkline
+      const series = Array.isArray(payload.series) ? payload.series : [];
+      const path = sparklinePath(series, 620, 180);
+      destroyTickerChart();
+      const footerNote = chartContainer.querySelector('.footer-note');
+      const ohlcOverlay = $('ohlcOverlay');
+      if (ohlcOverlay) ohlcOverlay.style.opacity = '0';
+      const existingInner = chartContainer.querySelector('.chart-inner');
+      if (existingInner) existingInner.remove();
+      if (footerNote) {
+        footerNote.innerHTML = path
+          ? `<svg viewBox="0 0 620 180" preserveAspectRatio="none" style="width:100%;height:180px"><defs><linearGradient id="tickerGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stop-opacity="0.25"/><stop offset="100%" stop-color="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stop-opacity="0"/></linearGradient></defs><path d="${path} L620,180 L0,180 Z" fill="url(#tickerGrad)"/><path d="${path}" fill="none" stroke="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stroke-width="2"/></svg>`
+          : 'No history available for this ticker in the selected window.';
+      }
+    }
+
     const high = Number(payload.series_high);
     const low = Number(payload.series_low);
-    const points = Number(payload.series_points || series.length || 0);
-    $('tickerModalChart').innerHTML = path ? `
-      <svg viewBox="0 0 620 180" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(title)} history chart">
-        <defs>
-          <linearGradient id="tickerGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stop-opacity="0.25"/>
-            <stop offset="100%" stop-color="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
-        <path d="${path} L620,180 L0,180 Z" fill="url(#tickerGrad)"/>
-        <path d="${path}" fill="none" stroke="${Number(changePct) >= 0 ? '#4ddb8e' : '#ff5c5c'}" stroke-width="2"/>
-      </svg>
-    ` : '<div class="footer-note">No history available for this ticker in the selected window.</div>';
-
+    const points = Number(payload.series_points || (payload.series || []).length || 0);
     $('tickerModalMeta').textContent = [
       payload.series_start ? `Start ${payload.series_start}` : null,
       payload.series_end ? `End ${payload.series_end}` : null,
       Number.isFinite(high) ? `High ${formatPrice(high)}` : null,
       Number.isFinite(low) ? `Low ${formatPrice(low)}` : null,
-      points ? `${points} points` : null,
+      points ? `${points} candles` : null,
     ].filter(Boolean).join(' · ');
 
     $('tickerModalNote').textContent = (payload.warnings && payload.warnings.length)
       ? payload.warnings.join(' · ')
-      : `History follows the dashboard window (${state.window || '24h'}). Use the top dropdown to switch 24h / 7d / 30d.`;
+      : `Chart shows ${state.tickerModal.window || '24h'} window. Use buttons above to switch timeframes.`;
   }
 
   function openTickerModal(ticker) {
@@ -1751,19 +2018,27 @@
     state.tickerModal.ticker = normalized;
     state.tickerModal.loading = true;
     state.tickerModal.data = null;
+    state.tickerModal.window = state.tickerModal.window || '24h';
     $('tickerModalBackdrop').hidden = false;
     $('tickerModalSub').textContent = 'Loading ticker history…';
     $('tickerModalTitle').textContent = `${normalized} · Loading…`;
-    $('tickerModalStats').innerHTML = '<div class="ticker-stat"><span class="label">Loading</span><span class="value">…</span></div>'.repeat(3);
-    $('tickerModalChart').innerHTML = '<div class="footer-note">Loading chart…</div>';
+    $('tickerModalStats').innerHTML = '<div class="ticker-stat"><span class="label">Loading</span><span class="value">…</span></div>'.repeat(4);
+    const chartContainer = $('tickerModalChart');
+    const existingInner = chartContainer.querySelector('.chart-inner');
+    if (existingInner) existingInner.remove();
+    const footerNote = chartContainer.querySelector('.footer-note');
+    if (footerNote) footerNote.innerHTML = 'Loading chart…';
+    $('ohlcOverlay').style.opacity = '0';
     $('tickerModalMeta').textContent = '';
     $('tickerModalNote').textContent = '';
-    loadTickerModal(normalized);
+    syncTimeframeButtons(state.tickerModal.window);
+    loadTickerModal(normalized, state.tickerModal.window);
   }
 
   function closeTickerModal() {
     $('tickerModalBackdrop').hidden = true;
-    state.tickerModal = { ticker: '', loading: false, data: null };
+    destroyTickerChart();
+    state.tickerModal = { ticker: '', loading: false, data: null, window: state.tickerModal.window || '24h' };
   }
 
   function handleTickerModalBackdrop(event) {
@@ -1772,13 +2047,14 @@
     }
   }
 
-  async function loadTickerModal(ticker) {
-    const windowValue = state.window || '24h';
+  async function loadTickerModal(ticker, windowOverride) {
+    const windowValue = windowOverride || state.tickerModal.window || state.window || '24h';
     try {
       const data = await apiJson(`/api/ticker/${encodeURIComponent(ticker)}?window=${encodeURIComponent(windowValue)}`);
       if (state.tickerModal.ticker !== ticker) return;
       state.tickerModal.loading = false;
       state.tickerModal.data = data;
+      state.tickerModal.window = windowValue;
       renderTickerModal(data);
     } catch (err) {
       if (state.tickerModal.ticker !== ticker) return;
@@ -1790,8 +2066,14 @@
         warnings: [String(err.message || err)]
       };
       $('tickerModalSub').textContent = `${ticker} · history unavailable`;
-      $('tickerModalStats').innerHTML = '<div class="ticker-stat"><span class="label">Status</span><span class="value">Unavailable</span></div><div class="ticker-stat"><span class="label">Window</span><span class="value">' + escapeHtml(windowValue) + '</span></div><div class="ticker-stat"><span class="label">Action</span><span class="value">Try again</span></div>';
-      $('tickerModalChart').innerHTML = '<div class="footer-note">Could not load ticker history right now.</div>';
+      $('tickerModalStats').innerHTML = '<div class="ticker-stat"><span class="label">Status</span><span class="value">Unavailable</span></div><div class="ticker-stat"><span class="label">Window</span><span class="value">' + escapeHtml(windowValue) + '</span></div><div class="ticker-stat"><span class="label">Action</span><span class="value">Try again</span></div><div class="ticker-stat"><span class="label">—</span><span class="value">—</span></div>';
+      destroyTickerChart();
+      const chartContainer = $('tickerModalChart');
+      const existingInner = chartContainer.querySelector('.chart-inner');
+      if (existingInner) existingInner.remove();
+      const footerNote = chartContainer.querySelector('.footer-note');
+      if (footerNote) footerNote.innerHTML = 'Could not load ticker history right now.';
+      $('ohlcOverlay').style.opacity = '0';
       $('tickerModalMeta').textContent = '';
       $('tickerModalNote').textContent = String(err.message || err);
     }
@@ -1837,7 +2119,9 @@
     showToast(`Window: ${state.window}`, 'info', 1500);
     await loadDashboard(true);
     if (state.tickerModal.ticker && !$('tickerModalBackdrop').hidden) {
-      await loadTickerModal(state.tickerModal.ticker);
+      state.tickerModal.window = state.window;
+      syncTimeframeButtons(state.window);
+      await loadTickerModal(state.tickerModal.ticker, state.window);
     }
   }
 
