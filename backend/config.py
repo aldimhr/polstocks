@@ -26,10 +26,10 @@ EVENT_WINDOWS = {
     "3mo": {"delta": timedelta(days=90), "label": "last 3 months", "days": 90},
 }
 STOCK_HISTORY_WINDOWS = {
-    "24h": {"range": "1d", "interval": "5m", "label": "last 24 hours"},
-    "7d": {"range": "7d", "interval": "1h", "label": "last 7 days"},
-    "30d": {"range": "1mo", "interval": "1d", "label": "last 30 days"},
-    "3mo": {"range": "3mo", "interval": "1d", "label": "last 3 months"},
+    "24h": {"range": "60d", "interval": "5m", "label": "last 24 hours"},   # 60d is Yahoo max for 5-min
+    "7d": {"range": "6mo", "interval": "1h", "label": "last 7 days"},
+    "30d": {"range": "6mo", "interval": "1d", "label": "last 30 days"},
+    "3mo": {"range": "6mo", "interval": "1d", "label": "last 3 months"},
 }
 SOURCE_TIMEOUT_SECONDS = 5
 WIB = timezone(timedelta(hours=7))

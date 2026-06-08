@@ -2167,6 +2167,10 @@
     destroyTickerChart();
     if (!window.LightweightCharts || !ohlcData || ohlcData.length === 0) return;
 
+    // How many bars should be visible by default for each timeframe
+    const windowBarHints = { '24h': 78, '7d': 56, '30d': 30, '3mo': 90 };
+    const currentWindow = state.tickerModal.window || '24h';
+
     // Detect intraday data (any timestamps within same day)
     const hasIntraday = ohlcData.length > 1 && (() => {
       const d1 = new Date(ohlcData[0].time * 1000);
@@ -2201,7 +2205,7 @@
         timeVisible: hasIntraday,
         secondsVisible: false,
         rightOffset: 5,
-        barSpacing: Math.max(3, Math.min(12, Math.floor(container.clientWidth / ohlcData.length))),
+        barSpacing: Math.max(3, Math.min(12, Math.floor(container.clientWidth / Math.min(ohlcData.length, windowBarHints[currentWindow] || 78)))),
       },
       handleScroll: { vertTouchDrag: false },
     });
@@ -2251,6 +2255,21 @@
     });
 
     chart.timeScale().fitContent();
+
+    // Zoom to show only the window-relevant portion (right side),
+    // while keeping all historical data scrollable to the left.
+    const totalBars = ohlcData.length;
+    const visibleBars = Math.min(windowBarHints[currentWindow] || 78, totalBars);
+    if (totalBars > visibleBars) {
+      const from = totalBars - visibleBars;
+      const to = totalBars - 1;
+      try {
+        chart.timeScale().setVisibleLogicalRange({ from, to });
+      } catch (_) {
+        // fallback: fitContent already applied
+      }
+    }
+
     tickerChart = chart;
     candleSeries = candle;
     volumeSeriesObj = vol;
@@ -2349,7 +2368,7 @@
 
     $('tickerModalNote').textContent = (payload.warnings && payload.warnings.length)
       ? payload.warnings.join(' · ')
-      : `Chart shows ${state.tickerModal.window || '24h'} window. Use buttons above to switch timeframes.`;
+      : `Showing ${state.tickerModal.window || '24h'} view · Scroll left for more history`;
   }
 
   function openTickerModal(ticker) {
