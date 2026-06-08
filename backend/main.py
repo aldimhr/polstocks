@@ -4563,6 +4563,13 @@ def api_backtest_resolve() -> dict[str, Any]:
     return {"resolved": resolved}
 
 
+@app.get("/api/backtest/suggestions")
+def api_backtest_suggestions(min_samples: int = 10) -> dict[str, Any]:
+    """Return weight adjustment suggestions based on backtest data."""
+    from backend.backtest import suggest_weight_adjustments
+    return suggest_weight_adjustments(min_samples=min_samples)
+
+
 # ---------------------------------------------------------------------------
 # Runtime helpers
 # ---------------------------------------------------------------------------

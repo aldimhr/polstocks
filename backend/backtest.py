@@ -744,3 +744,189 @@ def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minu
             best_price = entry.get("value")
 
     return best_price if best_price and best_price > 0 else None
+
+
+# ── Weight Recommendations ────────────────────────────────────────
+
+# Current scoring weights (from scoring.py / events.py)
+CURRENT_WEIGHTS = {
+    "indirect_relationship_multiplier": {"current": 0.82, "location": "scoring.py:411", "description": "Multiplier for indirect stock relationships"},
+    "direct_relationship_multiplier": {"current": 1.0, "location": "scoring.py:411", "description": "Multiplier for direct stock relationships"},
+    "directional_sentiment_floor": {"current": 0.45, "location": "scoring.py:421", "description": "Min absolute sentiment for positive/negative direction"},
+    "mixed_direction_factor": {"current": 0.35, "location": "scoring.py:423", "description": "Sentiment factor for mixed direction"},
+    "significance_base": {"current": 0.35, "location": "scoring.py:393", "description": "Base value in significance formula"},
+    "significance_multiplier": {"current": 0.45, "location": "scoring.py:393", "description": "Final multiplier in significance formula"},
+    "source_quality_blend": {"current": 0.45, "location": "scoring.py:393", "description": "Source quality weight in significance"},
+    "confidence_base": {"current": 0.1, "location": "scoring.py:346", "description": "Base confidence value"},
+    "sentiment_confidence_weight": {"current": 0.16, "location": "scoring.py:354", "description": "Weight of sentiment confidence in total confidence"},
+    "neutral_direction_penalty": {"current": 0.65, "location": "events.py:133", "description": "Confidence penalty for neutral sentiment + directional prediction"},
+    "low_confidence_penalty": {"current": 0.80, "location": "events.py:136", "description": "Confidence penalty for low sentiment confidence + directional prediction"},
+    "vagueness_downgrade": {"current": 1.0, "location": "events.py:104", "description": "Whether vague government rhetoric is downgraded to neutral (1=yes)"},
+}
+
+
+def suggest_weight_adjustments(min_samples: int = 10) -> dict[str, Any]:
+    """Analyze backtest data and suggest weight adjustments.
+
+    Returns suggestions with current value, suggested value, reason, and confidence.
+    Only suggests changes with sufficient sample size (min_samples).
+    """
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        metrics = compute_accuracy_metrics(window_days=30)
+        suggestions = []
+
+        if metrics["with_result"] < min_samples:
+            return {
+                "ready": False,
+                "reason": f"Need {min_samples} resolved predictions, have {metrics['with_result']}",
+                "suggestions": [],
+            }
+
+        # ── 1. Positive direction accuracy ──
+        pos_stats = metrics["by_direction"].get("positive", {})
+        if pos_stats.get("total", 0) >= min_samples:
+            pos_hr = pos_stats["hit_rate"]
+            if pos_hr < 0.4:
+                # Positive predictions are unreliable — increase vagueness penalties
+                suggestions.append({
+                    "weight": "directional_sentiment_floor",
+                    "current_value": 0.45,
+                    "suggested_value": 0.55,
+                    "reason": f"Positive predictions only {pos_hr*100:.0f}% accurate ({pos_stats['correct']}/{pos_stats['total']}). Higher floor reduces false positives from weak sentiment.",
+                    "confidence": "high" if pos_stats["total"] >= 20 else "medium",
+                    "sample_size": pos_stats["total"],
+                })
+                suggestions.append({
+                    "weight": "indirect_relationship_multiplier",
+                    "current_value": 0.82,
+                    "suggested_value": 0.70,
+                    "reason": f"Positive predictions unreliable at {pos_hr*100:.0f}%. Lower indirect multiplier reduces spurious positive signals.",
+                    "confidence": "high" if pos_stats["total"] >= 20 else "medium",
+                    "sample_size": pos_stats["total"],
+                })
+            elif pos_hr > 0.7:
+                suggestions.append({
+                    "weight": "directional_sentiment_floor",
+                    "current_value": 0.45,
+                    "suggested_value": 0.38,
+                    "reason": f"Positive predictions strong at {pos_hr*100:.0f}%. Lower floor catches more real opportunities.",
+                    "confidence": "medium",
+                    "sample_size": pos_stats["total"],
+                })
+
+        # ── 2. Negative direction accuracy ──
+        neg_stats = metrics["by_direction"].get("negative", {})
+        if neg_stats.get("total", 0) >= min_samples:
+            neg_hr = neg_stats["hit_rate"]
+            if neg_hr < 0.4:
+                suggestions.append({
+                    "weight": "directional_sentiment_floor",
+                    "current_value": 0.45,
+                    "suggested_value": 0.55,
+                    "reason": f"Negative predictions only {neg_hr*100:.0f}% accurate. Higher floor needed.",
+                    "confidence": "high" if neg_stats["total"] >= 20 else "medium",
+                    "sample_size": neg_stats["total"],
+                })
+
+        # ── 3. Confidence calibration ──
+        high_conf = metrics["by_confidence"].get("high", {})
+        med_conf = metrics["by_confidence"].get("medium", {})
+        low_conf = metrics["by_confidence"].get("low", {})
+
+        if low_conf.get("total", 0) >= min_samples and med_conf.get("total", 0) >= min_samples:
+            low_hr = low_conf.get("hit_rate", 0)
+            med_hr = med_conf.get("hit_rate", 0)
+            if low_hr < 0.4 and med_hr > 0.6:
+                # Low confidence is noise — increase the penalty
+                suggestions.append({
+                    "weight": "low_confidence_penalty",
+                    "current_value": 0.80,
+                    "suggested_value": 0.65,
+                    "reason": f"Low confidence predictions {low_hr*100:.0f}% vs medium {med_hr*100:.0f}%. Penalize low confidence more.",
+                    "confidence": "high",
+                    "sample_size": low_conf["total"] + med_conf["total"],
+                })
+
+        # ── 4. Relationship type performance ──
+        direct_stats = metrics["by_relationship_type"].get("direct", {})
+        indirect_stats = metrics["by_relationship_type"].get("indirect", {})
+
+        if direct_stats.get("total", 0) >= min_samples and indirect_stats.get("total", 0) >= min_samples:
+            direct_hr = direct_stats.get("hit_rate", 0)
+            indirect_hr = indirect_stats.get("hit_rate", 0)
+            if indirect_hr < direct_hr - 0.15:
+                # Indirect relationships underperform — reduce their multiplier
+                gap = direct_hr - indirect_hr
+                new_mult = max(0.5, 0.82 - gap * 0.5)
+                suggestions.append({
+                    "weight": "indirect_relationship_multiplier",
+                    "current_value": 0.82,
+                    "suggested_value": round(new_mult, 2),
+                    "reason": f"Indirect ({indirect_hr*100:.0f}%) lags direct ({direct_hr*100:.0f}%) by {gap*100:.0f}pp. Reduce indirect multiplier.",
+                    "confidence": "high",
+                    "sample_size": indirect_stats["total"] + direct_stats["total"],
+                })
+
+        # ── 5. Significance bucket performance ──
+        high_sig = metrics["by_significance"].get("high", {})
+        low_sig = metrics["by_significance"].get("low", {})
+
+        if high_sig.get("total", 0) >= min_samples and low_sig.get("total", 0) >= min_samples:
+            high_hr = high_sig.get("hit_rate", 0)
+            low_hr = low_sig.get("hit_rate", 0)
+            if low_hr > high_hr + 0.1:
+                suggestions.append({
+                    "weight": "significance_base",
+                    "current_value": 0.35,
+                    "suggested_value": 0.25,
+                    "reason": f"Low significance ({low_hr*100:.0f}%) outperforms high ({high_hr*100:.0f}%). Adjust base to filter more.",
+                    "confidence": "medium",
+                    "sample_size": low_sig["total"] + high_sig["total"],
+                })
+
+        # ── 6. Bias correction ──
+        bias = metrics.get("bias", {})
+        if bias.get("direction") == "overestimating" and metrics["with_result"] >= 30:
+            suggestions.append({
+                "weight": "significance_multiplier",
+                "current_value": 0.45,
+                "suggested_value": 0.35,
+                "reason": f"System overestimates impact (predicted {bias['avg_predicted_score']:+.3f} vs actual {bias['avg_actual_return_24h']:+.3f}). Lower significance multiplier.",
+                "confidence": "medium",
+                "sample_size": metrics["with_result"],
+            })
+        elif bias.get("direction") == "underestimating" and metrics["with_result"] >= 30:
+            suggestions.append({
+                "weight": "significance_multiplier",
+                "current_value": 0.45,
+                "suggested_value": 0.55,
+                "reason": f"System underestimates impact. Raise significance multiplier to surface more events.",
+                "confidence": "medium",
+                "sample_size": metrics["with_result"],
+            })
+
+        # ── 7. Category-specific suggestions ──
+        for cat in metrics.get("by_category", []):
+            if cat["total"] >= min_samples and cat["hit_rate"] < 0.35:
+                suggestions.append({
+                    "weight": f"category_penalty_{cat['category'].lower()}",
+                    "current_value": 1.0,
+                    "suggested_value": 0.7,
+                    "reason": f"Category '{cat['category']}' only {cat['hit_rate']*100:.0f}% accurate ({cat['correct']}/{cat['total']}). Consider penalty multiplier.",
+                    "confidence": "medium",
+                    "sample_size": cat["total"],
+                })
+
+        return {
+            "ready": True,
+            "total_predictions": metrics["total_predictions"],
+            "resolved": metrics["resolved"],
+            "overall_hit_rate": metrics["hit_rate"],
+            "suggestion_count": len(suggestions),
+            "suggestions": suggestions,
+            "current_weights": CURRENT_WEIGHTS,
+        }
+    finally:
+        conn.close()
