@@ -1972,7 +1972,6 @@
   function renderEvents(events) {
     const root = $('eventList');
     const rows = Array.isArray(events) ? events : [];
-    state.allEvents = rows.length ? (state.allEvents.length ? state.allEvents : rows) : state.allEvents;
     if (!rows.length) {
       root.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\u{1F5DE}</div><div class="empty-state-title">No events detected</div><div class="empty-state-hint">No political news matched in this time window. Try expanding to 7d or 30d, or check back later during active policy periods.</div></div>';
       return;
@@ -2162,7 +2161,7 @@
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
     renderStocks(stocks);
-    renderSourceHealth(payload, cues);
+    renderSourceHealth(payload, dashboardCues || payload.dashboard_cues || {});
     renderTracking(payload.tracking || {});
     renderReasoningSummary(payload.reasoning_summary || {});
     renderDashboardCues(dashboardCues || payload.dashboard_cues || {}, payload);
