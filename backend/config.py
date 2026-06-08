@@ -305,13 +305,22 @@ NEWS_SOURCES = [
     {"name": "Antara Terkini", "url": "https://www.antaranews.com/rss/terkini.xml", "kind": "rss", "weight": 1.0},
     {"name": "Antara Top News", "url": "https://www.antaranews.com/rss/top-news.xml", "kind": "rss", "weight": 0.95},
     {"name": "Antara Ekonomi Bursa", "url": "https://www.antaranews.com/rss/ekonomi-bursa.xml", "kind": "rss", "weight": 0.95},
+    {"name": "Antara Ekonomi", "url": "https://www.antaranews.com/rss/ekonomi", "kind": "rss", "weight": 0.9},
+    {"name": "Antara Politik", "url": "https://www.antaranews.com/rss/politik", "kind": "rss", "weight": 0.85},
     {"name": "CNBC Indonesia", "url": "https://www.cnbcindonesia.com/rss", "kind": "rss", "weight": 0.9},
+    {"name": "CNBC Market", "url": "https://www.cnbcindonesia.com/market/rss", "kind": "rss", "weight": 0.9},
+    {"name": "CNBC News", "url": "https://www.cnbcindonesia.com/news/rss", "kind": "rss", "weight": 0.85},
     {"name": "CNN Indonesia Nasional", "url": "https://www.cnnindonesia.com/nasional/rss", "kind": "rss", "weight": 0.85},
     {"name": "CNN Indonesia Ekonomi", "url": "https://www.cnnindonesia.com/ekonomi/rss", "kind": "rss", "weight": 0.85},
     {"name": "Detik Finance", "url": "https://finance.detik.com/rss", "kind": "rss", "weight": 0.8},
+    {"name": "Tempo", "url": "https://www.tempo.co/rss", "kind": "rss", "weight": 0.79},
+    {"name": "Kontan", "url": "https://www.kontan.co.id", "kind": "html", "weight": 0.82},
+    {"name": "Bisnis Indonesia", "url": "https://www.bisnis.com", "kind": "html", "weight": 0.83},
     {"name": "Sekretariat Kabinet", "url": "https://setkab.go.id", "kind": "html", "weight": 1.0},
+    {"name": "Kemenkeu", "url": "https://www.kemenkeu.go.id/informasi-publik/publikasi/siaran-pers", "kind": "html", "weight": 0.95},
     {"name": "OJK", "url": "https://www.ojk.go.id", "kind": "html", "weight": 0.9},
     {"name": "KPK", "url": "https://www.kpk.go.id/id/berita/siaran-pers", "kind": "html", "weight": 0.9},
+    {"name": "CSIS Indonesia", "url": "https://www.csis.or.id/publication", "kind": "html", "weight": 0.75},
 ]
 
 

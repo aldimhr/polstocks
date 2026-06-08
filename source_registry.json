@@ -2,8 +2,15 @@
   "sources": [
     {
       "name": "Antara News",
-      "aliases": ["Antara Terkini", "Antara Top News", "Antara Ekonomi Bursa"],
-      "domains": ["www.antaranews.com", "antaranews.com"],
+      "aliases": [
+        "Antara Terkini",
+        "Antara Top News",
+        "Antara Ekonomi Bursa"
+      ],
+      "domains": [
+        "www.antaranews.com",
+        "antaranews.com"
+      ],
       "canonical_domain": "www.antaranews.com",
       "source_type": "media",
       "tier": 3,
@@ -15,7 +22,10 @@
     {
       "name": "CNBC Indonesia",
       "aliases": [],
-      "domains": ["www.cnbcindonesia.com", "cnbcindonesia.com"],
+      "domains": [
+        "www.cnbcindonesia.com",
+        "cnbcindonesia.com"
+      ],
       "canonical_domain": "www.cnbcindonesia.com",
       "source_type": "media",
       "tier": 3,
@@ -26,8 +36,14 @@
     },
     {
       "name": "CNN Indonesia",
-      "aliases": ["CNN Indonesia Nasional", "CNN Indonesia Ekonomi"],
-      "domains": ["www.cnnindonesia.com", "cnnindonesia.com"],
+      "aliases": [
+        "CNN Indonesia Nasional",
+        "CNN Indonesia Ekonomi"
+      ],
+      "domains": [
+        "www.cnnindonesia.com",
+        "cnnindonesia.com"
+      ],
       "canonical_domain": "www.cnnindonesia.com",
       "source_type": "media",
       "tier": 3,
@@ -39,7 +55,10 @@
     {
       "name": "Kompas",
       "aliases": [],
-      "domains": ["www.kompas.com", "kompas.com"],
+      "domains": [
+        "www.kompas.com",
+        "kompas.com"
+      ],
       "canonical_domain": "www.kompas.com",
       "source_type": "media",
       "tier": 3,
@@ -51,7 +70,10 @@
     {
       "name": "Detik Finance",
       "aliases": [],
-      "domains": ["finance.detik.com", "detik.com"],
+      "domains": [
+        "finance.detik.com",
+        "detik.com"
+      ],
       "canonical_domain": "finance.detik.com",
       "source_type": "media",
       "tier": 3,
@@ -63,7 +85,10 @@
     {
       "name": "Tempo",
       "aliases": [],
-      "domains": ["tempo.co", "www.tempo.co"],
+      "domains": [
+        "tempo.co",
+        "www.tempo.co"
+      ],
       "canonical_domain": "tempo.co",
       "source_type": "media",
       "tier": 3,
@@ -75,7 +100,10 @@
     {
       "name": "BeritaSatu",
       "aliases": [],
-      "domains": ["www.beritasatu.com", "beritasatu.com"],
+      "domains": [
+        "www.beritasatu.com",
+        "beritasatu.com"
+      ],
       "canonical_domain": "www.beritasatu.com",
       "source_type": "media",
       "tier": 3,
@@ -86,8 +114,12 @@
     },
     {
       "name": "Setkab",
-      "aliases": ["Sekretariat Kabinet"],
-      "domains": ["setkab.go.id"],
+      "aliases": [
+        "Sekretariat Kabinet"
+      ],
+      "domains": [
+        "setkab.go.id"
+      ],
       "canonical_domain": "setkab.go.id",
       "source_type": "government",
       "tier": 1,
@@ -98,8 +130,13 @@
     },
     {
       "name": "OJK",
-      "aliases": ["Otoritas Jasa Keuangan"],
-      "domains": ["www.ojk.go.id", "ojk.go.id"],
+      "aliases": [
+        "Otoritas Jasa Keuangan"
+      ],
+      "domains": [
+        "www.ojk.go.id",
+        "ojk.go.id"
+      ],
       "canonical_domain": "www.ojk.go.id",
       "source_type": "regulator",
       "tier": 1,
@@ -110,8 +147,13 @@
     },
     {
       "name": "KPK",
-      "aliases": ["Komisi Pemberantasan Korupsi"],
-      "domains": ["www.kpk.go.id", "kpk.go.id"],
+      "aliases": [
+        "Komisi Pemberantasan Korupsi"
+      ],
+      "domains": [
+        "www.kpk.go.id",
+        "kpk.go.id"
+      ],
       "canonical_domain": "www.kpk.go.id",
       "source_type": "regulator",
       "tier": 1,
@@ -119,6 +161,131 @@
       "freshness_half_life_hours": 96,
       "country_focus": "id",
       "notes": "Official anti-corruption authority; strongest source for enforcement and investigative disclosures."
+    },
+    {
+      "name": "Antara Ekonomi",
+      "aliases": [],
+      "domains": [
+        "www.antaranews.com"
+      ],
+      "canonical_domain": "www.antaranews.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.9,
+      "freshness_half_life_hours": 48,
+      "country_focus": "id",
+      "notes": "Economic news from Antara wire service."
+    },
+    {
+      "name": "Antara Politik",
+      "aliases": [],
+      "domains": [
+        "www.antaranews.com"
+      ],
+      "canonical_domain": "www.antaranews.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.85,
+      "freshness_half_life_hours": 60,
+      "country_focus": "id",
+      "notes": "Political news from Antara wire service."
+    },
+    {
+      "name": "CNBC Market",
+      "aliases": [],
+      "domains": [
+        "www.cnbcindonesia.com"
+      ],
+      "canonical_domain": "www.cnbcindonesia.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.9,
+      "freshness_half_life_hours": 36,
+      "country_focus": "id",
+      "notes": "Market-focused coverage from CNBC Indonesia."
+    },
+    {
+      "name": "CNBC News",
+      "aliases": [],
+      "domains": [
+        "www.cnbcindonesia.com"
+      ],
+      "canonical_domain": "www.cnbcindonesia.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.85,
+      "freshness_half_life_hours": 48,
+      "country_focus": "id",
+      "notes": "General news from CNBC Indonesia."
+    },
+    {
+      "name": "Kontan",
+      "aliases": [
+        "Kontan.co.id"
+      ],
+      "domains": [
+        "www.kontan.co.id",
+        "kontan.co.id"
+      ],
+      "canonical_domain": "www.kontan.co.id",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.82,
+      "freshness_half_life_hours": 48,
+      "country_focus": "id",
+      "notes": "Business and financial news outlet."
+    },
+    {
+      "name": "Bisnis Indonesia",
+      "aliases": [
+        "Bisnis.com"
+      ],
+      "domains": [
+        "www.bisnis.com",
+        "bisnis.com"
+      ],
+      "canonical_domain": "www.bisnis.com",
+      "source_type": "media",
+      "tier": 3,
+      "trust_weight": 0.83,
+      "freshness_half_life_hours": 48,
+      "country_focus": "id",
+      "notes": "Leading business daily with comprehensive market coverage."
+    },
+    {
+      "name": "Kemenkeu",
+      "aliases": [
+        "Kementerian Keuangan",
+        "Ministry of Finance"
+      ],
+      "domains": [
+        "www.kemenkeu.go.id",
+        "kemenkeu.go.id"
+      ],
+      "canonical_domain": "www.kemenkeu.go.id",
+      "source_type": "government",
+      "tier": 1,
+      "trust_weight": 0.95,
+      "freshness_half_life_hours": 120,
+      "country_focus": "id",
+      "notes": "Ministry of Finance press releases and policy announcements."
+    },
+    {
+      "name": "CSIS Indonesia",
+      "aliases": [
+        "Centre for Strategic and International Studies"
+      ],
+      "domains": [
+        "www.csis.or.id",
+        "csis.or.id"
+      ],
+      "canonical_domain": "www.csis.or.id",
+      "source_type": "think_tank",
+      "tier": 2,
+      "trust_weight": 0.75,
+      "freshness_half_life_hours": 168,
+      "country_focus": "id",
+      "notes": "Policy research and analysis from Indonesia's leading think tank."
     }
   ]
 }
