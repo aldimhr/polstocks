@@ -1012,6 +1012,105 @@
     flex-shrink: 0;
   }
 
+  /* ── Settings modal ── */
+  .settings-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+    background: rgba(8, 10, 16, 0.88);
+    backdrop-filter: blur(8px);
+  }
+  .settings-modal-backdrop[hidden] { display: none !important; }
+  .settings-modal {
+    width: 100%;
+    max-width: 500px;
+    height: 96vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 16px 16px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--bg);
+    box-shadow: 0 -6px 40px rgba(0, 0, 0, 0.6);
+    padding: 14px 14px 8px;
+    overflow-y: auto;
+  }
+  .settings-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .settings-modal-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .settings-modal-close {
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    cursor: pointer;
+    flex: 0 0 auto;
+    font-size: 16px;
+  }
+  .settings-modal-close:hover,
+  .settings-modal-close:focus-visible { outline: none; border-color: var(--accent); }
+  .settings-section {
+    margin-top: 24px;
+  }
+  .settings-section-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .settings-btn-row {
+    display: flex;
+    gap: 8px;
+  }
+  .settings-btn-row button {
+    flex: 1;
+    padding: 8px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .settings-btn-row button:hover { border-color: var(--border2); color: var(--text); }
+  .settings-btn-row button.active { background: var(--accent); color: #0c0d0f; border-color: var(--accent); font-weight: 600; }
+  .settings-btn-settings {
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .settings-btn-settings:hover { border-color: var(--accent); }
+
   @media (max-width: 720px) {
     .ticker-modal {
       border-radius: 14px 14px 0 0;
@@ -1369,6 +1468,7 @@
         </select>
       </label>
       <span class="card-badge" id="windowBadge" style="font-size:12px; padding:6px 10px;">Showing 24h</span>
+      <button class="settings-btn-settings" id="settingsBtn" onclick="openSettingsModal()" title="Settings">⚙️</button>
       <button class="btn-update" id="refreshBtn" onclick="triggerRefresh()">
         <div class="btn-icon" id="btnIcon"></div>
         <span id="btnText">Update</span>
@@ -1571,8 +1671,35 @@
   </div>
 </div>
 
+<!-- Settings modal -->
+<div class="settings-modal-backdrop" id="settingsBackdrop" hidden onclick="handleSettingsBackdrop(event)">
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" onclick="event.stopPropagation()">
+    <div class="settings-modal-header">
+      <div class="settings-modal-title" id="settingsModalTitle">⚙️ Settings</div>
+      <button class="settings-modal-close" type="button" aria-label="Close settings" onclick="closeSettingsModal()">×</button>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-label">Min Impact Threshold</div>
+      <div class="settings-btn-row" id="impactThresholdRow">
+        <button data-impact="0" onclick="setImpactThreshold(0)">Off</button>
+        <button data-impact="3" onclick="setImpactThreshold(3)">Low</button>
+        <button data-impact="5" onclick="setImpactThreshold(5)">Med</button>
+        <button data-impact="7" onclick="setImpactThreshold(7)">High</button>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-label">Quiet Hours</div>
+      <div class="settings-btn-row" id="quietHoursRow">
+        <button data-qh="off" onclick="setQuietHours('off')">Off</button>
+        <button data-qh="22-06" onclick="setQuietHours('22-06')">22-06</button>
+        <button data-qh="00-06" onclick="setQuietHours('00-06')">00-06</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
   let tickerChart = null;
   let candleSeries = null;
   let volumeSeriesObj = null;
@@ -2755,6 +2882,7 @@
         if (isAutoRefresh) showToast('Auto-refreshed', 'success', 2000);
         startStalenessBar();
         updateConnectionDot();
+        fetchAlertPrefs();
         lastErr = null;
         break;
       } catch (err) {
@@ -2775,6 +2903,73 @@
   }
 
   function triggerRefresh() { $('refreshBtn')?.classList.remove('pulse'); loadDashboard(true); }
+
+  // ── Settings modal ──
+  function renderSettingsButtons() {
+    const prefs = state.alertPrefs || { min_impact_threshold: 0, quiet_hours: 'off' };
+    const impactRow = $('impactThresholdRow');
+    if (impactRow) {
+      impactRow.querySelectorAll('button').forEach(btn => {
+        const val = parseInt(btn.dataset.impact, 10);
+        btn.classList.toggle('active', val === (prefs.min_impact_threshold || 0));
+      });
+    }
+    const qhRow = $('quietHoursRow');
+    if (qhRow) {
+      qhRow.querySelectorAll('button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.qh === (prefs.quiet_hours || 'off'));
+      });
+    }
+  }
+
+  function openSettingsModal() {
+    renderSettingsButtons();
+    $('settingsBackdrop').hidden = false;
+  }
+
+  function closeSettingsModal() {
+    $('settingsBackdrop').hidden = true;
+  }
+
+  function handleSettingsBackdrop(event) {
+    if (event.target === $('settingsBackdrop')) closeSettingsModal();
+  }
+
+  async function saveAlertPrefs() {
+    try {
+      const result = await apiJson(withUserParam('/api/alert_prefs'), {
+        method: 'PUT',
+        body: JSON.stringify(state.alertPrefs)
+      });
+      showToast('Settings saved', 'success', 2000);
+    } catch (err) {
+      showToast('Failed to save settings: ' + (err.message || err), 'error', 4000);
+    }
+  }
+
+  function setImpactThreshold(val) {
+    state.alertPrefs = { ...(state.alertPrefs || {}), min_impact_threshold: val };
+    renderSettingsButtons();
+    saveAlertPrefs();
+  }
+
+  function setQuietHours(val) {
+    state.alertPrefs = { ...(state.alertPrefs || {}), quiet_hours: val };
+    renderSettingsButtons();
+    saveAlertPrefs();
+  }
+
+  async function fetchAlertPrefs() {
+    try {
+      const prefs = await apiJson(withUserParam('/api/alert_prefs'));
+      if (prefs && typeof prefs === 'object') {
+        state.alertPrefs = {
+          min_impact_threshold: prefs.min_impact_threshold ?? 0,
+          quiet_hours: prefs.quiet_hours || 'off'
+        };
+      }
+    } catch (e) { /* silently ignore — use defaults */ }
+  }
 
   // ── Telegram Mini App theme integration ──
   (function() {
@@ -2907,6 +3102,7 @@
     // Keyboard shortcuts
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !$('tickerModalBackdrop').hidden) { closeTickerModal(); return; }
+      if (event.key === 'Escape' && !$('settingsBackdrop').hidden) { closeSettingsModal(); return; }
       if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
       if (event.key === 'r' || event.key === 'R') { triggerRefresh(); return; }
       if (event.key === '1') { $('windowSelect').value = '24h'; handleWindowChange('24h'); return; }
