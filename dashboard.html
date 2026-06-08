@@ -2787,7 +2787,7 @@
     state.window = value || '24h';
     writeHash();
     showToast(`Window: ${state.window}`, 'info', 1500);
-    await loadDashboard(true);
+    await loadDashboard(false);
     if (state.tickerModal.ticker && !$('tickerModalBackdrop').hidden) {
       state.tickerModal.window = state.window;
       syncTimeframeButtons(state.window);
