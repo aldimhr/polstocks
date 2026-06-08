@@ -51,11 +51,13 @@ EVENT_WINDOWS = {
     "24h": {"delta": timedelta(hours=24), "label": "last 24 hours", "days": 1},
     "7d": {"delta": timedelta(days=7), "label": "last 7 days", "days": 7},
     "30d": {"delta": timedelta(days=30), "label": "last 30 days", "days": 30},
+    "3mo": {"delta": timedelta(days=90), "label": "last 3 months", "days": 90},
 }
 STOCK_HISTORY_WINDOWS = {
     "24h": {"range": "1d", "interval": "5m", "label": "last 24 hours"},
     "7d": {"range": "7d", "interval": "1h", "label": "last 7 days"},
     "30d": {"range": "1mo", "interval": "1d", "label": "last 30 days"},
+    "3mo": {"range": "3mo", "interval": "1d", "label": "last 3 months"},
 }
 SOURCE_TIMEOUT_SECONDS = 5
 WIB = timezone(timedelta(hours=7))
