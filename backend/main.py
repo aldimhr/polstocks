@@ -1976,6 +1976,22 @@ def dedupe_articles(articles: list[dict[str, Any]], window: str = DEFAULT_EVENT_
 
 
 
+def compute_rsi(closes: list[float], period: int = 14) -> float | None:
+    """Compute Relative Strength Index (RSI) from closing prices."""
+    if len(closes) < period + 1:
+        return None
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    recent = deltas[-(period):]
+    gains = [d if d > 0 else 0 for d in recent]
+    losses = [-d if d < 0 else 0 for d in recent]
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+
 def fetch_live_quote(ticker: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker)}?range=1d&interval=1d&includePrePost=false&events=div,splits"
     response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
@@ -4154,6 +4170,20 @@ def build_refresh_payload(
         market_context_factor = 1.0    # normal market
     ihsg_direction = "positive" if float(market_index.get("change_pct") or 0.0) > 0 else "negative"
 
+    # Fetch RSI for each watchlist stock (concurrent)
+    rsi_cache: dict[str, float | None] = {}
+    def _fetch_rsi(ticker: str) -> tuple[str, float | None]:
+        try:
+            hist = fetch_ticker_history(ticker, "30d")
+            closes = hist.get("series", [])
+            prices = [float(p["value"]) for p in closes if p.get("value") is not None]
+            return ticker, compute_rsi(prices)
+        except Exception:
+            return ticker, None
+    with ThreadPoolExecutor(max_workers=min(len(watchlist), 5)) as pool:
+        for ticker, rsi in pool.map(lambda t: _fetch_rsi(t), watchlist):
+            rsi_cache[ticker] = rsi
+
     validation_warnings: list[str] = []
     validation_cache: dict[tuple[str, str], dict[str, Any]] = {}
     source_outcome_history = load_source_outcome_history()
@@ -4229,6 +4259,38 @@ def build_refresh_payload(
                 relationship["confidence"] = round(adjusted_mkt, 3)
                 relationship["relationship_confidence"] = round(adjusted_mkt, 3)
                 relationship["market_context_factor"] = round(mkt_mult, 3)
+
+            # RSI signal — stock-level overbought/oversold context
+            ticker_for_rsi = normalize_ticker(relationship.get("ticker", ""))
+            rsi_val = rsi_cache.get(ticker_for_rsi)
+            if rsi_val is not None and rel_direction in ("positive", "negative"):
+                rsi_mult = 1.0
+                if rel_direction == "positive":
+                    if rsi_val > 80:
+                        rsi_mult = 0.85   # extremely overbought: strong dampen
+                    elif rsi_val > 70:
+                        rsi_mult = 0.92   # overbought: dampen
+                    elif rsi_val < 20:
+                        rsi_mult = 1.12   # extremely oversold: strong boost
+                    elif rsi_val < 30:
+                        rsi_mult = 1.06   # oversold: boost
+                elif rel_direction == "negative":
+                    if rsi_val < 20:
+                        rsi_mult = 0.88   # extremely oversold: dampen (already at floor)
+                    elif rsi_val < 30:
+                        rsi_mult = 0.94   # oversold: dampen
+                    elif rsi_val > 80:
+                        rsi_mult = 1.10   # extremely overbought: boost (more room to fall)
+                    elif rsi_val > 70:
+                        rsi_mult = 1.05   # overbought: slight boost
+                if rsi_mult != 1.0:
+                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                    adjusted_rsi = clamp(cur_conf * rsi_mult, 0.0, 1.0)
+                    relationship["confidence"] = round(adjusted_rsi, 3)
+                    relationship["relationship_confidence"] = round(adjusted_rsi, 3)
+                    relationship["rsi_value"] = round(rsi_val, 1)
+                    relationship["rsi_factor"] = round(rsi_mult, 3)
+
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
                 validation_status,
@@ -4334,6 +4396,8 @@ def build_refresh_payload(
                 "source_conflict_label": strongest_link[1].get("source_conflict_label") if strongest_link else "aligned",
                 "source_fetch_status": strongest_link[1].get("source_fetch_status", "unknown") if strongest_link else "unknown",
                 "source": (quote or {}).get("source", "unavailable"),
+                "rsi_value": rsi_cache.get(ticker),
+                "rsi_factor": strongest_link[1].get("rsi_factor", 1.0) if strongest_link else 1.0,
             }
         )
     stocks = sort_stocks_by_impact(stocks)

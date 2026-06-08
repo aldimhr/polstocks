@@ -26,6 +26,33 @@ from backend.utils import (
     company_name_for_ticker, article_text, normalize_ticker,
 )
 
+
+def compute_rsi(closes: list[float], period: int = 14) -> float | None:
+    """Compute Relative Strength Index (RSI) from closing prices.
+
+    Args:
+        closes: list of closing prices in chronological order
+        period: RSI lookback period (default 14)
+
+    Returns:
+        RSI value (0-100), or None if insufficient data
+    """
+    if len(closes) < period + 1:
+        return None
+    # Calculate price changes
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    # Use last `period` deltas for initial average
+    recent = deltas[-(period):]
+    gains = [d if d > 0 else 0 for d in recent]
+    losses = [-d if d < 0 else 0 for d in recent]
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0  # no losses = max RSI
+    rs = avg_gain / avg_loss
+    return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+
 def fetch_live_quote(ticker: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker)}?range=1d&interval=1d&includePrePost=false&events=div,splits"
     response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)

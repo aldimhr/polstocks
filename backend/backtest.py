@@ -79,6 +79,8 @@ def init_backtest_db() -> None:
             ("market_context_factor", "REAL"),
             ("volume_signal", "REAL"),
             ("source_type_count", "INTEGER"),
+            ("rsi_value", "REAL"),
+            ("rsi_factor", "REAL"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
@@ -108,6 +110,8 @@ def record_prediction(
     market_context_factor: float | None = None,
     volume_signal: float | None = None,
     source_type_count: int | None = None,
+    rsi_value: float | None = None,
+    rsi_factor: float | None = None,
 ) -> bool:
     """Insert a prediction. Returns True if inserted, False if duplicate."""
     conn = _get_conn()
@@ -118,8 +122,9 @@ def record_prediction(
                 predicted_direction, predicted_score, significance, confidence,
                 relationship_type, categories, source_type, event_stage,
                 price_at_event, outcome_status,
-                market_context_factor, volume_signal, source_type_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                market_context_factor, volume_signal, source_type_count,
+                rsi_value, rsi_factor)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id, event_headline, published_at, ticker,
                 predicted_direction, round(predicted_score, 4), significance,
@@ -127,6 +132,7 @@ def record_prediction(
                 json.dumps(categories or []), source_type, event_stage,
                 price_at_event, "pending",
                 market_context_factor, volume_signal, source_type_count,
+                rsi_value, rsi_factor,
             ),
         )
         conn.commit()
@@ -192,6 +198,8 @@ def record_predictions_from_events(events: list[dict[str, Any]], stock_quotes: d
                 market_context_factor=rel.get("market_context_factor"),
                 volume_signal=rel.get("volume_signal"),
                 source_type_count=rel.get("corroboration_source_type_count"),
+                rsi_value=rel.get("rsi_value"),
+                rsi_factor=rel.get("rsi_factor"),
             )
             if ok:
                 count += 1
