@@ -3306,11 +3306,13 @@ def build_stock_relationships(
             "menegaskan kembali", "optimis terhadap", "berkomitmen untuk",
             "tegaskan kembali", "perkuat komitmen", "menegaskan pentingnya",
         ]
+        _was_vague = False
         if direction.get("impact_direction") == "positive":
             headline_lower = str(article.get("headline", "") or "").lower()
             combined = f"{headline_lower} {text}"
             vague_count = sum(1 for p in _VAGUE_PHRASES if p in combined)
             if vague_count > 0:
+                _was_vague = True
                 direction = {
                     **direction,
                     "impact_direction": "neutral",
@@ -3353,6 +3355,9 @@ def build_stock_relationships(
         # Low sentiment confidence with directional prediction = uncertain
         if sentiment_confidence < 0.4 and impact_direction in ("positive", "negative"):
             confidence *= 0.80
+        # Vagueness penalty — generic rhetoric should not carry high confidence
+        if _was_vague:
+            confidence *= 0.50
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
 
         # Source diversity reward — multiple source types reporting the same event is a stronger signal
@@ -3567,15 +3572,9 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
             relationship.get("confidence", article.get("confidence", 0.5)),
         )
     )
-    source_confidence = float(relationship.get("source_confidence", article.get("source_quality_score", 0.5)))
     evidence_strength = float(relationship.get("evidence_strength", confidence))
     relationship_multiplier = {"direct": 1.0, "indirect": 0.82}.get(relationship.get("relationship_type"), 0.5)
-    confidence_multiplier = clamp(0.45 + 0.55 * max(0.0, source_confidence), 0.25, 1.0)
     evidence_multiplier = clamp(0.5 + 0.5 * max(0.0, evidence_strength), 0.25, 1.0)
-    validation_multiplier = validation_outcome_multiplier(
-        str(relationship.get("validation_status", article.get("validation_status", "unvalidated"))),
-        float(relationship.get("validation_score", article.get("validation_score", 0.0)) or 0.0),
-    )
     direction = str(relationship.get("impact_direction", "neutral"))
     if direction == "positive":
         directional_sentiment = max(abs(sentiment_score), 0.45)
@@ -3585,7 +3584,11 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
         directional_sentiment = 0.35 * sentiment_score
     else:
         directional_sentiment = 0.0
-    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * confidence_multiplier * evidence_multiplier * validation_multiplier
+    # NOTE: validation_multiplier and confidence_multiplier (source_confidence)
+    # are already baked into relationship_confidence by build_refresh_payload.
+    # Applying them here would double-penalize. Only evidence_multiplier and
+    # relationship_multiplier are independent signals not yet in the base.
+    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * evidence_multiplier
     return clamp(raw, -1.0, 1.0)
 
 

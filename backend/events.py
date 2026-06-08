@@ -106,11 +106,13 @@ def build_stock_relationships(
             "menegaskan kembali", "optimis terhadap", "berkomitmen untuk",
             "tegaskan kembali", "perkuat komitmen", "menegaskan pentingnya",
         ]
+        _was_vague = False
         if direction.get("impact_direction") == "positive":
             headline_lower = str(article.get("headline", "") or "").lower()
             combined = f"{headline_lower} {text}"
             vague_count = sum(1 for p in _VAGUE_PHRASES if p in combined)
             if vague_count > 0:
+                _was_vague = True
                 direction = {
                     **direction,
                     "impact_direction": "neutral",
@@ -153,6 +155,9 @@ def build_stock_relationships(
         # Low sentiment confidence with directional prediction = uncertain
         if sentiment_confidence < 0.4 and impact_direction in ("positive", "negative"):
             confidence *= 0.80
+        # Vagueness penalty — generic rhetoric should not carry high confidence
+        if _was_vague:
+            confidence *= 0.50
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
 
         # Source diversity reward — multiple source types reporting the same event is a stronger signal
