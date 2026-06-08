@@ -319,7 +319,7 @@ def test_ticker_detail_endpoint_returns_history(monkeypatch):
     data = response.json()
     assert data["ticker"] == "BBCA.JK"
     assert data["window"] == "7d"
-    assert data["window_label"] == "7 hari terakhir"
+    assert data["window_label"] == "last 7 days"
     assert data["series"] == [980.0, 992.0, 1001.0, 1015.0]
     assert data["series_points"] == 4
     assert data["series_high"] == 1015.0
@@ -687,8 +687,8 @@ def test_dashboard_contains_runtime_hooks():
         'id="m-events-sub"',
         'stockBody',
         'data-label="Ticker"',
-        'data-label="Harga (IDR)"',
-        'data-label="Hari ini"',
+        'data-label="Price (IDR)"',
+        'data-label="Today"',
         'data-label="Impact score"',
         'stocksSortBadge',
         'stocksSortHint',

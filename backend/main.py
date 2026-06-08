@@ -19,6 +19,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, time as dtime, timezone
@@ -47,20 +48,62 @@ APP_TITLE = "Indonesia Political-Stock Impact System"
 CACHE_TTL_SECONDS = 300
 DEFAULT_EVENT_WINDOW = "24h"
 EVENT_WINDOWS = {
-    "24h": {"delta": timedelta(hours=24), "label": "24 jam terakhir", "days": 1},
-    "7d": {"delta": timedelta(days=7), "label": "7 hari terakhir", "days": 7},
-    "30d": {"delta": timedelta(days=30), "label": "30 hari terakhir", "days": 30},
+    "24h": {"delta": timedelta(hours=24), "label": "last 24 hours", "days": 1},
+    "7d": {"delta": timedelta(days=7), "label": "last 7 days", "days": 7},
+    "30d": {"delta": timedelta(days=30), "label": "last 30 days", "days": 30},
 }
 STOCK_HISTORY_WINDOWS = {
-    "24h": {"range": "1d", "interval": "5m", "label": "24 jam terakhir"},
-    "7d": {"range": "7d", "interval": "1h", "label": "7 hari terakhir"},
-    "30d": {"range": "1mo", "interval": "1d", "label": "30 hari terakhir"},
+    "24h": {"range": "1d", "interval": "5m", "label": "last 24 hours"},
+    "7d": {"range": "7d", "interval": "1h", "label": "last 7 days"},
+    "30d": {"range": "1mo", "interval": "1d", "label": "last 30 days"},
 }
 SOURCE_TIMEOUT_SECONDS = 5
 WIB = timezone(timedelta(hours=7))
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Hermes Political-Stock Mapper; +https://hermes-agent.nousresearch.com)"
 }
+
+# ── Bot SQLite helpers (per-user watchlist) ──
+BOT_DB_PATH = os.getenv(
+    "POLSTOCK_BOT_DB",
+    os.path.join(os.path.dirname(__file__), "..", "..", "polstock_bot", "polstock.db"),
+)
+
+def get_user_watchlist_from_bot_db(user_id: int) -> list[str]:
+    """Read per-user watchlist from the Telegram bot's SQLite database."""
+    db_path = os.path.abspath(BOT_DB_PATH)
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = sqlite3.connect(db_path, timeout=2)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            "SELECT ticker FROM user_watchlists WHERE user_id = ? ORDER BY added_at",
+            (user_id,),
+        )
+        tickers = [row["ticker"] for row in cur.fetchall()]
+        conn.close()
+        return tickers
+    except Exception:
+        return []
+
+def save_user_watchlist_to_bot_db(user_id: int, tickers: list[str]) -> None:
+    """Write per-user watchlist to the Telegram bot's SQLite database."""
+    db_path = os.path.abspath(BOT_DB_PATH)
+    if not os.path.exists(db_path):
+        return
+    try:
+        conn = sqlite3.connect(db_path, timeout=2)
+        conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+        conn.execute("DELETE FROM user_watchlists WHERE user_id = ?", (user_id,))
+        conn.executemany(
+            "INSERT INTO user_watchlists (user_id, ticker) VALUES (?, ?)",
+            [(user_id, t) for t in tickers],
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 SOURCE_TYPE_RANKS = {
     "government": 5.0,
     "regulator": 4.8,
@@ -4251,13 +4294,21 @@ def api_ticker_head(ticker: str) -> Response:
 
 
 @app.get("/api/watchlist")
-def api_get_watchlist() -> dict[str, Any]:
+def api_get_watchlist(user_id: int | None = None) -> dict[str, Any]:
+    if user_id is not None:
+        tickers = get_user_watchlist_from_bot_db(user_id)
+        if tickers:
+            return {"tickers": tickers, "user_id": user_id}
     return {"tickers": get_watchlist()}
 
 
 @app.get("/api/dashboard")
-def api_dashboard(window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
-    watchlist = get_watchlist()
+def api_dashboard(window: str = DEFAULT_EVENT_WINDOW, user_id: int | None = None) -> dict[str, Any]:
+    if user_id is not None:
+        tickers = get_user_watchlist_from_bot_db(user_id)
+        watchlist = tickers if tickers else get_watchlist()
+    else:
+        watchlist = get_watchlist()
     payload = build_refresh_payload(watchlist, force=False, window=window)
     dashboard_cues = build_dashboard_cues(payload)
     return {"watchlist": watchlist, "reasoning_summary": payload.get("reasoning_summary", {}), "dashboard_cues": dashboard_cues, "payload": payload}
@@ -4269,7 +4320,10 @@ def api_ticker_detail(ticker: str, window: str = DEFAULT_EVENT_WINDOW) -> dict[s
 
 
 @app.put("/api/watchlist")
-def api_put_watchlist(payload: WatchlistRequest) -> dict[str, Any]:
+def api_put_watchlist(payload: WatchlistRequest, user_id: int | None = None) -> dict[str, Any]:
+    if user_id is not None:
+        save_user_watchlist_to_bot_db(user_id, payload.tickers)
+        return {"tickers": payload.tickers, "user_id": user_id}
     tickers = set_watchlist(payload.tickers)
     return {"tickers": tickers}
 

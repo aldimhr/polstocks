@@ -1022,6 +1022,128 @@
     .ohlc-overlay { font-size: 9px; gap: 6px; flex-wrap: wrap; }
   }
 
+  /* ── Event search & filter chips ── */
+  .event-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .event-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .event-search-input::placeholder { color: var(--muted); }
+  .event-search-input:focus { border-color: var(--accent); }
+
+  .filter-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .filter-chip {
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .filter-chip:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--border2);
+  }
+
+  .filter-chip.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+    font-weight: 500;
+  }
+
+  .filter-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  /* ── Source health grid ── */
+  .source-health-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 22px;
+    transition: border-color 0.2s;
+  }
+
+  .source-health-card:hover { border-color: var(--border2); }
+
+  .source-health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .source-health-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
+  .source-health-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .source-health-dot.good { background: var(--green); box-shadow: 0 0 6px rgba(77,219,142,0.4); }
+  .source-health-dot.warn { background: var(--amber); box-shadow: 0 0 6px rgba(245,166,35,0.3); }
+  .source-health-dot.bad { background: var(--red); box-shadow: 0 0 6px rgba(255,92,92,0.3); }
+
+  .source-health-name {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .source-health-scores {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
   .bottom-grid {
     display:grid;
     grid-template-columns: 1fr 1fr;
@@ -1222,7 +1344,7 @@
     <div class="metric">
       <div class="metric-label">Events detected</div>
       <div class="metric-value" id="m-events">—</div>
-      <div class="metric-sub" id="m-events-sub">dalam 24 jam terakhir</div>
+      <div class="metric-sub" id="m-events-sub">in the last 24 hours</div>
       <div class="metric-accent" style="background:var(--accent);"></div>
     </div>
     <div class="metric">
@@ -1238,7 +1360,7 @@
       <div class="metric-accent" style="background:var(--red);"></div>
     </div>
     <div class="metric">
-      <div class="metric-label">IHSG hari ini</div>
+      <div class="metric-label">IHSG Today</div>
       <div class="metric-value" id="m-ihsg">—</div>
       <div class="metric-sub" id="m-ihsg-sub" style="color:var(--muted2);">No market index data yet</div>
       <div class="metric-accent" style="background:var(--blue);"></div>
@@ -1260,8 +1382,8 @@
         <thead>
           <tr>
             <th>Ticker</th>
-            <th>Harga (IDR)</th>
-            <th>Hari ini</th>
+            <th>Price (IDR)</th>
+            <th>Today</th>
             <th>Impact score</th>
           </tr>
         </thead>
@@ -1273,11 +1395,11 @@
       </table>
       <div class="watchlist-toolbar">
         <div class="watchlist-form">
-          <input id="watchlistInput" class="watchlist-input" type="text" placeholder="Tambah ticker, mis. BBCA atau TLKM.JK">
+          <input id="watchlistInput" class="watchlist-input" type="text" placeholder="Add ticker, e.g. BBCA or TLKM.JK">
           <button class="watchlist-btn primary" type="button" onclick="addTicker()">Add ticker</button>
           <button class="watchlist-btn" type="button" onclick="resetWatchlist()">Reset default</button>
         </div>
-        <div class="watchlist-note">Tambah atau hapus ticker lalu data akan di-refresh.</div>
+        <div class="watchlist-note">Add or remove tickers and data will be refreshed.</div>
       </div>
       <div class="watchlist-chips" id="watchlistChips"></div>
     </div>
@@ -1409,7 +1531,7 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
   let tickerChart = null;
   let candleSeries = null;
   let volumeSeriesObj = null;
@@ -1565,6 +1687,13 @@
     const resp = await fetch(url, { headers: { 'Content-Type': 'application/json' }, cache: 'no-store', ...options });
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
     return resp.json();
+  }
+
+  function withUserParam(url) {
+    const uid = state.tgUserId;
+    if (!uid) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}user_id=${encodeURIComponent(uid)}`;
   }
 
 
@@ -2061,7 +2190,7 @@
   async function loadTickerModal(ticker, windowOverride) {
     const windowValue = windowOverride || state.tickerModal.window || state.window || '24h';
     try {
-      const data = await apiJson(`/api/ticker/${encodeURIComponent(ticker)}?window=${encodeURIComponent(windowValue)}`);
+      const data = await apiJson(withUserParam(`/api/ticker/${encodeURIComponent(ticker)}?window=${encodeURIComponent(windowValue)}`));
       if (state.tickerModal.ticker !== ticker) return;
       state.tickerModal.loading = false;
       state.tickerModal.data = data;
@@ -2095,7 +2224,7 @@
     const payload = normalized.length ? normalized : [];
     setBusy('Saving watchlist…', true);
     try {
-      const result = await apiJson('/api/watchlist', { method: 'PUT', body: JSON.stringify({ tickers: payload }) });
+      const result = await apiJson(withUserParam('/api/watchlist'), { method: 'PUT', body: JSON.stringify({ tickers: payload }) });
       renderWatchlistEditor(result.tickers || []);
       await loadDashboard(true);
     } catch (err) {
@@ -2256,8 +2385,8 @@
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
           <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
-          <td class="price-cell" data-label="Harga (IDR)">${formatPrice(stock.price)}</td>
-          <td class="change-cell ${changeClass}" data-label="Hari ini">${formatPct(stock.change_pct)}</td>
+          <td class="price-cell" data-label="Price (IDR)">${formatPrice(stock.price)}</td>
+          <td class="change-cell ${changeClass}" data-label="Today">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell" data-label="Impact score"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
         </tr>
       `;
@@ -2333,7 +2462,7 @@
     const threadCount = Number(summary?.thread_count || 0);
     const contestedThreadCount = Number(summary?.contested_thread_count || 0);
     const reversedThreadCount = Number(summary?.reversed_thread_count || 0);
-    $('trackingSummary').textContent = `Window: ${tracking?.window_label || '24 jam terakhir'} · ${summary?.total_events || 0} matched events · ${threadCount} active thread${threadCount === 1 ? '' : 's'}${contestedThreadCount ? ` · ${contestedThreadCount} contested/reversed` : ''}${reversedThreadCount ? ` · ${reversedThreadCount} fully reversed` : ''} · avg significance ${Number(summary?.avg_significance || 0).toFixed(2)}${strongestDay ? ` · strongest day ${strongestDay.date} (${strongestDay.event_count} events)` : ''}`;
+    $('trackingSummary').textContent = `Window: ${tracking?.window_label || 'last 24 hours'} · ${summary?.total_events || 0} matched events · ${threadCount} active thread${threadCount === 1 ? '' : 's'}${contestedThreadCount ? ` · ${contestedThreadCount} contested/reversed` : ''}${reversedThreadCount ? ` · ${reversedThreadCount} fully reversed` : ''} · avg significance ${Number(summary?.avg_significance || 0).toFixed(2)}${strongestDay ? ` · strongest day ${strongestDay.date} (${strongestDay.event_count} events)` : ''}`;
     $('trackingThemes').textContent = topThemes.length
       ? `Top themes: ${topThemes.map((item) => `${String(item.name).replaceAll('_', ' ')} (${item.count})`).join(' · ')}${topSources.length ? ` · Top sources: ${topSources.map((item) => `${item.name} (${item.count})`).join(' · ')}` : ''}`
       : 'Top themes: none yet';
@@ -2444,14 +2573,14 @@
     $('lastUpdated').textContent = formatTime(payload.fetched_at);
     $('windowBadge').textContent = `Showing ${payload.window || '24h'}`;
     $('m-events').textContent = formatNumber(totalEventCount, 0);
-    $('m-events-sub').textContent = `${payload.window_label || '24 jam terakhir'} · showing top ${formatNumber(displayedEventCount, 0)}`;
+    $('m-events-sub').textContent = `${payload.window_label || 'last 24 hours'} · showing top ${formatNumber(displayedEventCount, 0)}`;
     $('m-stocks').textContent = formatNumber(stocks.length, 0);
     const positiveCount = stocks.filter((stock) => Number(stock.impact_score) > 0).length;
     const negativeCount = stocks.filter((stock) => Number(stock.impact_score) < 0).length;
     $('m-stocks-sub').textContent = stocks.length ? `↑ ${positiveCount} positif · ↓ ${negativeCount} negatif` : 'No stock data yet';
     $('m-stocks-sub').style.color = negativeCount > positiveCount ? 'var(--red)' : positiveCount > negativeCount ? 'var(--green)' : 'var(--muted2)';
     $('eventBadge').textContent = `${formatNumber(displayedEventCount, 0)} / ${formatNumber(totalEventCount, 0)} events · ${payload.window || '24h'}`;
-    $('eventWindowHint').textContent = `${payload.window_label || '24 jam terakhir'} selected · showing ${formatNumber(displayedEventCount, 0)} of ${formatNumber(totalEventCount, 0)} matched events${hiddenEventCount > 0 ? ` · ${formatNumber(hiddenEventCount, 0)} more older/lower-ranked events hidden` : ''}`;
+    $('eventWindowHint').textContent = `${payload.window_label || 'last 24 hours'} selected · showing ${formatNumber(displayedEventCount, 0)} of ${formatNumber(totalEventCount, 0)} matched events${hiddenEventCount > 0 ? ` · ${formatNumber(hiddenEventCount, 0)} more older/lower-ranked events hidden` : ''}`;
     $('m-highest').textContent = highest ? highest.ticker : '—';
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
@@ -2468,7 +2597,7 @@
     renderSources(payload.sources || [], events);
     renderMarketIndex(payload.market_index || {});
     renderWatchlistEditor(watchlist);
-    $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || '24 jam terakhir'} · cache TTL 5 menit`;
+    $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || 'last 24 hours'} · cache TTL 5 minutes`;
   }
 
   async function loadDashboard(force = false, isAutoRefresh = false) {
@@ -2495,7 +2624,7 @@
         }
         const dashboardData = force
           ? { payload: await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) }) }
-          : await apiJson(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`);
+          : await apiJson(withUserParam(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`));
         const payload = dashboardData?.payload || {};
         renderPayload(payload, dashboardData?.dashboard_cues || null);
         state.lastSuccess = Date.now();
@@ -2533,6 +2662,9 @@
       const data = event.data;
       if (!data || data.type !== 'tg_init') return;
       tgUser = data.user || null;
+      if (tgUser && tgUser.id) {
+        state.tgUserId = tgUser.id;
+      }
       const params = data.themeParams || {};
       const root = document.documentElement;
       // Map Telegram theme params to our CSS variables
