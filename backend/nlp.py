@@ -1,7 +1,7 @@
 """IndoBERT-powered NLP for Indonesian political text analysis.
 
 Uses:
-- Expanded keyword-based sentiment analysis (better than ML for domain-specific text)
+- Ensemble sentiment: keyword lexicon (primary) + RoBERTa model (confidence booster)
 - IndoBERT NER for entity extraction (cahya/bert-base-indonesian-NER)
 - Keyword-based category classification (well-defined domain categories)
 
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # ── Model singletons (lazy-loaded) ────────────────────────────────
 
 _ner_model = None
+_sentiment_model = None
 
 
 def _load_ner():
@@ -44,7 +45,28 @@ def _load_ner():
         _ner_model = None
 
 
-# ── Sentiment Analysis (expanded keyword-based) ───────────────────
+def _load_sentiment():
+    """Load RoBERTa sentiment model on first use."""
+    global _sentiment_model
+    if _sentiment_model is not None:
+        return
+    try:
+        from transformers import pipeline
+
+        logger.info("Loading RoBERTa sentiment model...")
+        _sentiment_model = pipeline(
+            "sentiment-analysis",
+            model="w11wo/indonesian-roberta-base-sentiment-classifier",
+            tokenizer="w11wo/indonesian-roberta-base-sentiment-classifier",
+            top_k=None,  # return all class scores
+        )
+        logger.info("RoBERTa sentiment model loaded!")
+    except Exception as e:
+        logger.warning(f"Failed to load sentiment model: {e}")
+        _sentiment_model = None
+
+
+# ── Sentiment Analysis ────────────────────────────────────────────
 
 # Comprehensive Indonesian financial/political sentiment lexicon
 _POSITIVE_WORDS = [
@@ -79,6 +101,16 @@ _NEGATIVE_WORDS = [
 # Negation words that flip sentiment
 _NEGATION_WORDS = ["tidak", "bukan", "belum", "tanpa", "tak", "jangan", "bukanlah"]
 
+# Multi-word phrases
+_POSITIVE_PHRASES = [
+    "menunjukkan peningkatan", "kinerja positif", "prospek cerah",
+    "tumbuh signifikan", "berpotensi naik",
+]
+_NEGATIVE_PHRASES = [
+    "menurun tajam", "berpotensi turun", "risiko tinggi",
+    "ancaman serius", "dampak negatif",
+]
+
 
 def _keyword_sentiment(text: str) -> tuple[str, float, float]:
     """Enhanced keyword-based sentiment with negation handling."""
@@ -108,13 +140,11 @@ def _keyword_sentiment(text: str) -> tuple[str, float, float]:
                 neg_count += 1
 
     # Also check multi-word phrases
-    for phrase in ["menunjukkan peningkatan", "kinerja positif", "prospek cerah",
-                    "tumbuh signifikan", "berpotensi naik"]:
+    for phrase in _POSITIVE_PHRASES:
         if phrase in text_lower:
             pos_count += 1
 
-    for phrase in ["menurun tajam", "berpotensi turun", "risiko tinggi",
-                    "ancaman serius", "dampak negatif"]:
+    for phrase in _NEGATIVE_PHRASES:
         if phrase in text_lower:
             neg_count += 1
 
@@ -132,16 +162,95 @@ def _keyword_sentiment(text: str) -> tuple[str, float, float]:
     return "neutral", round(score, 3), round(confidence, 3)
 
 
+def _model_sentiment(text: str) -> tuple[str, float, float] | None:
+    """Run the RoBERTa sentiment model. Returns (label, score, confidence) or None if unavailable."""
+    _load_sentiment()
+    if _sentiment_model is None:
+        return None
+
+    try:
+        results = _sentiment_model(text[:512])
+        # results is [[{'label': 'positive', 'score': 0.9}, {'label': 'negative', 'score': 0.05}, ...]]
+        if not results or not results[0]:
+            return None
+
+        scores = {r["label"].lower(): r["score"] for r in results[0]}
+        pos = scores.get("positive", 0.0)
+        neg = scores.get("negative", 0.0)
+        neu = scores.get("neutral", 0.0)
+
+        # Convert to -1..+1 score
+        score = pos - neg
+        # Confidence = how dominant the top class is
+        max_score = max(pos, neg, neu)
+        confidence = max_score
+
+        # Label from highest score
+        if pos > neg and pos > neu:
+            label = "positive"
+        elif neg > pos and neg > neu:
+            label = "negative"
+        else:
+            label = "neutral"
+
+        return label, round(score, 3), round(confidence, 3)
+
+    except Exception as e:
+        logger.warning(f"Sentiment model inference failed: {e}")
+        return None
+
+
+def _ensemble_sentiment(text: str) -> tuple[str, float, float]:
+    """Ensemble sentiment: keywords are PRIMARY, model only adjusts confidence.
+
+    Strategy:
+    - Keywords determine the label and score (domain-tuned for Indonesian finance)
+    - Model is used ONLY to adjust confidence:
+      * Agreement → boost confidence (+0.12)
+      * Disagreement → slight confidence penalty (-0.05)
+      * Model unavailable → use keywords as-is
+    - This prevents the model (trained on general text) from overriding
+      domain-specific keyword signals like "turun" (bearish) or "dorong" (bullish)
+    """
+    kw_label, kw_score, kw_conf = _keyword_sentiment(text)
+    ml_result = _model_sentiment(text)
+
+    # Model not available — use keywords only
+    if ml_result is None:
+        return kw_label, kw_score, kw_conf
+
+    ml_label, ml_score, ml_conf = ml_result
+
+    # Both agree → boost confidence
+    if kw_label == ml_label:
+        boosted_conf = min(1.0, max(kw_conf, ml_conf) + 0.12)
+        return kw_label, kw_score, round(boosted_conf, 3)
+
+    # Model says neutral, keywords have a clear signal → keep keywords, small penalty
+    if ml_label == "neutral" and kw_label != "neutral":
+        return kw_label, kw_score, round(max(0.2, kw_conf - 0.05), 3)
+
+    # Keywords say neutral, model has a signal → keep keywords (domain priority)
+    if kw_label == "neutral" and ml_label != "neutral":
+        return kw_label, kw_score, round(max(0.2, kw_conf - 0.03), 3)
+
+    # Full disagreement (positive vs negative) → keep keywords, penalty
+    return kw_label, kw_score, round(max(0.2, kw_conf - 0.08), 3)
+
+
 @lru_cache(maxsize=512)
 def analyze_sentiment_ml(text: str) -> tuple[str, float, float]:
-    """Sentiment analysis. Uses expanded keyword lexicon with negation handling.
+    """Sentiment analysis. Ensemble of keyword lexicon + RoBERTa model.
+
+    Keywords are the primary signal (domain-tuned for Indonesian finance).
+    The RoBERTa model adjusts confidence: agreement boosts, disagreement penalizes.
 
     Returns (label, score, confidence).
     label: 'positive', 'negative', 'neutral'
     score: -1.0 to 1.0
     confidence: 0.0 to 1.0
     """
-    return _keyword_sentiment(text)
+    return _ensemble_sentiment(text)
 
 
 # ── Named Entity Recognition ──────────────────────────────────────
@@ -271,21 +380,25 @@ def analyze_article_nlp(title: str, text: str = "") -> dict[str, Any]:
         "sentiment_confidence": sentiment_confidence,
         "entities": entities,
         "categories": categories,
-        "nlp_method": "indobert-ner" if _ner_model is not None else "keyword+regex",
+        "nlp_method": f"ensemble(keyword+roberta)+{'indobert-ner' if _ner_model is not None else 'regex'}",
     }
 
 
 def get_nlp_status() -> dict[str, Any]:
     """Return current NLP model status for dashboard display."""
     ner_loaded = _ner_model is not None
+    sentiment_loaded = _sentiment_model is not None
     return {
-        "sentiment_engine": "expanded_keyword_v2",
+        "sentiment_engine": "ensemble_keyword_roberta" if sentiment_loaded else "expanded_keyword_v2",
+        "sentiment_model": "w11wo/indonesian-roberta-base-sentiment-classifier" if sentiment_loaded else None,
+        "sentiment_model_loaded": sentiment_loaded,
         "ner_model": "cahya/bert-base-indonesian-NER" if ner_loaded else "regex_fallback",
         "ner_loaded": ner_loaded,
         "features": [
             "expanded_lexicon",
             "negation_handling",
             "multi_word_phrases",
+            "roberta_sentiment" if sentiment_loaded else "keyword_only_sentiment",
             "indobert_ner" if ner_loaded else "regex_entities",
         ],
         "cache_size": analyze_sentiment_ml.cache_info().currsize if hasattr(analyze_sentiment_ml, 'cache_info') else 0,
