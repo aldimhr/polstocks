@@ -156,6 +156,15 @@ def build_stock_relationships(
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
+
+        # Confidence floor filter — only downgrade when sentiment AND direction are both weak
+        # This targets the specific false-positive pattern: neutral sentiment + low-confidence positive direction
+        CONFIDENCE_FLOOR_FOR_DIRECTION = 0.25
+        if relationship_confidence < CONFIDENCE_FLOOR_FOR_DIRECTION and impact_direction in ("positive", "negative"):
+            if article_sentiment == "neutral":
+                impact_direction = "neutral"
+                direction = {**direction, "impact_direction": "neutral", "direction_rationale": f"downgraded: confidence {relationship_confidence:.3f} < {CONFIDENCE_FLOOR_FOR_DIRECTION} with neutral sentiment"}
+
         if evidence_quality < MIN_EVIDENCE_QUALITY or score < MIN_RELATIONSHIP_SCORE:
             continue
 
