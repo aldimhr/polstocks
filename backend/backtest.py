@@ -74,6 +74,16 @@ def init_backtest_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_predictions_published
                 ON predictions(published_at);
         """)
+        # Add new columns for robustness signals (safe if already exist)
+        for col, typ in [
+            ("market_context_factor", "REAL"),
+            ("volume_signal", "REAL"),
+            ("source_type_count", "INTEGER"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
         conn.commit()
     finally:
         conn.close()
@@ -95,6 +105,9 @@ def record_prediction(
     source_type: str = "",
     event_stage: str = "",
     price_at_event: float | None = None,
+    market_context_factor: float | None = None,
+    volume_signal: float | None = None,
+    source_type_count: int | None = None,
 ) -> bool:
     """Insert a prediction. Returns True if inserted, False if duplicate."""
     conn = _get_conn()
@@ -104,14 +117,16 @@ def record_prediction(
                (event_id, event_headline, published_at, ticker,
                 predicted_direction, predicted_score, significance, confidence,
                 relationship_type, categories, source_type, event_stage,
-                price_at_event, outcome_status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                price_at_event, outcome_status,
+                market_context_factor, volume_signal, source_type_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id, event_headline, published_at, ticker,
                 predicted_direction, round(predicted_score, 4), significance,
                 round(confidence, 4), relationship_type,
                 json.dumps(categories or []), source_type, event_stage,
                 price_at_event, "pending",
+                market_context_factor, volume_signal, source_type_count,
             ),
         )
         conn.commit()
@@ -174,6 +189,9 @@ def record_predictions_from_events(events: list[dict[str, Any]], stock_quotes: d
                 source_type=source_type,
                 event_stage=event_stage,
                 price_at_event=price_at,
+                market_context_factor=rel.get("market_context_factor"),
+                volume_signal=rel.get("volume_signal"),
+                source_type_count=rel.get("corroboration_source_type_count"),
             )
             if ok:
                 count += 1

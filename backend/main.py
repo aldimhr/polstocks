@@ -3327,6 +3327,16 @@ def build_stock_relationships(
         if sentiment_confidence < 0.4 and impact_direction in ("positive", "negative"):
             confidence *= 0.80
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
+
+        # Source diversity reward — multiple source types reporting the same event is a stronger signal
+        source_type_count = int(corroboration.get("corroboration_source_type_count", 1) or 1)
+        if source_type_count >= 3:
+            relationship_confidence = clamp(relationship_confidence * 1.12, 0.0, 1.0)
+        elif source_type_count >= 2:
+            relationship_confidence = clamp(relationship_confidence * 1.07, 0.0, 1.0)
+        elif impact_direction in ("positive", "negative"):
+            relationship_confidence = clamp(relationship_confidence * 0.95, 0.0, 1.0)
+
         evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
 
@@ -4127,6 +4137,23 @@ def build_refresh_payload(
 
     quotes, stock_warnings = stock_fetcher(watchlist)
     market_index, market_warnings = market_fetcher()
+
+    # Market context factor — flat market dampens directional predictions
+    ihsg_change = abs(float(market_index.get("change_pct") or 0.0))
+    if ihsg_change < 0.15:
+        market_context_factor = 0.82   # very flat market: strong dampening
+    elif ihsg_change < 0.30:
+        market_context_factor = 0.90   # flat market: moderate dampening
+    elif ihsg_change < 0.60:
+        market_context_factor = 0.95   # mild movement: slight dampening
+    elif ihsg_change > 1.5:
+        market_context_factor = 1.08   # strong trend: boost aligned signals
+    elif ihsg_change > 1.0:
+        market_context_factor = 1.04   # moderate trend: slight boost
+    else:
+        market_context_factor = 1.0    # normal market
+    ihsg_direction = "positive" if float(market_index.get("change_pct") or 0.0) > 0 else "negative"
+
     validation_warnings: list[str] = []
     validation_cache: dict[tuple[str, str], dict[str, Any]] = {}
     source_outcome_history = load_source_outcome_history()
@@ -4168,6 +4195,40 @@ def build_refresh_payload(
                 relationship["relationship_confidence"] = round(adjusted, 3)
                 relationship["confidence_label"] = relationship_confidence_label(adjusted, str(relationship.get("coverage_warning", "")))
                 relationship["validation_confidence_delta"] = round(adjusted - raw_confidence, 3)
+
+            # Volume anomaly signal — unusual volume after event = real market reaction
+            vol_ratio = float(relationship.get("abnormal_volume_ratio", 0.0) or 0.0)
+            vol_mult = 1.0
+            if vol_ratio > 3.0:
+                vol_mult = 1.12   # massive volume spike: strong signal
+            elif vol_ratio > 2.0:
+                vol_mult = 1.07   # significant volume spike
+            elif vol_ratio > 1.5:
+                vol_mult = 1.03   # moderate volume increase
+            elif vol_ratio < 0.4 and vol_ratio > 0:
+                vol_mult = 0.92   # volume dried up: event may be noise
+            if vol_mult != 1.0:
+                cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                adjusted_vol = clamp(cur_conf * vol_mult, 0.0, 1.0)
+                relationship["confidence"] = round(adjusted_vol, 3)
+                relationship["relationship_confidence"] = round(adjusted_vol, 3)
+                relationship["volume_signal"] = round(vol_mult, 3)
+
+            # Market context — flat market dampens directional predictions
+            rel_direction = str(relationship.get("impact_direction", "neutral"))
+            if rel_direction in ("positive", "negative") and market_context_factor != 1.0:
+                # For strong trends, only boost predictions that align with the trend
+                if market_context_factor > 1.0 and rel_direction == ihsg_direction:
+                    mkt_mult = market_context_factor
+                elif market_context_factor > 1.0:
+                    mkt_mult = 1.0  # counter-trend: no boost
+                else:
+                    mkt_mult = market_context_factor  # flat market: dampen all
+                cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                adjusted_mkt = clamp(cur_conf * mkt_mult, 0.0, 1.0)
+                relationship["confidence"] = round(adjusted_mkt, 3)
+                relationship["relationship_confidence"] = round(adjusted_mkt, 3)
+                relationship["market_context_factor"] = round(mkt_mult, 3)
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
                 validation_status,

@@ -154,6 +154,17 @@ def build_stock_relationships(
         if sentiment_confidence < 0.4 and impact_direction in ("positive", "negative"):
             confidence *= 0.80
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
+
+        # Source diversity reward — multiple source types reporting the same event is a stronger signal
+        source_type_count = int(corroboration.get("corroboration_source_type_count", 1) or 1)
+        if source_type_count >= 3:
+            relationship_confidence = clamp(relationship_confidence * 1.12, 0.0, 1.0)  # 3+ types: +12%
+        elif source_type_count >= 2:
+            relationship_confidence = clamp(relationship_confidence * 1.07, 0.0, 1.0)  # 2 types: +7%
+        elif impact_direction in ("positive", "negative"):
+            # Single source type + directional prediction = less trustworthy
+            relationship_confidence = clamp(relationship_confidence * 0.95, 0.0, 1.0)  # -5%
+
         evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
 
