@@ -1705,6 +1705,23 @@
   let volumeSeriesObj = null;
   const $ = (id) => document.getElementById(id);
 
+  // ── Error boundary wrapper ──
+  function safeRender(fn, containerId, label) {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[Error Boundary] ${label}:`, err);
+      const el = containerId ? $(containerId) : null;
+      if (el) {
+        el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;font-family:DM Mono,monospace;">' +
+          '<div style="font-size:20px;margin-bottom:8px;">⚠️</div>' +
+          `${label} temporarily unavailable` +
+          '<div style="margin-top:6px;font-size:10px;opacity:0.6;">' + (err.message || 'Unknown error') + '</div>' +
+          '</div>';
+      }
+    }
+  }
+
   // ── Toast system ──
   function showToast(message, type = 'info', duration = 3000) {
     const container = $('toastContainer');
@@ -2363,7 +2380,13 @@
       state.tickerModal.loading = false;
       state.tickerModal.data = data;
       state.tickerModal.window = windowValue;
-      renderTickerModal(data);
+      try {
+        renderTickerModal(data);
+      } catch (renderErr) {
+        console.error('[Error Boundary] Ticker modal:', renderErr);
+        $('tickerModalSub').textContent = 'Error loading chart';
+        $('tickerModalNote').textContent = renderErr.message || 'Unknown error';
+      }
     } catch (err) {
       if (state.tickerModal.ticker !== ticker) return;
       state.tickerModal.loading = false;
@@ -2832,19 +2855,19 @@
     $('m-highest').textContent = highest ? highest.ticker : '—';
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
-    renderStocks(sortStocksList(stocks, state.sortBy));
-    renderSourceHealth(payload, dashboardCues || payload.dashboard_cues || {});
-    renderTracking(payload.tracking || {});
-    renderReasoningSummary(payload.reasoning_summary || {});
-    renderDashboardCues(dashboardCues || payload.dashboard_cues || {}, payload);
+    safeRender(() => renderStocks(sortStocksList(stocks, state.sortBy)), 'stockBody', 'Stocks');
+    safeRender(() => renderSourceHealth(payload, dashboardCues || payload.dashboard_cues || {}), 'sourceHealthGrid', 'Source Health');
+    safeRender(() => renderTracking(payload.tracking || {}), 'trackingSummary', 'Tracking');
+    safeRender(() => renderReasoningSummary(payload.reasoning_summary || {}), 'reasoningStrip', 'Reasoning');
+    safeRender(() => renderDashboardCues(dashboardCues || payload.dashboard_cues || {}, payload), 'robustnessStrip', 'Dashboard Cues');
     state.allEvents = events;
     const filtered = filterEvents(events);
-    renderEvents(filtered);
+    safeRender(() => renderEvents(filtered), 'eventList', 'Events');
     updateFilterCount(events.length, filtered.length);
-    renderSectorGrid(payload.sector_summary || {});
-    renderSources(payload.sources || [], events);
-    renderMarketIndex(payload.market_index || {});
-    renderWatchlistEditor(watchlist);
+    safeRender(() => renderSectorGrid(payload.sector_summary || {}), 'sectorGrid', 'Sectors');
+    safeRender(() => renderSources(payload.sources || [], events), 'sourceTags', 'Sources');
+    safeRender(() => renderMarketIndex(payload.market_index || {}), 'ihsgChart', 'Market Index');
+    safeRender(() => renderWatchlistEditor(watchlist), 'watchlistChips', 'Watchlist');
     $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || 'last 24 hours'} · cache TTL 5 minutes`;
   }
 
@@ -2896,6 +2919,18 @@
       $('refreshBtn')?.classList.add('pulse');
       showToast(msg, 'error', 5000);
       updateConnectionDot();
+      if (state.failCount >= 3 && !state.payload) {
+        const errorHtml = '<div style="padding:48px 24px;text-align:center;color:var(--muted);font-family:DM Mono,monospace;">' +
+          '<div style="font-size:32px;margin-bottom:16px;">⚠️</div>' +
+          '<div style="font-size:14px;color:var(--text);margin-bottom:8px;">Dashboard unavailable</div>' +
+          '<div style="font-size:12px;opacity:0.6;">' + escapeHtml(msg) + '</div>' +
+          '<div style="margin-top:16px;font-size:11px;">Click <strong>Update</strong> to retry</div>' +
+          '</div>';
+        const stockBody = $('stockBody');
+        if (stockBody) stockBody.innerHTML = `<tr><td colspan="4">${errorHtml}</td></tr>`;
+        const eventList = $('eventList');
+        if (eventList) eventList.innerHTML = errorHtml;
+      }
     }
     state.loading = false;
     if (btnIcon) btnIcon.classList.remove('spinning');
