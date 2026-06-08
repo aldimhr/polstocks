@@ -4422,7 +4422,8 @@ def api_dashboard(window: str = DEFAULT_EVENT_WINDOW, user_id: int | None = None
         watchlist = get_watchlist()
     payload = build_refresh_payload(watchlist, force=False, window=window)
     dashboard_cues = build_dashboard_cues(payload)
-    return {"watchlist": watchlist, "reasoning_summary": payload.get("reasoning_summary", {}), "dashboard_cues": dashboard_cues, "payload": payload}
+    from backend.nlp import get_nlp_status
+    return {"watchlist": watchlist, "reasoning_summary": payload.get("reasoning_summary", {}), "dashboard_cues": dashboard_cues, "nlp_status": get_nlp_status(), "payload": payload}
 
 
 @app.get("/api/ticker/{ticker}")
@@ -4439,10 +4440,80 @@ def api_put_watchlist(payload: WatchlistRequest, user_id: int | None = None) -> 
     return {"tickers": tickers}
 
 
+@app.get("/api/alert_prefs")
+def api_get_alert_prefs(user_id: int | None = None) -> dict[str, Any]:
+    """Read alert preferences from the bot's SQLite database."""
+    defaults = {"alert_min_impact": 0, "alert_categories": [], "alert_quiet_start": -1, "alert_quiet_end": -1}
+    if user_id is None:
+        return defaults
+    conn = sqlite3.connect(str(BOT_DB_PATH))
+    try:
+        cur = conn.execute(
+            "SELECT alert_min_impact, alert_categories, alert_quiet_start, alert_quiet_end FROM users WHERE user_id = ?",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return defaults
+        cats = [c.strip().upper() for c in (row[1] or "").split(",") if c.strip()]
+        return {
+            "alert_min_impact": row[0] or 0,
+            "alert_categories": cats,
+            "alert_quiet_start": row[2] if row[2] is not None else -1,
+            "alert_quiet_end": row[3] if row[3] is not None else -1,
+        }
+    except Exception:
+        return defaults
+    finally:
+        conn.close()
+
+
+@app.put("/api/alert_prefs")
+def api_put_alert_prefs(payload: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
+    """Update alert preferences in the bot's SQLite database."""
+    if user_id is None:
+        return {"error": "user_id required"}
+    conn = sqlite3.connect(str(BOT_DB_PATH))
+    try:
+        # Ensure user exists
+        conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+        updates = []
+        params = []
+        if "alert_min_impact" in payload:
+            updates.append("alert_min_impact = ?")
+            params.append(float(payload["alert_min_impact"]))
+        if "alert_categories" in payload:
+            updates.append("alert_categories = ?")
+            cats = payload["alert_categories"]
+            params.append(",".join(cats) if isinstance(cats, list) else str(cats))
+        if "alert_quiet_start" in payload:
+            updates.append("alert_quiet_start = ?")
+            params.append(int(payload["alert_quiet_start"]))
+        if "alert_quiet_end" in payload:
+            updates.append("alert_quiet_end = ?")
+            params.append(int(payload["alert_quiet_end"]))
+        if updates:
+            params.append(user_id)
+            conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params)
+            conn.commit()
+        return {"ok": True, "user_id": user_id}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+
 @app.post("/api/refresh")
 def api_refresh(payload: RefreshRequest) -> JSONResponse:
     result = build_refresh_payload(payload.tickers, force=payload.force, window=payload.window)
     return JSONResponse(result)
+
+
+@app.get("/api/nlp_status")
+def api_nlp_status() -> dict[str, Any]:
+    """Return current NLP model status."""
+    from backend.nlp import get_nlp_status
+    return get_nlp_status()
 
 
 # ---------------------------------------------------------------------------

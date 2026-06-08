@@ -37,6 +37,7 @@ from backend.utils import (
     event_window_delta, text_similarity, is_stale_article,
     sector_for_ticker, company_name_for_ticker, article_text,
 )
+from backend.nlp import analyze_sentiment_ml, extract_entities_ml
 
 def score_political_relevance(article: dict[str, Any]) -> dict[str, Any]:
     text = article_text(article)
@@ -1261,18 +1262,8 @@ def dedupe_articles(articles: list[dict[str, Any]], window: str = DEFAULT_EVENT_
 
 
 def analyze_sentiment(text: str) -> tuple[str, float, float]:
-    text = text.lower()
-    positive_hits = sum(text.count(word) for word in ["naik", "positif", "dorong", "dukung", "stabil", "penguatan", "untung", "berhasil", "investasi", "pertumbuhan", "pemulihan"])
-    negative_hits = sum(text.count(word) for word in ["turun", "negatif", "tekan", "jatuh", "risiko", "krisis", "masalah", "korupsi", "batal", "melemah", "larang", "polemik"])
-    raw = positive_hits - negative_hits
-    if positive_hits == 0 and negative_hits == 0:
-        return "neutral", 0.0, 0.35
-    score = clamp(raw / max(positive_hits + negative_hits, 1), -1.0, 1.0)
-    if score > 0.12:
-        return "positive", score, min(1.0, 0.35 + 0.12 * positive_hits)
-    if score < -0.12:
-        return "negative", score, min(1.0, 0.35 + 0.12 * negative_hits)
-    return "neutral", score, 0.45
+    """Sentiment analysis using IndoBERT (with keyword fallback)."""
+    return analyze_sentiment_ml(text[:512])
 
 
 def classify_categories(text: str) -> list[str]:
@@ -1284,14 +1275,8 @@ def classify_categories(text: str) -> list[str]:
 
 
 def extract_entities(text: str) -> list[str]:
-    entities: list[str] = []
-    for ticker, info in STOCK_MASTER.items():
-        if any(alias in text for alias in info["aliases"]):
-            entities.append(info["name"])
-    for match in re.findall(r"\b[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{2,}){0,3}\b", text):
-        if match not in entities and len(match) > 3:
-            entities.append(match)
-    return entities[:12]
+    """Extract named entities using IndoBERT NER (with regex fallback)."""
+    return extract_entities_ml(text[:512])
 
 
 def sector_matches(text: str) -> set[str]:
