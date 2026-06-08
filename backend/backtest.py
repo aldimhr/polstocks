@@ -81,6 +81,12 @@ def init_backtest_db() -> None:
             ("source_type_count", "INTEGER"),
             ("rsi_value", "REAL"),
             ("rsi_factor", "REAL"),
+            ("macd_histogram", "REAL"),
+            ("macd_factor", "REAL"),
+            ("sma_trend", "TEXT"),
+            ("trend_factor", "REAL"),
+            ("event_cluster_count", "INTEGER"),
+            ("event_cluster_factor", "REAL"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
@@ -112,6 +118,12 @@ def record_prediction(
     source_type_count: int | None = None,
     rsi_value: float | None = None,
     rsi_factor: float | None = None,
+    macd_histogram: float | None = None,
+    macd_factor: float | None = None,
+    sma_trend: str | None = None,
+    trend_factor: float | None = None,
+    event_cluster_count: int | None = None,
+    event_cluster_factor: float | None = None,
 ) -> bool:
     """Insert a prediction. Returns True if inserted, False if duplicate."""
     conn = _get_conn()
@@ -123,8 +135,10 @@ def record_prediction(
                 relationship_type, categories, source_type, event_stage,
                 price_at_event, outcome_status,
                 market_context_factor, volume_signal, source_type_count,
-                rsi_value, rsi_factor)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rsi_value, rsi_factor,
+                macd_histogram, macd_factor, sma_trend, trend_factor,
+                event_cluster_count, event_cluster_factor)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id, event_headline, published_at, ticker,
                 predicted_direction, round(predicted_score, 4), significance,
@@ -133,6 +147,8 @@ def record_prediction(
                 price_at_event, "pending",
                 market_context_factor, volume_signal, source_type_count,
                 rsi_value, rsi_factor,
+                macd_histogram, macd_factor, sma_trend, trend_factor,
+                event_cluster_count, event_cluster_factor,
             ),
         )
         conn.commit()
@@ -200,6 +216,12 @@ def record_predictions_from_events(events: list[dict[str, Any]], stock_quotes: d
                 source_type_count=rel.get("corroboration_source_type_count"),
                 rsi_value=rel.get("rsi_value"),
                 rsi_factor=rel.get("rsi_factor"),
+                macd_histogram=rel.get("macd_histogram"),
+                macd_factor=rel.get("macd_factor"),
+                sma_trend=rel.get("sma_trend"),
+                trend_factor=rel.get("trend_factor"),
+                event_cluster_count=rel.get("event_cluster_count"),
+                event_cluster_factor=rel.get("event_cluster_factor"),
             )
             if ok:
                 count += 1

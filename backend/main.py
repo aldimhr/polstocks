@@ -2003,6 +2003,68 @@ def compute_rsi(closes: list[float], period: int = 14) -> float | None:
     return round(100.0 - (100.0 / (1.0 + rs)), 2)
 
 
+def _ema(values: list[float], period: int) -> list[float]:
+    """Compute Exponential Moving Average series."""
+    if len(values) < period:
+        return []
+    multiplier = 2.0 / (period + 1)
+    ema_series = [sum(values[:period]) / period]
+    for v in values[period:]:
+        ema_series.append((v - ema_series[-1]) * multiplier + ema_series[-1])
+    return ema_series
+
+
+def compute_macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, float] | None:
+    """Compute MACD. Returns dict with 'macd', 'signal', 'histogram'."""
+    if len(closes) < slow + signal:
+        return None
+    ema_fast = _ema(closes, fast)
+    ema_slow = _ema(closes, slow)
+    offset = len(ema_fast) - len(ema_slow)
+    macd_line = [f - s for f, s in zip(ema_fast[offset:], ema_slow)]
+    if len(macd_line) < signal:
+        return None
+    signal_line = _ema(macd_line, signal)
+    if not signal_line:
+        return None
+    histogram = macd_line[-1] - signal_line[-1]
+    return {
+        "macd": round(macd_line[-1], 4),
+        "signal": round(signal_line[-1], 4),
+        "histogram": round(histogram, 4),
+    }
+
+
+def compute_sma(closes: list[float], period: int) -> float | None:
+    """Compute Simple Moving Average."""
+    if len(closes) < period:
+        return None
+    return round(sum(closes[-period:]) / period, 4)
+
+
+def compute_trend(closes: list[float]) -> dict[str, Any] | None:
+    """Compute trend indicators: SMA20, SMA50, crossover signal."""
+    sma20 = compute_sma(closes, 20)
+    sma50 = compute_sma(closes, 50)
+    if sma20 is None or sma50 is None:
+        return None
+    current_price = closes[-1]
+    if sma20 > sma50:
+        trend = "bullish"
+        strength = (sma20 - sma50) / sma50
+    elif sma20 < sma50:
+        trend = "bearish"
+        strength = (sma50 - sma20) / sma50
+    else:
+        trend = "neutral"
+        strength = 0.0
+    return {
+        "sma20": sma20, "sma50": sma50, "price": round(current_price, 2),
+        "above_sma20": current_price > sma20, "above_sma50": current_price > sma50,
+        "trend": trend, "trend_strength": round(strength, 4),
+    }
+
+
 def fetch_live_quote(ticker: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker)}?range=1d&interval=1d&includePrePost=false&events=div,splits"
     response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
@@ -4183,19 +4245,34 @@ def build_refresh_payload(
         market_context_factor = 1.0    # normal market
     ihsg_direction = "positive" if float(market_index.get("change_pct") or 0.0) > 0 else "negative"
 
-    # Fetch RSI for each watchlist stock (concurrent)
+    # Fetch RSI, MACD, and SMA for each watchlist stock (concurrent)
     rsi_cache: dict[str, float | None] = {}
-    def _fetch_rsi(ticker: str) -> tuple[str, float | None]:
+    macd_cache: dict[str, dict[str, float] | None] = {}
+    trend_cache: dict[str, dict[str, Any] | None] = {}
+    def _fetch_indicators(ticker: str) -> tuple[str, float | None, dict | None, dict | None]:
         try:
-            hist = fetch_ticker_history(ticker, "30d")
+            hist = fetch_ticker_history(ticker, "6mo")
             closes = hist.get("series", [])
-            prices = [float(p["value"]) for p in closes if p.get("value") is not None]
-            return ticker, compute_rsi(prices)
+            prices = [float(p) for p in closes if p is not None]
+            rsi = compute_rsi(prices)
+            macd = compute_macd(prices) if len(prices) >= 35 else None
+            trend = compute_trend(prices) if len(prices) >= 50 else None
+            return ticker, rsi, macd, trend
         except Exception:
-            return ticker, None
+            return ticker, None, None, None
     with ThreadPoolExecutor(max_workers=min(len(watchlist), 5)) as pool:
-        for ticker, rsi in pool.map(lambda t: _fetch_rsi(t), watchlist):
+        for ticker, rsi, macd, trend in pool.map(lambda t: _fetch_indicators(t), watchlist):
             rsi_cache[ticker] = rsi
+            macd_cache[ticker] = macd
+            trend_cache[ticker] = trend
+
+    # Event clustering: count events per ticker for confidence boost
+    ticker_event_counts: dict[str, int] = {}
+    for event in events:
+        for rel in event.get("stock_relationships", []):
+            t = normalize_ticker(rel.get("ticker", ""))
+            if t:
+                ticker_event_counts[t] = ticker_event_counts.get(t, 0) + 1
 
     validation_warnings: list[str] = []
     validation_cache: dict[tuple[str, str], dict[str, Any]] = {}
@@ -4304,6 +4381,68 @@ def build_refresh_payload(
                     relationship["rsi_value"] = round(rsi_val, 1)
                     relationship["rsi_factor"] = round(rsi_mult, 3)
 
+            # MACD signal — trend momentum confirmation/conflict
+            macd_data = macd_cache.get(ticker_for_rsi)
+            if macd_data is not None and rel_direction in ("positive", "negative"):
+                macd_mult = 1.0
+                hist = macd_data["histogram"]
+                if rel_direction == "positive":
+                    if hist > 0:
+                        macd_mult = 1.06   # MACD bullish alignment
+                    elif hist < 0:
+                        macd_mult = 0.94   # MACD bearish conflict
+                elif rel_direction == "negative":
+                    if hist < 0:
+                        macd_mult = 1.06   # MACD bearish alignment
+                    elif hist > 0:
+                        macd_mult = 0.94   # MACD bullish conflict
+                if macd_mult != 1.0:
+                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                    adjusted_macd = clamp(cur_conf * macd_mult, 0.0, 1.0)
+                    relationship["confidence"] = round(adjusted_macd, 3)
+                    relationship["relationship_confidence"] = round(adjusted_macd, 3)
+                    relationship["macd_histogram"] = round(hist, 4)
+                    relationship["macd_factor"] = round(macd_mult, 3)
+
+            # SMA trend signal — trend direction confirmation/conflict
+            trend_data = trend_cache.get(ticker_for_rsi)
+            if trend_data is not None and rel_direction in ("positive", "negative"):
+                trend_mult = 1.0
+                stock_trend = trend_data["trend"]
+                if rel_direction == "positive":
+                    if stock_trend == "bullish":
+                        trend_mult = 1.05   # aligned with uptrend
+                    elif stock_trend == "bearish":
+                        trend_mult = 0.93   # fighting the downtrend
+                elif rel_direction == "negative":
+                    if stock_trend == "bearish":
+                        trend_mult = 1.05   # aligned with downtrend
+                    elif stock_trend == "bullish":
+                        trend_mult = 0.93   # fighting the uptrend
+                if trend_mult != 1.0:
+                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                    adjusted_trend = clamp(cur_conf * trend_mult, 0.0, 1.0)
+                    relationship["confidence"] = round(adjusted_trend, 3)
+                    relationship["relationship_confidence"] = round(adjusted_trend, 3)
+                    relationship["sma_trend"] = stock_trend
+                    relationship["trend_factor"] = round(trend_mult, 3)
+
+            # Event clustering — multiple events about same ticker = stronger signal
+            event_count = ticker_event_counts.get(ticker_for_rsi, 0)
+            if event_count >= 3:
+                cluster_mult = 1.10   # 3+ events: strong clustering boost
+            elif event_count >= 2:
+                cluster_mult = 1.05   # 2 events: moderate boost
+            else:
+                cluster_mult = 1.0
+            if cluster_mult != 1.0:
+                cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                adjusted_cluster = clamp(cur_conf * cluster_mult, 0.0, 1.0)
+                relationship["confidence"] = round(adjusted_cluster, 3)
+                relationship["relationship_confidence"] = round(adjusted_cluster, 3)
+                relationship["event_cluster_count"] = event_count
+                relationship["event_cluster_factor"] = round(cluster_mult, 3)
+
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
                 validation_status,
@@ -4411,6 +4550,12 @@ def build_refresh_payload(
                 "source": (quote or {}).get("source", "unavailable"),
                 "rsi_value": rsi_cache.get(ticker),
                 "rsi_factor": strongest_link[1].get("rsi_factor", 1.0) if strongest_link else 1.0,
+                "macd": macd_cache.get(ticker),
+                "macd_factor": strongest_link[1].get("macd_factor", 1.0) if strongest_link else 1.0,
+                "trend": trend_cache.get(ticker),
+                "trend_factor": strongest_link[1].get("trend_factor", 1.0) if strongest_link else 1.0,
+                "event_cluster_count": ticker_event_counts.get(ticker, 0),
+                "event_cluster_factor": strongest_link[1].get("event_cluster_factor", 1.0) if strongest_link else 1.0,
             }
         )
     stocks = sort_stocks_by_impact(stocks)
@@ -4599,7 +4744,19 @@ def api_dashboard(window: str = DEFAULT_EVENT_WINDOW, user_id: int | None = None
 
 @app.get("/api/ticker/{ticker}")
 def api_ticker_detail(ticker: str, window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
-    return fetch_ticker_history(ticker, window)
+    data = fetch_ticker_history(ticker, window)
+    # Add technical indicators to response
+    closes = data.get("series", [])
+    prices = [p for p in closes if p is not None]
+    if len(prices) >= 35:
+        macd = compute_macd(prices)
+        if macd:
+            data["macd"] = macd
+    if len(prices) >= 50:
+        trend = compute_trend(prices)
+        if trend:
+            data["trend"] = trend
+    return data
 
 
 @app.put("/api/watchlist")

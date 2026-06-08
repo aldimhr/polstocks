@@ -53,6 +53,88 @@ def compute_rsi(closes: list[float], period: int = 14) -> float | None:
     return round(100.0 - (100.0 / (1.0 + rs)), 2)
 
 
+def _ema(values: list[float], period: int) -> list[float]:
+    """Compute Exponential Moving Average series."""
+    if len(values) < period:
+        return []
+    multiplier = 2.0 / (period + 1)
+    ema_series = [sum(values[:period]) / period]
+    for v in values[period:]:
+        ema_series.append((v - ema_series[-1]) * multiplier + ema_series[-1])
+    return ema_series
+
+
+def compute_macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, float] | None:
+    """Compute MACD (Moving Average Convergence Divergence).
+
+    Args:
+        closes: closing prices in chronological order
+        fast: fast EMA period (default 12)
+        slow: slow EMA period (default 26)
+        signal: signal line EMA period (default 9)
+
+    Returns:
+        dict with 'macd', 'signal', 'histogram' values, or None if insufficient data
+    """
+    if len(closes) < slow + signal:
+        return None
+    ema_fast = _ema(closes, fast)
+    ema_slow = _ema(closes, slow)
+    # Align: ema_fast has (slow - fast) more values at the start
+    offset = len(ema_fast) - len(ema_slow)
+    macd_line = [f - s for f, s in zip(ema_fast[offset:], ema_slow)]
+    if len(macd_line) < signal:
+        return None
+    signal_line = _ema(macd_line, signal)
+    if not signal_line:
+        return None
+    offset2 = len(macd_line) - len(signal_line)
+    histogram = macd_line[-1] - signal_line[-1]
+    return {
+        "macd": round(macd_line[-1], 4),
+        "signal": round(signal_line[-1], 4),
+        "histogram": round(histogram, 4),
+    }
+
+
+def compute_sma(closes: list[float], period: int) -> float | None:
+    """Compute Simple Moving Average for the last `period` values."""
+    if len(closes) < period:
+        return None
+    return round(sum(closes[-period:]) / period, 4)
+
+
+def compute_trend(closes: list[float]) -> dict[str, Any] | None:
+    """Compute trend indicators: SMA20, SMA50, crossover signal.
+
+    Returns:
+        dict with sma20, sma50, trend ('bullish','bearish','neutral'), trend_strength
+    """
+    sma20 = compute_sma(closes, 20)
+    sma50 = compute_sma(closes, 50)
+    if sma20 is None or sma50 is None:
+        return None
+    current_price = closes[-1]
+    if sma20 > sma50:
+        trend = "bullish"
+        strength = (sma20 - sma50) / sma50
+    elif sma20 < sma50:
+        trend = "bearish"
+        strength = (sma50 - sma20) / sma50
+    else:
+        trend = "neutral"
+        strength = 0.0
+    return {
+        "sma20": sma20,
+        "sma50": sma50,
+        "price": round(current_price, 2),
+        "above_sma20": current_price > sma20,
+        "above_sma50": current_price > sma50,
+        "trend": trend,
+        "trend_strength": round(strength, 4),
+    }
+
+
 def fetch_live_quote(ticker: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker)}?range=1d&interval=1d&includePrePost=false&events=div,splits"
     response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
