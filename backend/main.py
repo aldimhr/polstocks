@@ -2508,18 +2508,9 @@ def validate_market_reaction(
 
 
 def analyze_sentiment(text: str) -> tuple[str, float, float]:
-    text = text.lower()
-    positive_hits = sum(text.count(word) for word in ["naik", "positif", "dorong", "dukung", "stabil", "penguatan", "untung", "berhasil", "investasi", "pertumbuhan", "pemulihan"])
-    negative_hits = sum(text.count(word) for word in ["turun", "negatif", "tekan", "jatuh", "risiko", "krisis", "masalah", "korupsi", "batal", "melemah", "larang", "polemik"])
-    raw = positive_hits - negative_hits
-    if positive_hits == 0 and negative_hits == 0:
-        return "neutral", 0.0, 0.35
-    score = clamp(raw / max(positive_hits + negative_hits, 1), -1.0, 1.0)
-    if score > 0.12:
-        return "positive", score, min(1.0, 0.35 + 0.12 * positive_hits)
-    if score < -0.12:
-        return "negative", score, min(1.0, 0.35 + 0.12 * negative_hits)
-    return "neutral", score, 0.45
+    """Sentiment analysis using expanded keyword lexicon (via nlp module)."""
+    from backend.nlp import analyze_sentiment_ml
+    return analyze_sentiment_ml(text[:512])
 
 
 def classify_categories(text: str) -> list[str]:
@@ -2531,14 +2522,9 @@ def classify_categories(text: str) -> list[str]:
 
 
 def extract_entities(text: str) -> list[str]:
-    entities: list[str] = []
-    for ticker, info in STOCK_MASTER.items():
-        if any(alias in text for alias in info["aliases"]):
-            entities.append(info["name"])
-    for match in re.findall(r"\b[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{2,}){0,3}\b", text):
-        if match not in entities and len(match) > 3:
-            entities.append(match)
-    return entities[:12]
+    """Extract named entities using IndoBERT NER (via nlp module)."""
+    from backend.nlp import extract_entities_ml
+    return extract_entities_ml(text[:512])
 
 
 def sector_matches(text: str) -> set[str]:
@@ -3411,12 +3397,14 @@ def build_stock_relationships(
 
 def analyze_article(article: dict[str, Any], watchlist: list[str], window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     text = article_text(article)
+    # Original-case text for NER (article_text lowercases, which breaks NER)
+    ner_text = " ".join(p for p in [article.get("headline", ""), article.get("summary", ""), article.get("source", "")] if p)
     relevance = score_political_relevance(article)
     stage = detect_event_stage(text)
     reversal = detect_negation_or_reversal(text)
     sentiment, sentiment_score, sentiment_confidence = analyze_sentiment(text)
     categories = classify_categories(text)
-    entities = extract_entities(text)
+    entities = extract_entities(ner_text)
     sector_hits = sector_matches(text)
     for category in categories:
         sector_hits.update(CATEGORY_TO_SECTORS.get(category, []))
@@ -3473,6 +3461,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         **article_context,
         "sentiment": sentiment,
         "sentiment_score": round(sentiment_score, 3),
+        "sentiment_confidence": round(sentiment_confidence, 3),
         "relevance_score": relevance.get("relevance_score", 0.0),
         "relevance_label": relevance.get("relevance_label", "not_political"),
         "relevance_signals": relevance.get("relevance_signals", {}),
@@ -4271,6 +4260,8 @@ def build_refresh_payload(
                 "categories": event.get("categories", []),
                 "sentiment": event.get("sentiment", "neutral"),
                 "sentiment_score": event.get("sentiment_score", 0.0),
+                "sentiment_confidence": event.get("sentiment_confidence", 0.0),
+                "entities": event.get("entities", []),
                 "impacted_sectors": event.get("impacted_sectors", []),
                 "impacted_tickers": event.get("impacted_tickers", []),
                 "policy_themes": event.get("policy_themes", []),

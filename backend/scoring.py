@@ -303,12 +303,14 @@ def relationship_confidence_label(confidence: float, coverage_warning: str = "")
 
 def analyze_article(article: dict[str, Any], watchlist: list[str], window: str = DEFAULT_EVENT_WINDOW) -> dict[str, Any]:
     text = article_text(article)
+    # Original-case text for NER (article_text lowercases, which breaks NER)
+    ner_text = " ".join(p for p in [article.get("headline", ""), article.get("summary", ""), article.get("source", "")] if p)
     relevance = score_political_relevance(article)
     stage = detect_event_stage(text)
     reversal = detect_negation_or_reversal(text)
     sentiment, sentiment_score, sentiment_confidence = analyze_sentiment(text)
     categories = classify_categories(text)
-    entities = extract_entities(text)
+    entities = extract_entities(ner_text)
     sector_hits = sector_matches(text)
     for category in categories:
         sector_hits.update(CATEGORY_TO_SECTORS.get(category, []))
@@ -366,6 +368,7 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         **article_context,
         "sentiment": sentiment,
         "sentiment_score": round(sentiment_score, 3),
+        "sentiment_confidence": round(sentiment_confidence, 3),
         "relevance_score": relevance.get("relevance_score", 0.0),
         "relevance_label": relevance.get("relevance_label", "not_political"),
         "relevance_signals": relevance.get("relevance_signals", {}),
