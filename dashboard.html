@@ -1196,6 +1196,21 @@
         <div class="robustness-strip-headline">Loading robustness cues…</div>
         <div class="reasoning-chips"><span class="reasoning-chip muted">Waiting for robustness metadata</span></div>
       </div>
+
+      <div class="event-search-bar">
+        <input id="eventSearch" class="event-search-input" type="text" placeholder="Search events by headline, category, or ticker…">
+        <div class="filter-chips" id="filterChips">
+          <button class="filter-chip active" data-filter="all">All</button>
+          <button class="filter-chip" data-filter="REGULATION">Regulation</button>
+          <button class="filter-chip" data-filter="ENERGY">Energy</button>
+          <button class="filter-chip" data-filter="TRADE">Trade</button>
+          <button class="filter-chip" data-filter="MONETARY">Monetary</button>
+          <button class="filter-chip" data-filter="CORRUPTION">Corruption</button>
+          <button class="filter-chip" data-filter="BUDGET">Budget</button>
+          <button class="filter-chip" data-filter="INVESTMENT">Investment</button>
+        </div>
+        <div class="filter-count" id="filterCount"></div>
+      </div>
       <div class="event-list" id="eventList">
         <div class="event-item">Loading live events…</div>
       </div>
@@ -1235,6 +1250,18 @@
       </div>
     </div>
 
+  </div>
+
+
+  <!-- Source health panel -->
+  <div class="card source-health-card" style="margin-top: 16px;">
+    <div class="card-header">
+      <span class="card-title">Source Health</span>
+      <span class="card-badge" id="sourceBadge">0 sources</span>
+    </div>
+    <div class="source-health-grid" id="sourceHealthGrid">
+      <div class="footer-note">Loading source data…</div>
+    </div>
   </div>
 
   <!-- Footer -->
@@ -1814,6 +1841,90 @@
     }
   }
 
+
+  function renderSourceHealth(payload, cues) {
+    const grid = $('sourceHealthGrid');
+    const badge = $('sourceBadge');
+    if (!grid) return;
+
+    // Aggregate sources from events
+    const events = payload.events || [];
+    const sourceMap = {};
+    for (const ev of events) {
+      const name = ev.source || 'Unknown';
+      if (!sourceMap[name]) {
+        sourceMap[name] = {
+          name: name,
+          source_type: ev.source_type || 'other',
+          freshness: ev.source_freshness_score || null,
+          quality: ev.source_quality_score || null,
+          fetch_status: ev.source_fetch_status || 'unknown',
+          count: 0,
+        };
+      }
+      sourceMap[name].count++;
+      // Update with latest scores
+      if (ev.source_freshness_score != null) sourceMap[name].freshness = ev.source_freshness_score;
+      if (ev.source_quality_score != null) sourceMap[name].quality = ev.source_quality_score;
+      if (ev.source_fetch_status) sourceMap[name].fetch_status = ev.source_fetch_status;
+    }
+
+    const sources = Object.values(sourceMap);
+    if (badge) badge.textContent = `${sources.length} sources`;
+
+    if (!sources.length) {
+      grid.innerHTML = '<div class="footer-note">No source data available</div>';
+      return;
+    }
+
+    // Add dashboard cues chips if available
+    let cueHtml = '';
+    if (cues && cues.chips && cues.chips.length) {
+      cueHtml = '<div style="grid-column:1/-1;margin-bottom:8px;">' +
+        cues.chips.map(c => {
+          const toneClass = c.tone === 'error' ? 'neg' : c.tone === 'warn' ? 'warn' : 'info';
+          return `<span class="reasoning-chip ${toneClass}">${escapeHtml(c.label)}</span>`;
+        }).join(' ') +
+        '</div>';
+    }
+
+    // Add counts if available
+    if (cues && cues.counts) {
+      const c = cues.counts;
+      const parts = [];
+      if (c.source_count) parts.push(`${c.source_count} active`);
+      if (c.fallback_source_count) parts.push(`${c.fallback_source_count} fallback`);
+      if (c.displayed_event_count) parts.push(`${c.displayed_event_count} events`);
+      if (parts.length) {
+        cueHtml += `<div style="grid-column:1/-1;margin-bottom:8px;font-size:12px;color:var(--muted2);font-family:'DM Mono',monospace;">${parts.join(' · ')}</div>`;
+      }
+    }
+
+    grid.innerHTML = cueHtml + sources.map(src => {
+      // Determine health status
+      let status = 'good';
+      const f = Number(src.freshness);
+      const q = Number(src.quality);
+      if (Number.isFinite(f) && f < 0.3) status = 'bad';
+      else if (Number.isFinite(f) && f < 0.6) status = 'warn';
+      else if (Number.isFinite(q) && q < 0.3) status = 'bad';
+      else if (Number.isFinite(q) && q < 0.5) status = 'warn';
+      if (src.fetch_status === 'error' || src.fetch_status === 'failed') status = 'bad';
+      if (src.fetch_status === 'stale') status = 'warn';
+
+      const scores = [];
+      if (Number.isFinite(f)) scores.push(`F:${f.toFixed(2)}`);
+      if (Number.isFinite(q)) scores.push(`Q:${q.toFixed(2)}`);
+      scores.push(src.fetch_status);
+
+      return `<div class="source-health-item">
+        <span class="source-health-dot ${status}"></span>
+        <span class="source-health-name" title="${escapeHtml(src.name)}">${escapeHtml(src.name)}</span>
+        <span class="source-health-scores">${scores.join(' · ')}</span>
+      </div>`;
+    }).join('');
+  }
+
   function renderStocks(stocks) {
     const body = $('stockBody');
     const rows = Array.isArray(stocks) ? stocks : [];
@@ -1861,6 +1972,7 @@
   function renderEvents(events) {
     const root = $('eventList');
     const rows = Array.isArray(events) ? events : [];
+    state.allEvents = rows.length ? (state.allEvents.length ? state.allEvents : rows) : state.allEvents;
     if (!rows.length) {
       root.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\u{1F5DE}</div><div class="empty-state-title">No events detected</div><div class="empty-state-hint">No political news matched in this time window. Try expanding to 7d or 30d, or check back later during active policy periods.</div></div>';
       return;
@@ -2050,10 +2162,14 @@
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
     renderStocks(stocks);
+    renderSourceHealth(payload, cues);
     renderTracking(payload.tracking || {});
     renderReasoningSummary(payload.reasoning_summary || {});
     renderDashboardCues(dashboardCues || payload.dashboard_cues || {}, payload);
-    renderEvents(events);
+    state.allEvents = events;
+    const filtered = filterEvents(events);
+    renderEvents(filtered);
+    updateFilterCount(events.length, filtered.length);
     renderSectorGrid(payload.sector_summary || {});
     renderSources(payload.sources || [], events);
     renderMarketIndex(payload.market_index || {});
@@ -2115,6 +2231,111 @@
   }
 
   function triggerRefresh() { $('refreshBtn')?.classList.remove('pulse'); loadDashboard(true); }
+
+  // ── Telegram Mini App theme integration ──
+  (function() {
+    let tgUser = null;
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'tg_init') return;
+      tgUser = data.user || null;
+      const params = data.themeParams || {};
+      const root = document.documentElement;
+      // Map Telegram theme params to our CSS variables
+      const mappings = {
+        bg_color: '--bg',
+        secondary_bg_color: '--surface',
+        text_color: '--text',
+        hint_color: '--muted',
+        button_color: '--accent',
+        link_color: '--blue',
+        destructive_text_color: '--red',
+      };
+      for (const [tgKey, cssVar] of Object.entries(mappings)) {
+        if (params[tgKey]) root.style.setProperty(cssVar, params[tgKey]);
+      }
+      // Derive surface2 and border from base colors
+      if (params.secondary_bg_color) {
+        root.style.setProperty('--surface2', params.secondary_bg_color);
+      }
+      // Show Telegram user badge if available
+      if (tgUser) {
+        const badge = document.createElement('div');
+        badge.style.cssText = 'position:fixed;top:8px;right:8px;z-index:9999;font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,0.08);color:var(--muted2);font-family:DM Mono,monospace;';
+        badge.textContent = '📱 ' + (tgUser.first_name || 'Telegram User');
+        document.body.appendChild(badge);
+      }
+    });
+  })();
+
+
+  // ── Event search & filter state ──
+  state.eventFilter = { text: '', category: 'all' };
+  state.allEvents = [];
+
+  function filterEvents(events) {
+    let filtered = events;
+    const text = (state.eventFilter.text || '').toLowerCase();
+    const cat = state.eventFilter.category || 'all';
+    if (text) {
+      filtered = filtered.filter(ev => {
+        const headline = (ev.headline || '').toLowerCase();
+        const tickers = (ev.impacted_tickers || []).join(' ').toLowerCase();
+        const cats = (ev.categories || []).join(' ').toLowerCase();
+        const themes = (ev.policy_themes || []).join(' ').toLowerCase();
+        return headline.includes(text) || tickers.includes(text) || cats.includes(text) || themes.includes(text);
+      });
+    }
+    if (cat !== 'all') {
+      filtered = filtered.filter(ev =>
+        (ev.categories || []).some(c => c.toUpperCase().includes(cat)) ||
+        (ev.policy_themes || []).some(t => t.toUpperCase().includes(cat))
+      );
+    }
+    return filtered;
+  }
+
+  function updateFilterCount(total, filtered) {
+    const el = $('filterCount');
+    if (!el) return;
+    if (total === filtered) {
+      el.textContent = '';
+    } else {
+      el.textContent = `Showing ${filtered} of ${total} events`;
+    }
+  }
+
+  function setupEventFilters() {
+    const searchInput = $('eventSearch');
+    let debounceTimer = null;
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          state.eventFilter.text = searchInput.value;
+          const filtered = filterEvents(state.allEvents);
+          renderEvents(filtered);
+          updateFilterCount(state.allEvents.length, filtered.length);
+        }, 300);
+      });
+    }
+    const chips = $('filterChips');
+    if (chips) {
+      chips.addEventListener('click', (e) => {
+        const chip = e.target.closest('.filter-chip');
+        if (!chip) return;
+        const filter = chip.dataset.filter;
+        state.eventFilter.category = filter;
+        // Update active state
+        chips.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const filtered = filterEvents(state.allEvents);
+        renderEvents(filtered);
+        updateFilterCount(state.allEvents.length, filtered.length);
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     // URL hash persistence — restore state from hash
     const hashWatchlist = readHash();
@@ -2167,6 +2388,7 @@
     if (hashWatchlist && hashWatchlist.length) {
       state.payload = { ...(state.payload || {}), watchlist: hashWatchlist };
     }
+    setupEventFilters();
     loadDashboard(false);
     startAutoRefresh();
     startStalenessBar();

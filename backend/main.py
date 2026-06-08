@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_FILE = PROJECT_ROOT / "dashboard.html"
+MINIAPP_FILE = PROJECT_ROOT / "miniapp.html"
 WATCHLIST_FILE = PROJECT_ROOT / "watchlist.json"
 COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
 POLICY_SIGNAL_RULES_FILE = PROJECT_ROOT / "policy_signal_rules.json"
@@ -4176,6 +4177,12 @@ def index() -> FileResponse:
     # Serve the dashboard file directly so the browser sees the exact UI
     # the user edited, without any backend rewriting or template wrapping.
     return FileResponse(FRONTEND_FILE, media_type="text/html", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/app", response_class=HTMLResponse)
+def miniapp() -> FileResponse:
+    """Telegram Mini App frontend."""
+    return FileResponse(MINIAPP_FILE, media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
 @app.head("/")
