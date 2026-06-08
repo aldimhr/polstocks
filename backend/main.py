@@ -4337,6 +4337,17 @@ def build_refresh_payload(
     # Persist to SQLite for cold-start recovery
     save_cache_to_db(cache_key, payload)
 
+    # Record predictions for backtest (fire-and-forget)
+    try:
+        from backend.backtest import record_predictions_from_events
+        threading.Thread(
+            target=record_predictions_from_events,
+            args=(formatted_events, quotes),
+            daemon=True,
+        ).start()
+    except Exception:
+        pass
+
     return payload
 
 
@@ -4507,6 +4518,13 @@ def api_nlp_status() -> dict[str, Any]:
     return get_nlp_status()
 
 
+@app.get("/api/backtest")
+def api_backtest(window_days: int = 30) -> dict[str, Any]:
+    """Return backtest accuracy metrics."""
+    from backend.backtest import compute_accuracy_metrics
+    return compute_accuracy_metrics(window_days=window_days)
+
+
 # ---------------------------------------------------------------------------
 # Runtime helpers
 # ---------------------------------------------------------------------------
@@ -4535,6 +4553,14 @@ def reset_runtime_state() -> None:
 def _prewarm_cache() -> None:
     """Initialize backend DB, load cached data, and warm the cache in background."""
     init_backend_db()
+    # Initialize backtest tables and start outcome resolver
+    try:
+        from backend.backtest import init_backtest_db, start_outcome_resolver
+        init_backtest_db()
+        start_outcome_resolver(interval_seconds=3600)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Backtest init failed: {e}")
     # Load persisted cache so dashboard has data immediately
     persisted = load_cache_from_db()
     if persisted:
