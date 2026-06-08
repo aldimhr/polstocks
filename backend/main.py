@@ -3358,18 +3358,15 @@ def build_stock_relationships(
         # Vagueness penalty — generic rhetoric should not carry high confidence
         if _was_vague:
             confidence *= 0.50
-        relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
+        # Article-level corroboration stored as metadata only (not in confidence).
+        # The group-level corroboration in apply_corroboration_to_events handles
+        # cross-event source validation — applying both would double-count.
+        relationship_confidence = clamp(confidence * source_confidence * redundancy_factor, 0.0, 1.0)
 
-        # Source diversity reward — multiple source types reporting the same event is a stronger signal
-        source_type_count = int(corroboration.get("corroboration_source_type_count", 1) or 1)
-        if source_type_count >= 3:
-            relationship_confidence = clamp(relationship_confidence * 1.12, 0.0, 1.0)
-        elif source_type_count >= 2:
-            relationship_confidence = clamp(relationship_confidence * 1.07, 0.0, 1.0)
-        elif impact_direction in ("positive", "negative"):
-            relationship_confidence = clamp(relationship_confidence * 0.95, 0.0, 1.0)
+        # NOTE: Source diversity reward removed — already captured in group-level
+        # corroboration multiplier (which includes source_type_count).
 
-        evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
+        evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor, 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
 
         # Confidence floor filter — only downgrade when sentiment AND direction are both weak
