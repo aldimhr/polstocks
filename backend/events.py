@@ -99,6 +99,23 @@ def build_stock_relationships(
         timing = max(1.0, min(5.0, 5.0 - recency_hours / max(6.0, event_window_delta(window).total_seconds() / 21600.0)))
         evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit, knowledge.get("evidence", []))
         direction = expected_direction_for_company(matched_themes or themes, matched_channels, knowledge)
+        # Vagueness penalty — downgrade generic government optimism to neutral
+        _VAGUE_PHRASES = [
+            "tegaskan komitmen", "yakin fundamental", "perkuat pengawasan",
+            "dukung penegakan hukum", "komitmen perang", "tetap kuat",
+            "menegaskan kembali", "optimis terhadap", "berkomitmen untuk",
+            "tegaskan kembali", "perkuat komitmen", "menegaskan pentingnya",
+        ]
+        if direction.get("impact_direction") == "positive":
+            headline_lower = str(article.get("headline", "") or "").lower()
+            combined = f"{headline_lower} {text}"
+            vague_count = sum(1 for p in _VAGUE_PHRASES if p in combined)
+            if vague_count > 0:
+                direction = {
+                    **direction,
+                    "impact_direction": "neutral",
+                    "direction_rationale": f"downgraded from positive: generic government rhetoric ({vague_count} vague phrases detected)",
+                }
         source_quality = clamp(float(article.get("source_quality_score", 0.0) or 0.0), 0.0, 1.0)
         source_freshness = clamp(float(article.get("source_freshness_score", 1.0) or 0.0), 0.0, 1.0)
         corroboration = source_corroboration_metrics_for_article(article)
@@ -130,6 +147,12 @@ def build_stock_relationships(
             confidence *= 0.85
         elif article_sentiment == "negative" and impact_direction == "positive":
             confidence *= 0.85
+        # Neutral sentiment + directional prediction = weak signal (vague rhetoric)
+        elif article_sentiment == "neutral" and impact_direction in ("positive", "negative"):
+            confidence *= 0.65
+        # Low sentiment confidence with directional prediction = uncertain
+        if sentiment_confidence < 0.4 and impact_direction in ("positive", "negative"):
+            confidence *= 0.80
         relationship_confidence = clamp(confidence * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         evidence_strength = clamp((evidence_quality / 5.0) * source_confidence * redundancy_factor * float(corroboration.get("corroboration_multiplier", 1.0)), 0.0, 1.0)
         confidence_label = relationship_confidence_label(relationship_confidence, str(article.get("coverage_warning", "")))
