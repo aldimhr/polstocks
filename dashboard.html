@@ -933,6 +933,73 @@
   .ticker-stat .value.down { color: var(--red); }
   .ticker-stat .value.flat { color: var(--text); }
 
+  /* Indicator info tooltip */
+  .indicator-info {
+    position: relative;
+    display: inline;
+    cursor: help;
+    border-bottom: 1px dotted var(--muted);
+  }
+  .indicator-info::after {
+    content: 'ⓘ';
+    font-size: 8px;
+    margin-left: 2px;
+    color: var(--muted);
+    vertical-align: super;
+  }
+  .indicator-popover {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    width: min(320px, 90vw);
+    background: #1c1e21;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+    font-family: 'DM Sans', sans-serif;
+    animation: popoverFadeIn 0.15s ease;
+  }
+  .indicator-popover.active { display: block; }
+  @keyframes popoverFadeIn { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+  .indicator-popover-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .indicator-popover-body {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted2);
+  }
+  .indicator-popover-body strong { color: var(--text); }
+  .indicator-popover-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+  }
+  .indicator-popover-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0,0,0,0.3);
+  }
+  .indicator-popover-overlay.active { display: block; }
+
   /* Chart container — takes remaining space */
   .ticker-history-chart {
     flex: 1;
@@ -1952,9 +2019,13 @@
     return 'neu';
   }
 
+  const CHIP_INFO_MAP = { 'RSI': 'RSI', 'MACD': 'MACD', 'Trend': 'Trend', 'Direction': 'Direction', 'Validation': 'Validation' };
+
   function renderReasoningChip(label, value, kind) {
     if (value === null || value === undefined || value === '') return '';
-    return `<span class="reasoning-chip ${reasoningChipClass(kind, value)}">${escapeHtml(label)}: ${escapeHtml(labelText(value))}</span>`;
+    const infoKey = CHIP_INFO_MAP[label];
+    const clickAttr = infoKey ? ` onclick="showIndicatorInfo('${infoKey}')" style="cursor:pointer"` : '';
+    return `<span class="reasoning-chip ${reasoningChipClass(kind, value)}"${clickAttr}>${escapeHtml(label)}: ${escapeHtml(labelText(value))}</span>`;
   }
 
   function provenanceSourceLabel(sourceType) {
@@ -2155,6 +2226,104 @@
     if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
     if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
     return v.toFixed(0);
+  }
+
+  // ── Indicator Info Popover ──
+  const INDICATOR_INFO = {
+    'RSI': {
+      icon: '📊',
+      title: 'RSI — Relative Strength Index',
+      body: `Measures how <strong>overbought</strong> or <strong>oversold</strong> a stock is on a scale of 0–100.<br><br>
+        • <strong>> 70</strong> = Overbought — price may have risen too fast, could pull back<br>
+        • <strong>30–70</strong> = Neutral — normal trading range<br>
+        • <strong>< 30</strong> = Oversold — price may have dropped too far, could bounce<br><br>
+        Think of it like a speedometer: too high means the stock is "overheated", too low means it's "overly beaten down". Our system uses RSI to adjust prediction confidence — e.g. a positive prediction on an already-overbought stock gets dampened.`
+    },
+    'MACD': {
+      icon: '📈',
+      title: 'MACD — Moving Average Convergence Divergence',
+      body: `Measures <strong>trend momentum</strong> by comparing two moving averages of price (12-day vs 26-day EMA).<br><br>
+        • <strong>Blue line</strong> = MACD line (fast minus slow average)<br>
+        • <strong>Orange line</strong> = Signal line (9-day average of MACD)<br>
+        • <strong>Green/Red bars</strong> = Histogram (MACD minus Signal)<br><br>
+        • <strong>Positive histogram</strong> = Bullish momentum — upward trend gaining strength<br>
+        • <strong>Negative histogram</strong> = Bearish momentum — downward trend gaining strength<br><br>
+        When MACD crosses above the signal line → bullish. Below → bearish. The histogram shows how strong the momentum is. Our system boosts predictions that align with MACD direction.`
+    },
+    'Trend': {
+      icon: '📉',
+      title: 'SMA Trend — Simple Moving Average Crossover',
+      body: `Shows the <strong>overall trend direction</strong> by comparing two averages:<br><br>
+        • <strong>SMA20</strong> = Average price over last 20 days (short-term)<br>
+        • <strong>SMA50</strong> = Average price over last 50 days (long-term)<br><br>
+        • <strong>Bullish</strong> = SMA20 is above SMA50 — short-term price is stronger than long-term (uptrend)<br>
+        • <strong>Bearish</strong> = SMA20 is below SMA50 — short-term price is weaker than long-term (downtrend)<br>
+        • <strong>Flat</strong> = Both are very close — no clear trend<br><br>
+        Think of it as "which way is the wind blowing?" If the short-term average is above the long-term, the stock has upward momentum. Our system boosts predictions that go with the trend and dampens those that fight against it.`
+    },
+    'Volume': {
+      icon: '📦',
+      title: 'Volume — Trading Activity',
+      body: `Shows how many shares were traded. <strong>Unusual volume</strong> often signals real market reaction to news.<br><br>
+        • <strong>> 3x normal</strong> = Major attention — strong signal<br>
+        • <strong>> 2x normal</strong> = Notable increase — moderate signal<br>
+        • <strong>< 0.4x normal</strong> = Very low — event may be noise<br><br>
+        High volume after a news event means the market is actually reacting. Low volume means nobody cares.`
+    },
+    'Direction': {
+      icon: '🎯',
+      title: 'Impact Direction',
+      body: `The predicted direction of the stock based on the news event:<br><br>
+        • <strong>Positive</strong> = News is expected to push the stock up<br>
+        • <strong>Negative</strong> = News is expected to push the stock down<br>
+        • <strong>Neutral</strong> = No clear directional impact<br><br>
+        This comes from analyzing the news sentiment and matching it to the stock's exposure type.`
+    },
+    'Validation': {
+      icon: '✅',
+      title: 'Validation Status',
+      body: `Whether the prediction has been checked against actual market data:<br><br>
+        • <strong>Confirmed</strong> = Stock moved as predicted<br>
+        • <strong>Contested</strong> = Mixed signals — stock moved differently in some timeframes<br>
+        • <strong>Reversed</strong> = Stock moved opposite to prediction<br>
+        • <strong>Unvalidated</strong> = Not enough time has passed to check yet<br><br>
+        Predictions need time windows (1h, 4h, 24h) to elapse before we can validate them.`
+    }
+  };
+
+  function showIndicatorInfo(key) {
+    const info = INDICATOR_INFO[key];
+    if (!info) return;
+    // Create overlay + popover if not exists
+    let overlay = $('indicatorInfoOverlay');
+    let popover = $('indicatorInfoPopover');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'indicatorInfoOverlay';
+      overlay.className = 'indicator-popover-overlay';
+      overlay.onclick = closeIndicatorInfo;
+      document.body.appendChild(overlay);
+    }
+    if (!popover) {
+      popover = document.createElement('div');
+      popover.id = 'indicatorInfoPopover';
+      popover.className = 'indicator-popover';
+      document.body.appendChild(popover);
+    }
+    popover.innerHTML = `
+      <button class="indicator-popover-close" onclick="closeIndicatorInfo()">×</button>
+      <div class="indicator-popover-title">${info.icon} ${escapeHtml(info.title)}</div>
+      <div class="indicator-popover-body">${info.body}</div>
+    `;
+    overlay.classList.add('active');
+    popover.classList.add('active');
+  }
+
+  function closeIndicatorInfo() {
+    const overlay = $('indicatorInfoOverlay');
+    const popover = $('indicatorInfoPopover');
+    if (overlay) overlay.classList.remove('active');
+    if (popover) popover.classList.remove('active');
   }
 
   function syncTimeframeButtons(window) {
@@ -2412,17 +2581,17 @@
     const changeClass = Number.isFinite(changePct) ? (changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat') : 'flat';
     const dayClass = Number.isFinite(dayChange) ? (dayChange > 0 ? 'up' : dayChange < 0 ? 'down' : 'flat') : 'flat';
     const stats = [
-      { label: 'Price', value: formatPrice(currentPrice), cls: '' },
-      { label: 'Period', value: Number.isFinite(changePct) ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—', cls: changeClass },
-      { label: 'Today', value: Number.isFinite(dayChange) ? `${dayChange > 0 ? '+' : ''}${dayChange.toFixed(2)}%` : '—', cls: dayClass },
-      { label: 'Volume', value: formatVolume(vol), cls: '' },
+      { label: 'Price', value: formatPrice(currentPrice), cls: '', infoKey: null },
+      { label: 'Period', value: Number.isFinite(changePct) ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—', cls: changeClass, infoKey: null },
+      { label: 'Today', value: Number.isFinite(dayChange) ? `${dayChange > 0 ? '+' : ''}${dayChange.toFixed(2)}%` : '—', cls: dayClass, infoKey: null },
+      { label: 'Volume', value: formatVolume(vol), cls: '', infoKey: 'Volume' },
     ];
     // Add RSI stat if available
     const rsiVal = payload.rsi;
     if (rsiVal != null) {
       const rsiClass = rsiVal > 70 ? 'down' : rsiVal < 30 ? 'up' : 'flat';
       const rsiLabel = rsiVal > 80 ? 'Overbought' : rsiVal > 70 ? 'High' : rsiVal < 20 ? 'Oversold' : rsiVal < 30 ? 'Low' : 'Neutral';
-      stats.push({ label: `RSI · ${rsiLabel}`, value: rsiVal.toFixed(1), cls: rsiClass });
+      stats.push({ label: `RSI · ${rsiLabel}`, value: rsiVal.toFixed(1), cls: rsiClass, infoKey: 'RSI' });
     }
     // Add MACD stat if available
     const macdData = payload.macd;
@@ -2430,7 +2599,7 @@
       const hist = Number(macdData.histogram);
       const macdClass = hist > 0 ? 'up' : hist < 0 ? 'down' : 'flat';
       const macdLabel = hist > 0 ? 'Bullish' : hist < 0 ? 'Bearish' : 'Neutral';
-      stats.push({ label: `MACD · ${macdLabel}`, value: hist.toFixed(2), cls: macdClass });
+      stats.push({ label: `MACD · ${macdLabel}`, value: hist.toFixed(2), cls: macdClass, infoKey: 'MACD' });
     }
     // Add Trend stat if available
     const trendData = payload.trend;
@@ -2443,11 +2612,11 @@
       const trendVal = sma20 != null && sma50 != null
         ? `${formatPrice(sma20)} / ${formatPrice(sma50)}`
         : strength > 0 ? `${(strength * 100).toFixed(1)}%` : '—';
-      stats.push({ label: `Trend · ${trendDir.charAt(0).toUpperCase() + trendDir.slice(1)}`, value: trendVal, cls: trendClass });
+      stats.push({ label: `Trend · ${trendDir.charAt(0).toUpperCase() + trendDir.slice(1)}`, value: trendVal, cls: trendClass, infoKey: 'Trend' });
     }
     $('tickerModalStats').innerHTML = stats.map((item) => `
       <div class="ticker-stat">
-        <span class="label">${escapeHtml(item.label)}</span>
+        <span class="label${item.infoKey ? ' indicator-info' : ''}"${item.infoKey ? ` onclick="showIndicatorInfo('${item.infoKey}')"` : ''}>${escapeHtml(item.label)}</span>
         <span class="value ${item.cls}">${escapeHtml(item.value)}</span>
       </div>
     `).join('');
