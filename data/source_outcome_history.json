@@ -2,7 +2,7 @@
   "sources": {
     "antaranews.com": {
       "sample_size": 20,
-      "weighted_outcome_sum": -0.4517
+      "weighted_outcome_sum": -2.3864
     },
     "bisnis.com": {
       "sample_size": 20,
@@ -18,7 +18,7 @@
     },
     "cnnindonesia.com": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.1936
+      "weighted_outcome_sum": 0.2186
     },
     "example.com": {
       "sample_size": 20,
@@ -26,15 +26,15 @@
     },
     "finance.detik.com": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.1994
+      "weighted_outcome_sum": 0.2202
     },
     "ojk.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.2554
+      "weighted_outcome_sum": 0.2972
     },
     "setkab.go.id": {
       "sample_size": 20,
-      "weighted_outcome_sum": 0.1878
+      "weighted_outcome_sum": 0.2098
     }
   }
 }

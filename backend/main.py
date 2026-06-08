@@ -1941,7 +1941,30 @@ def fetch_market_index() -> tuple[dict[str, Any], list[str]]:
             response.raise_for_status()
             payload = response.json()["chart"]["result"][0]
             meta = payload["meta"]
-            closes = [value for value in payload.get("indicators", {}).get("quote", [{}])[0].get("close", []) if value is not None]
+            quote_data = payload.get("indicators", {}).get("quote", [{}])[0]
+            closes = [value for value in quote_data.get("close", []) if value is not None]
+            raw_timestamps = list(payload.get("timestamp", []) or [])
+            raw_opens = list(quote_data.get("open", []) or [])
+            raw_highs = list(quote_data.get("high", []) or [])
+            raw_lows = list(quote_data.get("low", []) or [])
+            raw_closes = list(quote_data.get("close", []) or [])
+            # Build OHLC series for candlestick chart
+            ohlc_series = []
+            for i, ts in enumerate(raw_timestamps):
+                if ts is None:
+                    continue
+                o = raw_opens[i] if i < len(raw_opens) else None
+                h = raw_highs[i] if i < len(raw_highs) else None
+                l = raw_lows[i] if i < len(raw_lows) else None
+                c = raw_closes[i] if i < len(raw_closes) else None
+                if all(v is not None for v in (o, h, l, c)):
+                    ohlc_series.append({
+                        "time": int(ts),
+                        "open": float(o),
+                        "high": float(h),
+                        "low": float(l),
+                        "close": float(c),
+                    })
             price = meta.get("regularMarketPrice")
             change_pct = meta.get("regularMarketChangePercent")
             change_points = meta.get("regularMarketChange")
@@ -1961,6 +1984,7 @@ def fetch_market_index() -> tuple[dict[str, Any], list[str]]:
                 "change_pct": float(change_pct) if change_pct is not None else None,
                 "change_points": float(change_points) if change_points is not None else None,
                 "series": [float(value) for value in closes[-48:]],
+                "ohlc_series": ohlc_series,
                 "market_time": market_dt.isoformat(timespec="seconds"),
                 "source": "yahoo-finance",
             }, warnings
@@ -1975,6 +1999,7 @@ def fetch_market_index() -> tuple[dict[str, Any], list[str]]:
         "change_pct": None,
         "change_points": None,
         "series": [],
+        "ohlc_series": [],
         "market_time": now_iso(),
         "source": "unavailable",
     }, warnings

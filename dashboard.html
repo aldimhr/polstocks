@@ -640,7 +640,7 @@
 
   .chart-area {
     position: relative;
-    height: 80px;
+    height: 120px;
     margin: 0 -4px;
   }
 
@@ -1087,6 +1087,43 @@
     white-space: nowrap;
   }
 
+  /* Event expand/collapse */
+  .event-detail { display: none; }
+  .event-toggle {
+    background: none;
+    border: none;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 4px 0;
+    margin-top: 4px;
+    transition: color 0.15s;
+  }
+  .event-toggle:hover { color: var(--accent); }
+
+  /* Sort bar */
+  .sort-bar {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 10px;
+  }
+
+  .sort-btn {
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .sort-btn:hover { background: var(--surface2); color: var(--text); }
+  .sort-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
   /* ── Source health grid ── */
   .source-health-card {
     background: var(--surface);
@@ -1373,11 +1410,15 @@
     <!-- Watchlist -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Watchlist · Impact Politik</span>
-        <span class="card-badge" id="stocksSortBadge">Impacted first</span>
+        <span class="card-title">Watchlist · Political Impact</span>
         <span class="card-badge" id="watchlistBadge">0 tickers</span>
       </div>
-      <div class="watchlist-note" id="stocksSortHint" style="margin-bottom:10px;">Impacted tickers appear first, then neutral ones.</div>
+      <div class="sort-bar" id="sortBar">
+        <button class="sort-btn active" data-sort="impact" onclick="sortStocks('impact')">Impact</button>
+        <button class="sort-btn" data-sort="change" onclick="sortStocks('change')">Change %</button>
+        <button class="sort-btn" data-sort="price" onclick="sortStocks('price')">Price</button>
+        <button class="sort-btn" data-sort="ticker" onclick="sortStocks('ticker')">A-Z</button>
+      </div>
       <table class="stock-table">
         <thead>
           <tr>
@@ -1531,7 +1572,7 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
   let tickerChart = null;
   let candleSeries = null;
   let volumeSeriesObj = null;
@@ -2349,6 +2390,45 @@
     }).join('');
   }
 
+  function sortStocks(key) {
+    state.sortBy = key;
+    // Update active button
+    document.querySelectorAll('.sort-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.sort === key);
+    });
+    // Re-render with current payload
+    if (state.payload?.stocks) {
+      const sorted = sortStocksList(state.payload.stocks, key);
+      renderStocks(sorted);
+    }
+  }
+
+  function sortStocksList(stocks, key) {
+    const arr = [...stocks];
+    switch (key) {
+      case 'change':
+        return arr.sort((a, b) => {
+          const ca = Number(a.change_pct) || 0;
+          const cb = Number(b.change_pct) || 0;
+          return Math.abs(cb) - Math.abs(ca);
+        });
+      case 'price':
+        return arr.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+      case 'ticker':
+        return arr.sort((a, b) => (a.ticker || '').localeCompare(b.ticker || ''));
+      case 'impact':
+      default:
+        return arr.sort((a, b) => {
+          const ia = Math.abs(Number(a.impact_score) || 0);
+          const ib = Math.abs(Number(b.impact_score) || 0);
+          const ra = Number(a.relationship_count || a.relationship_type ? 1 : 0);
+          const rb = Number(b.relationship_count || b.relationship_type ? 1 : 0);
+          if (rb !== ra) return rb - ra;
+          return ib - ia;
+        });
+    }
+  }
+
   function renderStocks(stocks) {
     const body = $('stockBody');
     const rows = Array.isArray(stocks) ? stocks : [];
@@ -2400,7 +2480,7 @@
       root.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\u{1F5DE}</div><div class="empty-state-title">No events detected</div><div class="empty-state-hint">No political news matched in this time window. Try expanding to 7d or 30d, or check back later during active policy periods.</div></div>';
       return;
     }
-    root.innerHTML = rows.map((event) => {
+    root.innerHTML = rows.map((event, idx) => {
       const provenanceBadges = renderProvenanceBadges(event);
       const topLink = Array.isArray(event.stock_relationships) && event.stock_relationships.length ? event.stock_relationships[0] : null;
       const conflictBadges = renderConflictBadges({
@@ -2431,6 +2511,7 @@
         ? `Thread: ${event.thread_status || 'active'} · ${event.thread_id}${Number(event.thread_contradiction_count || 0) > 0 ? ` · contradictions ${Number(event.thread_contradiction_count || 0)}` : ''}`
         : 'Thread: standalone coverage';
       const ageLabel = relativeTimeLabel(event.published_at);
+      const detailId = `evdetail-${idx}`;
       return `
         ${eventTagOpen}
           <div class="event-headline">${escapeHtml(event.headline || '')}</div>
@@ -2440,17 +2521,28 @@
             <span class="cat-tag">${escapeHtml(ageLabel)}</span>
             <span class="event-source">${escapeHtml(event.source || '')} · ${escapeHtml(formatTime(event.published_at))}</span>
           </div>
-          <div class="reasoning-chips provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div>
-          <div class="reasoning-chips">${reasoningBadges || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div>
           <div class="event-tickers">${tickers || '<span class="tick-tag">No tickers</span>'}</div>
-          <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>
-          <div class="footer-note">${escapeHtml(stageLabel)}</div>
-          <div class="footer-note">${escapeHtml(threadLine)}</div>
-          <div class="footer-note">${escapeHtml(policyLine)}</div>
-          <div class="footer-note">${escapeHtml(evidenceLine)}</div>
+          <button class="event-toggle" onclick="event.preventDefault(); event.stopPropagation(); toggleEventDetail('${detailId}', this)">Show more ▾</button>
+          <div class="event-detail" id="${detailId}">
+            <div class="reasoning-chips provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div>
+            <div class="reasoning-chips">${reasoningBadges || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div>
+            <div class="footer-note">${escapeHtml(topLink?.rationale || 'No evidence-backed stock relationship passed the quality gate.')}</div>
+            <div class="footer-note">${escapeHtml(stageLabel)}</div>
+            <div class="footer-note">${escapeHtml(threadLine)}</div>
+            <div class="footer-note">${escapeHtml(policyLine)}</div>
+            <div class="footer-note">${escapeHtml(evidenceLine)}</div>
+          </div>
         ${eventTagClose}
       `;
     }).join('');
+  }
+
+  function toggleEventDetail(id, btn) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const visible = el.style.display !== 'none';
+    el.style.display = visible ? 'none' : 'block';
+    btn.textContent = visible ? 'Show more ▾' : 'Show less ▴';
   }
 
   function renderTracking(tracking) {
@@ -2521,25 +2613,54 @@
     }).join(' ');
   }
 
+  let ihsgChart = null;
+
   function renderMarketIndex(market) {
     const root = $('ihsgChart');
+    const ohlcData = Array.isArray(market?.ohlc_series) ? market.ohlc_series : [];
     const series = Array.isArray(market?.series) ? market.series : [];
-    const path = sparklinePath(series);
     const chgPct = Number(market?.change_pct);
     const isUp = Number.isFinite(chgPct) && chgPct > 0;
-    const stroke = isUp ? '#4ddb8e' : '#ff5c5c';
-    root.innerHTML = path ? `
-      <svg viewBox="0 0 560 80" preserveAspectRatio="none" role="img" aria-label="IHSG chart">
-        <defs>
-          <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="${stroke}" stop-opacity="0.2"/>
-            <stop offset="100%" stop-color="${stroke}" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
-        <path d="${path} L560,80 L0,80 Z" fill="url(#chartGrad)"/>
-        <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
-      </svg>
-    ` : '<div class="footer-note" style="padding-top:10px;">No IHSG series yet.</div>';
+
+    // Use LightweightCharts if OHLC data available
+    if (ohlcData.length > 0 && window.LightweightCharts) {
+      if (ihsgChart) { ihsgChart.remove(); ihsgChart = null; }
+      root.innerHTML = '';
+      const chart = LightweightCharts.createChart(root, {
+        width: root.clientWidth,
+        height: 120,
+        layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#6b6f78', fontFamily: "'DM Mono', monospace", fontSize: 9 },
+        grid: { vertLines: { color: 'rgba(255,255,255,0.02)' }, horzLines: { color: 'rgba(255,255,255,0.02)' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal, vertLine: { color: 'rgba(212,240,96,0.2)', width: 1, style: 2, labelBackgroundColor: '#1c1e21' }, horzLine: { color: 'rgba(212,240,96,0.2)', width: 1, style: 2, labelBackgroundColor: '#1c1e21' } },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.05)', scaleMargins: { top: 0.05, bottom: 0.05 } },
+        timeScale: { borderColor: 'rgba(255,255,255,0.05)', timeVisible: true, secondsVisible: false },
+        handleScroll: { vertTouchDrag: false },
+      });
+      const candle = chart.addCandlestickSeries({
+        upColor: '#4ddb8e', downColor: '#ff5c5c', borderUpColor: '#4ddb8e', borderDownColor: '#ff5c5c', wickUpColor: '#4ddb8e', wickDownColor: '#ff5c5c',
+      });
+      candle.setData(ohlcData);
+      chart.timeScale().fitContent();
+      ihsgChart = chart;
+      const ro = new ResizeObserver(() => { chart.applyOptions({ width: root.clientWidth }); });
+      ro.observe(root);
+    } else {
+      // Fallback to SVG sparkline
+      const path = sparklinePath(series);
+      const stroke = isUp ? '#4ddb8e' : '#ff5c5c';
+      root.innerHTML = path ? `
+        <svg viewBox="0 0 560 80" preserveAspectRatio="none" role="img" aria-label="IHSG chart">
+          <defs>
+            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${stroke}" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="${stroke}" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="${path} L560,80 L0,80 Z" fill="url(#chartGrad)"/>
+          <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+        </svg>
+      ` : '<div class="footer-note" style="padding-top:10px;">No IHSG series yet.</div>';
+    }
     $('m-ihsg').textContent = market?.value !== null && market?.value !== undefined ? formatNumber(market.value, 0) : '—';
     $('ihsgValue').textContent = market?.value !== null && market?.value !== undefined ? formatNumber(market.value, 0) : '—';
     const chgPts = Number(market?.change_points);
@@ -2584,7 +2705,7 @@
     $('m-highest').textContent = highest ? highest.ticker : '—';
     $('m-highest-sub').textContent = highest ? `Impact score ${highest.impact_score > 0 ? '+' : ''}${Number(highest.impact_score || 0).toFixed(2)}` : 'No stock data yet';
     $('m-highest-sub').style.color = highest ? (Number(highest.impact_score) > 0 ? 'var(--green)' : Number(highest.impact_score) < 0 ? 'var(--red)' : 'var(--muted2)') : 'var(--muted2)';
-    renderStocks(stocks);
+    renderStocks(sortStocksList(stocks, state.sortBy));
     renderSourceHealth(payload, dashboardCues || payload.dashboard_cues || {});
     renderTracking(payload.tracking || {});
     renderReasoningSummary(payload.reasoning_summary || {});
