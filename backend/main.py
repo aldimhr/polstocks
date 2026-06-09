@@ -499,6 +499,58 @@ NEWS_SOURCES = [
 app = FastAPI(title=APP_TITLE, version="1.0.0")
 
 
+# ── Rate Limiting ───────────────────────────────────────────────
+import time as _time
+
+_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX_REQUESTS = 120  # per window per IP
+_rate_store: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request, call_next):
+    """Simple sliding-window rate limiter per client IP."""
+    client_ip = request.client.host if request.client else "unknown"
+    now = _time.time()
+
+    with _rate_lock:
+        # Clean old entries and count current window
+        if client_ip not in _rate_store:
+            _rate_store[client_ip] = []
+        timestamps = _rate_store[client_ip]
+        # Remove entries outside the window
+        cutoff = now - _RATE_LIMIT_WINDOW
+        _rate_store[client_ip] = [t for t in timestamps if t > cutoff]
+        current_count = len(_rate_store[client_ip])
+
+        if current_count >= _RATE_LIMIT_MAX_REQUESTS:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Try again later."},
+                headers={"Retry-After": str(_RATE_LIMIT_WINDOW)},
+            )
+        _rate_store[client_ip].append(now)
+
+    response = await call_next(request)
+    response.headers["X-RateLimit-Limit"] = str(_RATE_LIMIT_MAX_REQUESTS)
+    response.headers["X-RateLimit-Remaining"] = str(max(0, _RATE_LIMIT_MAX_REQUESTS - current_count - 1))
+    return response
+
+
+# Periodically clean up stale IPs
+def _cleanup_rate_store():
+    while True:
+        _time.sleep(300)  # every 5 min
+        with _rate_lock:
+            cutoff = _time.time() - _RATE_LIMIT_WINDOW * 2
+            stale = [ip for ip, ts in _rate_store.items() if not ts or ts[-1] < cutoff]
+            for ip in stale:
+                del _rate_store[ip]
+
+threading.Thread(target=_cleanup_rate_store, daemon=True, name="rate-limit-cleanup").start()
+
+
 WATCHLIST_LOCK = threading.Lock()
 CACHE_LOCK = threading.Lock()
 WATCHLIST_STATE = list(DEFAULT_WATCHLIST)
