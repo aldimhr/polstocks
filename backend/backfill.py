@@ -155,13 +155,24 @@ def _parse_rss_xml(xml_text: str, source_name: str) -> list[dict[str, Any]]:
         if desc_el is not None and desc_el.text:
             description = strip_tags(desc_el.text).strip()[:500]
 
-        for date_tag in ["pubDate", "dc:date", "published", "updated"]:
+        for date_tag in ["pubDate", "dc:date", "published", "updated", "date"]:
             date_el = item.find(date_tag)
             if date_el is None:
                 date_el = item.find(f"{{{ns.get('atom', '')}}}{date_tag}")
             if date_el is not None and date_el.text:
                 pub_date = date_el.text.strip()
                 break
+
+        # Fallback: extract date from URL (many Indonesian news sites use /2026/01/15/ or /20260115/)
+        if not pub_date and link:
+            url_date = re.search(r"/(\d{4})/(\d{2})/(\d{2})/", link)
+            if url_date:
+                pub_date = f"{url_date.group(1)}-{url_date.group(2)}-{url_date.group(3)}T00:00:00+07:00"
+            else:
+                url_date_compact = re.search(r"/(\d{8})\d{4,}", link)
+                if url_date_compact:
+                    d = url_date_compact.group(1)
+                    pub_date = f"{d[:4]}-{d[4:6]}-{d[6:8]}T00:00:00+07:00"
 
         if title:
             articles.append({
@@ -217,10 +228,16 @@ def collect_from_wayback(
                 continue
 
             articles = _parse_rss_xml(content, feed["name"])
-            # Attach wayback timestamp for provenance
+            # Attach wayback timestamp for provenance and use as date fallback
+            wb_ts = snap["timestamp"]  # "20260101005921"
+            wb_iso = f"{wb_ts[:4]}-{wb_ts[4:6]}-{wb_ts[6:8]}T{wb_ts[8:10]}:{wb_ts[10:12]}:{wb_ts[12:14]}+00:00"
             for art in articles:
-                art.setdefault("provenance", {})["wayback_timestamp"] = snap["timestamp"]
+                art.setdefault("provenance", {})["wayback_timestamp"] = wb_ts
                 art["provenance"]["collection_method"] = "wayback_machine"
+                # If no date was found in the RSS item or URL, use Wayback timestamp
+                if not art.get("published_at"):
+                    art["published_at"] = wb_iso
+                    art["provenance"]["timestamp_reason"] = "wayback_snapshot_time"
             all_articles.extend(articles)
 
     logger.info(
