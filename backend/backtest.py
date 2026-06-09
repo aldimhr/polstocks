@@ -87,6 +87,15 @@ def init_backtest_db() -> None:
             ("trend_factor", "REAL"),
             ("event_cluster_count", "INTEGER"),
             ("event_cluster_factor", "REAL"),
+            ("atr_value", "REAL"),
+            ("atr_pct", "REAL"),
+            ("atr_factor", "REAL"),
+            ("sector_correlation_count", "INTEGER"),
+            ("sector_correlation_factor", "REAL"),
+            ("foreign_market_factor", "REAL"),
+            ("sentiment_momentum", "TEXT"),
+            ("sentiment_momentum_factor", "REAL"),
+            ("currency_factor", "REAL"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
@@ -124,6 +133,15 @@ def record_prediction(
     trend_factor: float | None = None,
     event_cluster_count: int | None = None,
     event_cluster_factor: float | None = None,
+    atr_value: float | None = None,
+    atr_pct: float | None = None,
+    atr_factor: float | None = None,
+    sector_correlation_count: int | None = None,
+    sector_correlation_factor: float | None = None,
+    foreign_market_factor: float | None = None,
+    sentiment_momentum: str | None = None,
+    sentiment_momentum_factor: float | None = None,
+    currency_factor: float | None = None,
 ) -> bool:
     """Insert a prediction. Returns True if inserted, False if duplicate."""
     conn = _get_conn()
@@ -137,8 +155,12 @@ def record_prediction(
                 market_context_factor, volume_signal, source_type_count,
                 rsi_value, rsi_factor,
                 macd_histogram, macd_factor, sma_trend, trend_factor,
-                event_cluster_count, event_cluster_factor)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                event_cluster_count, event_cluster_factor,
+                atr_value, atr_pct, atr_factor,
+                sector_correlation_count, sector_correlation_factor,
+                foreign_market_factor, sentiment_momentum, sentiment_momentum_factor,
+                currency_factor)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id, event_headline, published_at, ticker,
                 predicted_direction, round(predicted_score, 4), significance,
@@ -149,6 +171,10 @@ def record_prediction(
                 rsi_value, rsi_factor,
                 macd_histogram, macd_factor, sma_trend, trend_factor,
                 event_cluster_count, event_cluster_factor,
+                atr_value, atr_pct, atr_factor,
+                sector_correlation_count, sector_correlation_factor,
+                foreign_market_factor, sentiment_momentum, sentiment_momentum_factor,
+                currency_factor,
             ),
         )
         conn.commit()
@@ -222,6 +248,15 @@ def record_predictions_from_events(events: list[dict[str, Any]], stock_quotes: d
                 trend_factor=rel.get("trend_factor"),
                 event_cluster_count=rel.get("event_cluster_count"),
                 event_cluster_factor=rel.get("event_cluster_factor"),
+                atr_value=rel.get("atr_value"),
+                atr_pct=rel.get("atr_pct"),
+                atr_factor=rel.get("atr_factor"),
+                sector_correlation_count=rel.get("sector_correlation_count"),
+                sector_correlation_factor=rel.get("sector_correlation_factor"),
+                foreign_market_factor=rel.get("foreign_market_factor"),
+                sentiment_momentum=rel.get("sentiment_momentum"),
+                sentiment_momentum_factor=rel.get("sentiment_momentum_factor"),
+                currency_factor=rel.get("currency_factor"),
             )
             if ok:
                 count += 1
@@ -761,6 +796,118 @@ def backfill_from_cache() -> dict[str, int]:
         f"Backfill complete: recorded={stats['recorded']}, resolved={stats['resolved']}, "
         f"skipped={stats['skipped']}, errors={stats['errors']}"
     )
+    return stats
+
+
+def backfill_new_indicators() -> dict[str, int]:
+    """Backfill new indicator columns for existing predictions.
+
+    Fetches current indicator data from Yahoo Finance and updates predictions
+    that have NULL values for the new indicator columns.
+
+    Returns: {"updated": N, "skipped": N, "errors": N}
+    """
+    from backend.stocks import fetch_ticker_history
+    from backend.main import compute_atr, compute_macd, compute_trend, compute_rsi
+
+    stats = {"updated": 0, "skipped": 0, "errors": 0}
+
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        # Get predictions missing new indicator data
+        rows = conn.execute(
+            "SELECT id, ticker FROM predictions WHERE atr_value IS NULL OR sector_correlation_count IS NULL"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        logger.info("Backfill indicators: all predictions already have indicator data")
+        return stats
+
+    # Group by ticker to minimize Yahoo Finance calls
+    ticker_ids: dict[str, list[int]] = {}
+    for row in rows:
+        ticker = row["ticker"]
+        ticker_ids.setdefault(ticker, []).append(row["id"])
+
+    logger.info(f"Backfill indicators: {len(ticker_ids)} tickers, {len(rows)} predictions")
+
+    for ticker, ids in ticker_ids.items():
+        try:
+            hist = fetch_ticker_history(ticker, "6mo")
+            closes = hist.get("series", [])
+            prices = [float(p) for p in closes if p is not None]
+
+            rsi = compute_rsi(prices) if prices else None
+            macd = compute_macd(prices) if len(prices) >= 35 else None
+            trend = compute_trend(prices) if len(prices) >= 50 else None
+
+            ohlc = hist.get("ohlc_series", [])
+            atr_val = None
+            atr_pct = None
+            if len(ohlc) >= 15:
+                highs = [float(d["high"]) for d in ohlc]
+                lows = [float(d["low"]) for d in ohlc]
+                cls = [float(d["close"]) for d in ohlc]
+                atr_val = compute_atr(highs, lows, cls)
+                if atr_val and prices:
+                    atr_pct = round((atr_val / prices[-1]) * 100, 2)
+
+            macd_hist = macd.get("histogram") if macd else None
+            macd_factor = 1.0
+            if macd_hist is not None:
+                if macd_hist > 0:
+                    macd_factor = 1.06
+                elif macd_hist < 0:
+                    macd_factor = 0.94
+
+            trend_dir = trend.get("trend") if trend else None
+            trend_factor = 1.0
+            if trend_dir == "bullish":
+                trend_factor = 1.05
+            elif trend_dir == "bearish":
+                trend_factor = 0.93
+
+            atr_factor = 1.0
+            if atr_pct:
+                if atr_pct > 5.0:
+                    atr_factor = 1.10
+                elif atr_pct > 3.0:
+                    atr_factor = 1.06
+                elif atr_pct < 1.0:
+                    atr_factor = 0.94
+
+            # Update all predictions for this ticker
+            conn = _get_conn()
+            try:
+                for pred_id in ids:
+                    conn.execute(
+                        """UPDATE predictions SET
+                           rsi_value = COALESCE(rsi_value, ?),
+                           rsi_factor = COALESCE(rsi_factor, ?),
+                           macd_histogram = COALESCE(macd_histogram, ?),
+                           macd_factor = COALESCE(macd_factor, ?),
+                           sma_trend = COALESCE(sma_trend, ?),
+                           trend_factor = COALESCE(trend_factor, ?),
+                           atr_value = COALESCE(atr_value, ?),
+                           atr_pct = COALESCE(atr_pct, ?),
+                           atr_factor = COALESCE(atr_factor, ?)
+                           WHERE id = ? AND (atr_value IS NULL OR atr_pct IS NULL)""",
+                        (rsi, 1.0, macd_hist, macd_factor, trend_dir, trend_factor,
+                         atr_val, atr_pct, atr_factor, pred_id),
+                    )
+                conn.commit()
+                stats["updated"] += len(ids)
+            finally:
+                conn.close()
+
+        except Exception as e:
+            logger.warning(f"Backfill indicators: error for {ticker}: {e}")
+            stats["errors"] += 1
+
+    logger.info(f"Backfill indicators complete: updated={stats['updated']}, errors={stats['errors']}")
     return stats
 
 
