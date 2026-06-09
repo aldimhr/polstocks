@@ -2759,6 +2759,26 @@ def api_backtest_backfill_web(body: WebBackfillRequest) -> dict[str, Any]:
     }
 
 
+class ReplayRequest(BaseModel):
+    max_events: int = 100
+    window: str = "7d"
+
+
+@app.post("/api/backtest/replay-historical")
+def api_replay_historical(body: ReplayRequest) -> dict[str, Any]:
+    """Replay staged historical events through the scoring pipeline.
+
+    Reads accepted articles from historical_events, runs them through
+    analyze_article(), records predictions with origin='historical_backfill',
+    and resolves outcomes against Yahoo Finance historical prices.
+    """
+    from backend.backfill import replay_historical_events
+    return replay_historical_events(
+        max_events=body.max_events,
+        window=body.window,
+    )
+
+
 @app.post("/api/backtest/historical-import")
 def api_historical_backfill_import(body: HistoricalBackfillRequest) -> dict[str, Any]:
     """Validate/import historical internet articles into a staging table.
@@ -2908,6 +2928,16 @@ def _prewarm_cache() -> None:
     if persisted:
         with CACHE_LOCK:
             CACHE.update(persisted)
+    # Warm NLP models in background to avoid slow first request
+    def _warm_nlp():
+        try:
+            from backend.nlp import _load_sentiment, _load_ner
+            _load_sentiment()
+            _load_ner()
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"NLP warmup failed: {e}")
+
+    threading.Thread(target=_warm_nlp, daemon=True).start()
     threading.Thread(
         target=lambda: build_refresh_payload(get_watchlist(), force=True, window=DEFAULT_EVENT_WINDOW),
         daemon=True,

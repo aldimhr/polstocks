@@ -17,6 +17,7 @@ import os
 import re
 import time
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
@@ -496,3 +497,215 @@ def filter_political_articles(
             art["_political_keyword_hits"] = hits
             filtered.append(art)
     return filtered
+
+
+# ── Replay Historical Events Through Scoring Pipeline ────────────
+
+def _get_conn():
+    """Get SQLite connection to the polstock database."""
+    import sqlite3
+    from backend.backtest import BACKEND_DB_PATH as DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def replay_historical_events(
+    *,
+    watchlist: list[str] | None = None,
+    max_events: int = 100,
+    window: str = "7d",
+) -> dict[str, Any]:
+    """Replay staged historical events through the scoring pipeline.
+
+    Reads from historical_events table, runs through analyze_article(),
+    records predictions with prediction_origin='historical_backfill',
+    and resolves outcomes against historical stock prices.
+
+    Returns: {replayed, predictions_recorded, outcomes_resolved, errors}
+    """
+    from backend.scoring import analyze_article
+    from backend.backtest import record_prediction, _find_closest_price
+    from backend.stocks import fetch_ticker_history
+
+    if not watchlist:
+        from backend.config import DEFAULT_WATCHLIST
+        watchlist = list(DEFAULT_WATCHLIST)
+
+    stats: dict[str, Any] = {
+        "replayed": 0, "predictions_recorded": 0,
+        "outcomes_resolved": 0, "errors": 0, "skipped": 0,
+    }
+
+    # 1. Load historical events from staging table
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT article_id, source, url, headline, summary, published_at "
+            "FROM historical_events WHERE import_status = 'accepted' "
+            "ORDER BY published_at DESC LIMIT ?",
+            (max_events,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        logger.info("Replay: no historical events in staging table")
+        return stats
+
+    # 2. Convert to article dicts and run through scoring
+    articles = []
+    for row in rows:
+        articles.append({
+            "source": row["source"],
+            "url": row["url"] or "",
+            "headline": row["headline"],
+            "summary": row["summary"] or "",
+            "published_at": row["published_at"],
+            "_article_id": row["article_id"],
+        })
+
+    # 3. Collect all tickers for batch price fetch
+    ticker_set: set[str] = set()
+    event_ticker_pairs: list[tuple[dict, str, dict]] = []
+
+    for article in articles:
+        try:
+            analyzed = analyze_article(article, watchlist, window)
+        except Exception as exc:
+            logger.warning("Replay: failed to analyze %s: %s", article.get("headline", "")[:50], exc)
+            stats["errors"] += 1
+            continue
+
+        if not analyzed.get("stock_relationships"):
+            stats["skipped"] += 1
+            continue
+
+        stats["replayed"] += 1
+        for rel in analyzed["stock_relationships"]:
+            ticker = rel.get("ticker", "")
+            if ticker:
+                ticker_set.add(ticker)
+                event_ticker_pairs.append((analyzed, ticker, rel))
+
+    if not event_ticker_pairs:
+        logger.info("Replay: no stock relationships found in %d events", stats["replayed"])
+        return stats
+
+    # 4. Fetch historical prices for all tickers
+    price_history: dict[str, list[dict]] = {}
+    for ticker in ticker_set:
+        try:
+            history = fetch_ticker_history(ticker, window="30d")
+            if history and history.get("history"):
+                price_history[ticker] = history["history"]
+        except Exception as exc:
+            logger.warning("Replay: failed price history for %s: %s", ticker, exc)
+            stats["errors"] += 1
+
+    # 5. Record predictions and outcomes
+    import hashlib
+    for event, ticker, rel in event_ticker_pairs:
+        if ticker not in price_history:
+            stats["skipped"] += 1
+            continue
+
+        pub_str = event.get("published_at", "")
+        try:
+            pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00").split("+")[0])
+        except (ValueError, AttributeError):
+            stats["skipped"] += 1
+            continue
+
+        event_url = event.get("url", "")
+        article_id = event.get("_article_id", "")
+        event_id = article_id or hashlib.md5(event_url.encode()).hexdigest()[:12]
+
+        predicted_direction = rel.get("impact_direction", "neutral")
+        rel_confidence = float(rel.get("relationship_confidence", 0.0) or 0.0)
+        relevance = float(rel.get("relevance_score", 0.0) or 0.0)
+        relevance_norm = min(1.0, relevance / 5.0)
+        dir_sign = {"positive": 1, "negative": -1}.get(predicted_direction, 0)
+        predicted_score = round(dir_sign * relevance_norm * rel_confidence, 4)
+
+        prices = price_history[ticker]
+        price_at = _find_closest_price(prices, pub_dt)
+        if not price_at:
+            stats["skipped"] += 1
+            continue
+
+        record_prediction(
+            event_id=event_id,
+            event_headline=event.get("headline", ""),
+            published_at=pub_str,
+            ticker=ticker,
+            predicted_direction=predicted_direction,
+            predicted_score=predicted_score,
+            significance=float(event.get("significance", 0.0) or 0.0),
+            confidence=rel_confidence,
+            relationship_type=rel.get("relationship_type", ""),
+            categories=event.get("categories", []),
+            source_type=event.get("source_type", ""),
+            event_stage=event.get("event_stage", ""),
+            price_at_event=price_at,
+            prediction_origin="historical_backfill",
+            source_article_id=article_id,
+        )
+        stats["predictions_recorded"] += 1
+
+        # Record outcomes if available
+        price_1h = _find_closest_price(prices, pub_dt + timedelta(hours=1))
+        price_4h = _find_closest_price(prices, pub_dt + timedelta(hours=4))
+        price_24h = _find_closest_price(prices, pub_dt + timedelta(hours=24))
+
+        if any([price_1h, price_4h, price_24h]):
+            conn2 = _get_conn()
+            try:
+                row = conn2.execute(
+                    "SELECT id FROM predictions WHERE event_id = ? AND ticker = ?",
+                    (event_id, ticker),
+                ).fetchone()
+                if row:
+                    conn2.execute(
+                        """UPDATE predictions SET
+                           price_after_1h = ?, price_after_4h = ?, price_after_24h = ?,
+                           actual_return_1h = ?, actual_return_4h = ?, actual_return_24h = ?,
+                           actual_direction = ?, is_correct = ?,
+                           outcome_status = 'resolved', resolved_at = datetime('now')
+                           WHERE id = ?""",
+                        (
+                            price_1h, price_4h, price_24h,
+                            round((price_1h / price_at - 1) * 100, 4) if price_1h else None,
+                            round((price_4h / price_at - 1) * 100, 4) if price_4h else None,
+                            round((price_24h / price_at - 1) * 100, 4) if price_24h else None,
+                            _actual_direction(price_at, price_24h or price_4h or price_1h),
+                            _is_correct(predicted_direction, price_at, price_24h or price_4h or price_1h),
+                            row["id"],
+                        ),
+                    )
+                    conn2.commit()
+                    stats["outcomes_resolved"] += 1
+            finally:
+                conn2.close()
+
+    return stats
+
+
+def _actual_direction(price_at: float, price_after: float | None) -> str:
+    """Determine actual direction from price change."""
+    if not price_after or not price_at:
+        return "neutral"
+    change = (price_after - price_at) / price_at
+    if change > 0.001:
+        return "positive"
+    elif change < -0.001:
+        return "negative"
+    return "neutral"
+
+
+def _is_correct(predicted: str, price_at: float, price_after: float | None) -> int:
+    """Check if predicted direction matches actual."""
+    actual = _actual_direction(price_at, price_after)
+    if predicted == "neutral" or actual == "neutral":
+        return 1 if predicted == actual else 0
+    return 1 if predicted == actual else 0

@@ -39,6 +39,7 @@ def _load_ner():
     if _ner_model is not None or _ner_load_failed or not _ml_nlp_enabled():
         return
     try:
+        import transformers  # noqa: F401  — force module load before pipeline import
         from transformers import pipeline
 
         logger.info("Loading IndoBERT NER model...")
@@ -47,6 +48,7 @@ def _load_ner():
             model="cahya/bert-base-indonesian-NER",
             tokenizer="cahya/bert-base-indonesian-NER",
             aggregation_strategy="simple",
+            device_map=None,
         )
         logger.info("IndoBERT NER model loaded!")
     except Exception as e:
@@ -61,6 +63,7 @@ def _load_sentiment():
     if _sentiment_model is not None or _sentiment_load_failed or not _ml_nlp_enabled():
         return
     try:
+        import transformers  # noqa: F401  — force module load before pipeline import
         from transformers import pipeline
 
         logger.info("Loading RoBERTa sentiment model...")
@@ -69,6 +72,8 @@ def _load_sentiment():
             model="w11wo/indonesian-roberta-base-sentiment-classifier",
             tokenizer="w11wo/indonesian-roberta-base-sentiment-classifier",
             top_k=None,  # return all class scores
+            device_map=None,
+            low_cpu_mem_usage=False,
         )
         logger.info("RoBERTa sentiment model loaded!")
     except Exception as e:
