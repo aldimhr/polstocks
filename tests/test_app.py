@@ -4,8 +4,51 @@ import json
 
 from backend import main as appmod
 from backend import validation as valmod
+from backend import stocks as stocksmod
+from backend import sources as sourcesmod
 
 client = TestClient(appmod.app)
+
+
+def _patch_validation_series(monkeypatch, fake_fn):
+    """Patch fetch_market_validation_series in both main and validation modules."""
+    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_fn)
+    monkeypatch.setattr(valmod, "fetch_market_validation_series", fake_fn)
+
+def _patch_fetch_market_index(monkeypatch, fake_fn):
+    """Patch fetch_market_index in both main and stocks modules."""
+    monkeypatch.setattr(appmod, "fetch_market_index", fake_fn)
+    monkeypatch.setattr(stocksmod, "fetch_market_index", fake_fn)
+
+
+def _patch_fetch_news_bundle(monkeypatch, fake_fn):
+    """Patch fetch_news_bundle in both main and sources modules."""
+    monkeypatch.setattr(appmod, "fetch_news_bundle", fake_fn)
+    monkeypatch.setattr(sourcesmod, "fetch_news_bundle", fake_fn)
+
+
+def _patch_fetch_stock_quotes(monkeypatch, fake_fn):
+    """Patch fetch_stock_quotes in both main and stocks modules."""
+    monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_fn)
+    monkeypatch.setattr(stocksmod, "fetch_stock_quotes", fake_fn)
+
+
+def _patch_fetch_ticker_history(monkeypatch, fake_fn):
+    """Patch fetch_ticker_history in both main and stocks modules."""
+    monkeypatch.setattr(appmod, "fetch_ticker_history", fake_fn)
+    monkeypatch.setattr(stocksmod, "fetch_ticker_history", fake_fn)
+
+
+def _patch_load_source_outcome_history(monkeypatch, fake_fn):
+    """Patch load_source_outcome_history in both main and validation modules."""
+    monkeypatch.setattr(appmod, "load_source_outcome_history", fake_fn)
+    monkeypatch.setattr(valmod, "load_source_outcome_history", fake_fn)
+
+
+def _patch_save_source_outcome_history(monkeypatch, fake_fn):
+    """Patch save_source_outcome_history in both main and validation modules."""
+    monkeypatch.setattr(appmod, "save_source_outcome_history", fake_fn)
+    monkeypatch.setattr(valmod, "save_source_outcome_history", fake_fn)
 
 
 def patch_source_history_file(monkeypatch, path):
@@ -24,8 +67,8 @@ def patch_source_history_file(monkeypatch, path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json.dumps(normalized, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    monkeypatch.setattr(appmod, "load_source_outcome_history", load)
-    monkeypatch.setattr(appmod, "save_source_outcome_history", save)
+    _patch_load_source_outcome_history(monkeypatch, load)
+    _patch_save_source_outcome_history(monkeypatch, save)
     monkeypatch.setattr(valmod, "load_source_outcome_history", load)
     monkeypatch.setattr(valmod, "save_source_outcome_history", save)
 
@@ -336,7 +379,7 @@ def test_watchlist_roundtrip():
 
 
 def test_ticker_detail_endpoint_returns_history(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_ticker_history", fake_ticker_history)
+    _patch_fetch_ticker_history(monkeypatch, fake_ticker_history)
     response = client.get("/api/ticker/BBCA.JK?window=7d")
     assert response.status_code == 200
     data = response.json()
@@ -615,7 +658,7 @@ def test_refresh_payload_sorts_impacted_tickers_first(monkeypatch):
     def impacted_news_fetcher():
         return [impacted_article], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["TLKM", "BBCA"],
         window="7d",
@@ -644,7 +687,7 @@ def test_refresh_payload_keeps_neutral_ticker_order_when_no_impacts(monkeypatch)
     def neutral_news_fetcher():
         return [neutral_article], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["TLKM", "BBCA"],
         window="7d",
@@ -670,7 +713,7 @@ def test_refresh_payload_flags_stale_source_coverage(monkeypatch):
     def stale_news_fetcher():
         return [stale_article], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["BBCA", "BSDE"],
         window="30d",
@@ -833,10 +876,10 @@ def test_event_stage_affects_analyzed_article_significance():
 
 
 def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
-    monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
-    monkeypatch.setattr(appmod, "fetch_market_index", fake_market_fetcher)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_fetch_news_bundle(monkeypatch, fake_news_fetcher)
+    _patch_fetch_stock_quotes(monkeypatch, fake_stock_fetcher)
+    _patch_fetch_market_index(monkeypatch, fake_market_fetcher)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     response = client.get("/api/dashboard?window=7d")
     assert response.status_code == 200
     data = response.json()
@@ -861,10 +904,10 @@ def test_dashboard_endpoint_returns_watchlist_and_payload(monkeypatch):
 
 
 def test_dashboard_endpoint_exposes_compact_robustness_cues(monkeypatch, tmp_path):
-    monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
-    monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
-    monkeypatch.setattr(appmod, "fetch_market_index", fake_market_fetcher)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_fetch_news_bundle(monkeypatch, fake_news_fetcher)
+    _patch_fetch_stock_quotes(monkeypatch, fake_stock_fetcher)
+    _patch_fetch_market_index(monkeypatch, fake_market_fetcher)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     patch_source_history_file(monkeypatch, tmp_path / "dashboard_source_history.json")
 
     response = client.get("/api/dashboard?window=7d")
@@ -884,7 +927,7 @@ def test_dashboard_endpoint_exposes_compact_robustness_cues(monkeypatch, tmp_pat
 
 
 def test_refresh_builds_expected_payload_and_uses_cache(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["BBCA", "TLKM"],
         force=True,
@@ -917,7 +960,7 @@ def test_refresh_builds_expected_payload_and_uses_cache(monkeypatch):
 
 
 def test_refresh_payload_exposes_source_fetch_diagnostics(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["BBCA"],
         force=True,
@@ -1035,7 +1078,7 @@ def test_refresh_payload_exposes_batch_robustness_summary(monkeypatch):
             ],
         )
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1084,7 +1127,7 @@ def test_refresh_payload_exposes_batch_robustness_summary(monkeypatch):
 
 
 def test_summarized_source_diagnostics_preserve_resolution_and_article_signals(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
 
     registry_article = {
         "source": "Antara Terkini",
@@ -1141,7 +1184,7 @@ def test_summarized_source_diagnostics_preserve_resolution_and_article_signals(m
 
 
 def test_refresh_window_changes_article_set_and_tracking(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     weekly = appmod.build_refresh_payload(
         ["BBCA", "BSDE"],
         force=True,
@@ -1169,9 +1212,9 @@ def test_refresh_window_changes_article_set_and_tracking(monkeypatch):
 
 
 def test_refresh_endpoint_returns_json_shape(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_news_bundle", fake_news_fetcher)
-    monkeypatch.setattr(appmod, "fetch_stock_quotes", fake_stock_fetcher)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_fetch_news_bundle(monkeypatch, fake_news_fetcher)
+    _patch_fetch_stock_quotes(monkeypatch, fake_stock_fetcher)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     response = client.post("/api/refresh", json={"tickers": ["BBCA", "TLKM"], "force": True, "window": "30d"})
     assert response.status_code == 200
     data = response.json()
@@ -1257,7 +1300,7 @@ def test_source_corroboration_from_independent_sources_raises_relationship_confi
     def corroborated_news_fetcher():
         return corroborated_articles, []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     weak_payload = appmod.build_refresh_payload(
         ["ANTM"],
         window="7d",
@@ -1430,7 +1473,7 @@ def test_truly_independent_domains_still_raise_corroboration(monkeypatch):
     def independent_news_fetcher():
         return independent_support_articles, []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     mirrored_payload = appmod.build_refresh_payload(
         ["ANTM"],
         window="7d",
@@ -1489,7 +1532,7 @@ def test_source_conflict_ignores_same_ticker_different_claims(monkeypatch):
     def different_claim_news_fetcher():
         return [DIRECT_MENTION_ARTICLE, different_claim_negative_article], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1525,7 +1568,7 @@ def test_source_conflict_still_flags_same_ticker_same_claim_opposite_direction(m
     def same_claim_news_fetcher():
         return [DIRECT_MENTION_ARTICLE, same_claim_negative_article], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1567,7 +1610,7 @@ def test_source_conflict_flags_opposite_direction_coverage_and_downgrades_confid
     def conflict_news_fetcher():
         return [DIRECT_MENTION_ARTICLE, negative_article], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     solo_payload = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1636,7 +1679,7 @@ def test_group_articles_into_threads_marks_reversals_and_reduces_summary_duplica
 
 
 def test_refresh_payload_exposes_event_threads_and_thread_statuses(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["BBCA", "BSDE"],
         force=True,
@@ -1656,7 +1699,7 @@ def test_refresh_payload_exposes_event_threads_and_thread_statuses(monkeypatch):
 
 
 def test_validate_market_reaction_marks_confirmed_for_large_move(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     article = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK", "BBCA.JK"], window="7d")
     relationship = next(item for item in article["stock_relationships"] if item["ticker"] == "BSDE.JK")
     quote = fake_stock_fetcher(["BSDE.JK"])[0]["BSDE.JK"]
@@ -1670,7 +1713,7 @@ def test_validate_market_reaction_marks_confirmed_for_large_move(monkeypatch):
 
 
 def test_validate_market_reaction_marks_predicted_only_when_series_is_flat(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     article = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK", "BBCA.JK"], window="7d")
     relationship = next(item for item in article["stock_relationships"] if item["ticker"] == "BSDE.JK")
     quote = fake_stock_fetcher(["BSDE.JK"])[0]["BSDE.JK"]
@@ -1685,7 +1728,7 @@ def test_validation_outcome_nudges_stock_impact_score(monkeypatch):
     def direct_news_fetcher():
         return [DIRECT_MENTION_ARTICLE], []
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     confirmed = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1695,7 +1738,7 @@ def test_validation_outcome_nudges_stock_impact_score(monkeypatch):
         market_fetcher=fake_market_fetcher,
     )
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     flat = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1717,7 +1760,7 @@ def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monk
         return [DIRECT_MENTION_ARTICLE], []
 
     patch_source_history_file(monkeypatch, tmp_path / "confirmed_source_history.json")
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     confirmed = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1728,7 +1771,7 @@ def test_validation_outcome_calibrates_source_confidence_in_refresh_payload(monk
     )
 
     patch_source_history_file(monkeypatch, tmp_path / "flat_source_history.json")
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     flat = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1760,7 +1803,7 @@ def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monk
         return [DIRECT_MENTION_ARTICLE], []
 
     patch_source_history_file(monkeypatch, baseline_history)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     baseline = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1771,7 +1814,7 @@ def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monk
     )
 
     patch_source_history_file(monkeypatch, warmed_history)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1781,7 +1824,7 @@ def test_repeated_confirmed_outcomes_raise_source_reliability_within_bounds(monk
         market_fetcher=fake_market_fetcher,
     )
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     warmed = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1811,7 +1854,7 @@ def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monke
         return [DIRECT_MENTION_ARTICLE], []
 
     patch_source_history_file(monkeypatch, baseline_history)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     baseline = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1822,7 +1865,7 @@ def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monke
     )
 
     patch_source_history_file(monkeypatch, cooled_history)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
+    _patch_validation_series(monkeypatch, fake_validation_series_rejected)
     appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1832,7 +1875,7 @@ def test_repeated_rejected_outcomes_lower_source_reliability_within_bounds(monke
         market_fetcher=fake_market_fetcher,
     )
 
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     cooled = appmod.build_refresh_payload(
         ["ANTM"],
         force=True,
@@ -1870,7 +1913,7 @@ def test_registry_trust_remains_the_base_signal(monkeypatch, tmp_path):
         return [weak_direct_article], []
 
     patch_source_history_file(monkeypatch, history_file)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     for _ in range(3):
         appmod.build_refresh_payload(
             ["ANTM"],
@@ -2069,7 +2112,7 @@ def test_sentiment_direction_mismatch_penalizes_confidence():
 
 
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_unavailable)
+    _patch_validation_series(monkeypatch, fake_validation_series_unavailable)
     payload = appmod.build_refresh_payload(
         ["BBCA", "BSDE"],
         force=True,
@@ -2091,7 +2134,7 @@ def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(mon
 
 def test_cross_window_validation_fields_present(monkeypatch):
     """Task 1: validate_market_reaction returns cross_window fields."""
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     article = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK"], window="7d")
     relationship = next(item for item in article["stock_relationships"] if item["ticker"] == "BSDE.JK")
     quote = fake_stock_fetcher(["BSDE.JK"])[0]["BSDE.JK"]
@@ -2109,7 +2152,7 @@ def test_cross_window_divergent_detection(monkeypatch):
         if call_count["n"] <= 1:
             return fake_validation_series_confirmed(ticker, range_name, interval)
         return fake_validation_series_rejected(ticker, range_name, interval)
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", alternating_series)
+    _patch_validation_series(monkeypatch, alternating_series)
     article = appmod.analyze_article(HOUSING_ARTICLE, ["BSDE.JK"], window="7d")
     relationship = next(item for item in article["stock_relationships"] if item["ticker"] == "BSDE.JK")
     quote = fake_stock_fetcher(["BSDE.JK"])[0]["BSDE.JK"]
@@ -2124,7 +2167,7 @@ def test_cross_window_divergent_detection(monkeypatch):
 
 def test_cross_window_propagated_to_stock_payload(monkeypatch):
     """Task 1: Cross-window fields appear in stock payload."""
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_confirmed)
+    _patch_validation_series(monkeypatch, fake_validation_series_confirmed)
     payload = appmod.build_refresh_payload(
         ["BSDE.JK"], force=True, window="7d",
         news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
@@ -2165,7 +2208,7 @@ def test_outcome_history_no_decay_recent_records():
 
 def test_rejected_prediction_lowers_relationship_confidence(monkeypatch):
     """Task 3: Rejected validation lowers relationship confidence via multiplier."""
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
+    _patch_validation_series(monkeypatch, fake_validation_series_rejected)
     payload = appmod.build_refresh_payload(
         ["BSDE.JK"], force=True, window="7d",
         news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
@@ -2210,7 +2253,7 @@ def test_channel_reliability_empty_for_unknown_channel():
 
 def test_channel_fields_in_stock_payload(monkeypatch):
     """Task 4: Channel reliability fields appear in stock payload."""
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["BSDE.JK"], force=True, window="7d",
         news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
@@ -2224,7 +2267,7 @@ def test_channel_fields_in_stock_payload(monkeypatch):
 
 def test_validation_confidence_delta_in_stock_payload(monkeypatch):
     """Task 6: validation_confidence_delta in stock payload when validation adjusts confidence."""
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_rejected)
+    _patch_validation_series(monkeypatch, fake_validation_series_rejected)
     payload = appmod.build_refresh_payload(
         ["BSDE.JK"], force=True, window="7d",
         news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
@@ -2239,7 +2282,7 @@ def test_validation_confidence_delta_in_stock_payload(monkeypatch):
 
 def test_all_predicted_only_warning_in_reasoning_summary(monkeypatch):
     """Task 7: reasoning_summary warns when all predictions are predicted_only."""
-    monkeypatch.setattr(appmod, "fetch_market_validation_series", fake_validation_series_flat)
+    _patch_validation_series(monkeypatch, fake_validation_series_flat)
     payload = appmod.build_refresh_payload(
         ["BSDE.JK"], force=True, window="7d",
         news_fetcher=fake_news_fetcher, stock_fetcher=fake_stock_fetcher, market_fetcher=fake_market_fetcher,
