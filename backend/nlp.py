@@ -22,12 +22,14 @@ logger = logging.getLogger(__name__)
 
 _ner_model = None
 _sentiment_model = None
+_ner_load_failed = False
+_sentiment_load_failed = False
 
 
 def _load_ner():
     """Load IndoBERT NER model on first use."""
-    global _ner_model
-    if _ner_model is not None:
+    global _ner_model, _ner_load_failed
+    if _ner_model is not None or _ner_load_failed:
         return
     try:
         from transformers import pipeline
@@ -41,14 +43,15 @@ def _load_ner():
         )
         logger.info("IndoBERT NER model loaded!")
     except Exception as e:
-        logger.warning(f"Failed to load NER model: {e}")
+        logger.warning(f"Failed to load NER model; using regex fallback: {e}")
         _ner_model = None
+        _ner_load_failed = True
 
 
 def _load_sentiment():
     """Load RoBERTa sentiment model on first use."""
-    global _sentiment_model
-    if _sentiment_model is not None:
+    global _sentiment_model, _sentiment_load_failed
+    if _sentiment_model is not None or _sentiment_load_failed:
         return
     try:
         from transformers import pipeline
@@ -62,8 +65,9 @@ def _load_sentiment():
         )
         logger.info("RoBERTa sentiment model loaded!")
     except Exception as e:
-        logger.warning(f"Failed to load sentiment model: {e}")
+        logger.warning(f"Failed to load sentiment model; using keyword fallback: {e}")
         _sentiment_model = None
+        _sentiment_load_failed = True
 
 
 # ── Sentiment Analysis ────────────────────────────────────────────
