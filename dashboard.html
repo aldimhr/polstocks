@@ -120,42 +120,8 @@
   }
 
   /* Sections that belong to specific tabs */
-  [data-tab] {
-    display: none;
-  }
-
-  body[data-tab="overview"] [data-tab="overview"],
-  body[data-tab="events"] [data-tab="events"],
-  body[data-tab="watchlist"] [data-tab="watchlist"],
-  body[data-tab="portfolio"] [data-tab="portfolio"],
-  body[data-tab="history"] [data-tab="history"] {
-    display: block;
-  }
-
-  /* Grids inside tabs need proper display */
-  .main-grid,
-  .bottom-grid {
-    display: grid;
-  }
-
-  /* When a card in a grid is hidden, let others fill the space */
-  .main-grid > [data-tab],
-  .bottom-grid > [data-tab] {
-    transition: opacity 0.2s ease;
-  }
-
-  /* Override display:none for grid children that should be visible */
-  body[data-tab="overview"] .main-grid > [data-tab="overview"],
-  body[data-tab="events"] .main-grid > [data-tab="events"],
-  body[data-tab="watchlist"] .main-grid > [data-tab="watchlist"],
-  body[data-tab="portfolio"] .main-grid > [data-tab="portfolio"],
-  body[data-tab="history"] .main-grid > [data-tab="history"],
-  body[data-tab="overview"] .bottom-grid > [data-tab="overview"],
-  body[data-tab="events"] .bottom-grid > [data-tab="events"],
-  body[data-tab="watchlist"] .bottom-grid > [data-tab="watchlist"],
-  body[data-tab="portfolio"] .bottom-grid > [data-tab="portfolio"],
-  body[data-tab="history"] .bottom-grid > [data-tab="history"] {
-    display: block;
+  .tab-hidden {
+    display: none !important;
   }
 
   /* Overview summary cards */
@@ -2092,14 +2058,19 @@
       btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
     });
 
-    // Update tab-content wrappers (if any)
-    document.querySelectorAll('.tab-content').forEach(el => {
-      el.classList.toggle('active', el.id === `tab-${tabName}`);
+    // Show/hide all elements with data-tab attribute
+    document.querySelectorAll('[data-tab]').forEach(el => {
+      const elTab = el.getAttribute('data-tab');
+      if (elTab === tabName) {
+        el.classList.remove('tab-hidden');
+      } else {
+        el.classList.add('tab-hidden');
+      }
     });
 
-    // Handle grid visibility — hide empty grids
+    // Handle grid visibility — hide grids with no visible children
     document.querySelectorAll('.main-grid, .bottom-grid').forEach(grid => {
-      const visibleCards = grid.querySelectorAll(`[data-tab="${tabName}"]`);
+      const visibleCards = grid.querySelectorAll(`[data-tab="${tabName}"]:not(.tab-hidden)`);
       grid.style.display = visibleCards.length > 0 ? '' : 'none';
     });
 
@@ -2107,15 +2078,32 @@
     history.replaceState(null, '', `#${tabName}`);
   }
 
-  // Restore tab from URL hash
+  // Restore tab from URL hash, then hide non-active tabs
   (function() {
     const hash = location.hash.replace('#', '');
     const validTabs = ['overview', 'events', 'watchlist', 'portfolio', 'history'];
-    if (validTabs.includes(hash)) {
-      switchTab(hash);
-    } else {
-      document.body.setAttribute('data-tab', 'overview');
-    }
+    const activeTab = validTabs.includes(hash) ? hash : 'overview';
+
+    // Initially hide all non-active tab elements
+    document.querySelectorAll('[data-tab]').forEach(el => {
+      if (el.getAttribute('data-tab') !== activeTab) {
+        el.classList.add('tab-hidden');
+      }
+    });
+
+    // Set active tab button
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === activeTab);
+    });
+
+    state.activeTab = activeTab;
+    document.body.setAttribute('data-tab', activeTab);
+
+    // Handle grid visibility
+    document.querySelectorAll('.main-grid, .bottom-grid').forEach(grid => {
+      const visibleCards = grid.querySelectorAll(`[data-tab="${activeTab}"]:not(.tab-hidden)`);
+      grid.style.display = visibleCards.length > 0 ? '' : 'none';
+    });
   })();
   let tickerChart = null;
   let candleSeries = null;
