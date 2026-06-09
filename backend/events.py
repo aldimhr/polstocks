@@ -439,12 +439,16 @@ def group_articles_into_threads(events: list[dict[str, Any]]) -> list[dict[str, 
             "focus": focus,
         }
         thread_summaries.append(summary)
+        # Track unique sources in this thread
+        unique_sources = {str(e.get("source", e.get("source_name", ""))) for e in thread_events if e.get("source") or e.get("source_name")}
+        source_count = max(len(unique_sources), len(thread_events))
         for event in thread_events:
             event["thread_id"] = thread_id
             event["thread_status"] = thread_status
             event["thread_key"] = thread_key
             event["thread_contradiction_count"] = contradiction_count
             event["thread_latest_event_stage"] = latest_stage
+            event["thread_source_count"] = source_count
 
     thread_summaries.sort(
         key=lambda item: (

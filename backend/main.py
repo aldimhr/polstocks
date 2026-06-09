@@ -4377,23 +4377,44 @@ def build_refresh_payload(
             else:
                 sentiment_momentum[t] = "stable"
 
-    # Sector correlation: count how many stocks per sector have the same prediction direction
+    # Sector correlation: count UNIQUE STORIES per sector+direction (not raw articles)
     sector_direction_counts: dict[str, dict[str, int]] = {}  # sector -> {positive: N, negative: N}
+    sector_thread_ids: dict[str, dict[str, set[str]]] = {}  # sector -> {direction -> set of thread_ids}
     for event in events:
+        thread_id = event.get("thread_id", "")
         for rel in event.get("stock_relationships", []):
             sector = rel.get("sector", "")
             direction = str(rel.get("impact_direction", "neutral"))
             if sector and direction in ("positive", "negative"):
-                sector_direction_counts.setdefault(sector, {})
-                sector_direction_counts[sector][direction] = sector_direction_counts[sector].get(direction, 0) + 1
+                if sector not in sector_thread_ids:
+                    sector_thread_ids[sector] = {}
+                if direction not in sector_thread_ids[sector]:
+                    sector_thread_ids[sector][direction] = set()
+                if thread_id:
+                    sector_thread_ids[sector][direction].add(thread_id)
+                else:
+                    sector_thread_ids[sector][direction].add(f"_article_{id(event)}")
+    for sector, directions in sector_thread_ids.items():
+        sector_direction_counts[sector] = {d: len(tids) for d, tids in directions.items()}
 
-    # Event clustering: count events per ticker for confidence boost
+    # Event clustering: count UNIQUE STORIES (threads) per ticker, not raw articles
+    # Same story from Detik + CNBC + Kompas should count as 1 event, not 3
     ticker_event_counts: dict[str, int] = {}
+    ticker_thread_ids: dict[str, set[str]] = {}
     for event in events:
+        thread_id = event.get("thread_id", "")
         for rel in event.get("stock_relationships", []):
             t = normalize_ticker(rel.get("ticker", ""))
             if t:
-                ticker_event_counts[t] = ticker_event_counts.get(t, 0) + 1
+                if t not in ticker_thread_ids:
+                    ticker_thread_ids[t] = set()
+                if thread_id:
+                    ticker_thread_ids[t].add(thread_id)
+                else:
+                    # Fallback: count articles without thread_id individually
+                    ticker_thread_ids[t].add(f"_article_{id(event)}")
+    for t, thread_ids in ticker_thread_ids.items():
+        ticker_event_counts[t] = len(thread_ids)
 
     validation_warnings: list[str] = []
     validation_cache: dict[tuple[str, str], dict[str, Any]] = {}
