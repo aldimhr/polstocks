@@ -163,6 +163,15 @@ def _parse_rss_xml(xml_text: str, source_name: str) -> list[dict[str, Any]]:
                 pub_date = date_el.text.strip()
                 break
 
+        # Convert RFC 2822 dates (e.g., "Thu, 28 May 2026 01:21:20 +0700") to ISO 8601
+        if pub_date and re.match(r"\w{3},\s+\d{1,2}\s+\w{3}\s+\d{4}", pub_date):
+            try:
+                from email.utils import parsedate_to_datetime
+                dt = parsedate_to_datetime(pub_date)
+                pub_date = dt.isoformat(timespec="seconds")
+            except Exception:
+                pass  # keep original, will fail import validation
+
         # Fallback: extract date from URL (many Indonesian news sites use /2026/01/15/ or /20260115/)
         if not pub_date and link:
             url_date = re.search(r"/(\d{4})/(\d{2})/(\d{2})/", link)
