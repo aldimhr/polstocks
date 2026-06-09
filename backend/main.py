@@ -2065,6 +2065,51 @@ def compute_trend(closes: list[float]) -> dict[str, Any] | None:
     }
 
 
+def compute_atr(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> float | None:
+    """Compute Average True Range — measures volatility."""
+    if len(highs) < period + 1 or len(lows) < period + 1 or len(closes) < period + 1:
+        return None
+    true_ranges = []
+    for i in range(1, len(highs)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        true_ranges.append(tr)
+    if len(true_ranges) < period:
+        return None
+    # Wilder's smoothing (EMA-like)
+    atr = sum(true_ranges[:period]) / period
+    for tr in true_ranges[period:]:
+        atr = (atr * (period - 1) + tr) / period
+    return round(atr, 4)
+
+
+def fetch_index_change(symbol: str, label: str) -> tuple[float | None, str]:
+    """Fetch current day change_pct for a market index. Returns (change_pct, direction)."""
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(symbol)}?range=2d&interval=1d"
+        response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
+        response.raise_for_status()
+        result = response.json()["chart"]["result"][0]
+        meta = result.get("meta", {})
+        price = meta.get("regularMarketPrice")
+        prev_close = meta.get("chartPreviousClose") or meta.get("previousClose")
+        if price and prev_close and prev_close != 0:
+            change_pct = ((price - prev_close) / prev_close) * 100.0
+            direction = "up" if change_pct > 0.15 else "down" if change_pct < -0.15 else "flat"
+            return round(change_pct, 2), direction
+    except Exception:
+        pass
+    return None, "flat"
+
+
+def fetch_usd_idr() -> tuple[float | None, str]:
+    """Fetch USD/IDR exchange rate change. Returns (change_pct, direction)."""
+    return fetch_index_change("USDIDR=X", "USD/IDR")
+
+
 def fetch_live_quote(ticker: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker)}?range=1d&interval=1d&includePrePost=false&events=div,splits"
     response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)
@@ -4245,11 +4290,12 @@ def build_refresh_payload(
         market_context_factor = 1.0    # normal market
     ihsg_direction = "positive" if float(market_index.get("change_pct") or 0.0) > 0 else "negative"
 
-    # Fetch RSI, MACD, and SMA for each watchlist stock (concurrent)
+    # Fetch RSI, MACD, SMA, and ATR for each watchlist stock (concurrent)
     rsi_cache: dict[str, float | None] = {}
     macd_cache: dict[str, dict[str, float] | None] = {}
     trend_cache: dict[str, dict[str, Any] | None] = {}
-    def _fetch_indicators(ticker: str) -> tuple[str, float | None, dict | None, dict | None]:
+    atr_cache: dict[str, float | None] = {}
+    def _fetch_indicators(ticker: str) -> tuple[str, float | None, dict | None, dict | None, float | None]:
         try:
             hist = fetch_ticker_history(ticker, "6mo")
             closes = hist.get("series", [])
@@ -4257,14 +4303,72 @@ def build_refresh_payload(
             rsi = compute_rsi(prices)
             macd = compute_macd(prices) if len(prices) >= 35 else None
             trend = compute_trend(prices) if len(prices) >= 50 else None
-            return ticker, rsi, macd, trend
+            # ATR from OHLC data
+            ohlc = hist.get("ohlc_series", [])
+            if len(ohlc) >= 15:
+                highs = [float(d["high"]) for d in ohlc]
+                lows = [float(d["low"]) for d in ohlc]
+                cls = [float(d["close"]) for d in ohlc]
+                atr = compute_atr(highs, lows, cls)
+            else:
+                atr = None
+            return ticker, rsi, macd, trend, atr
         except Exception:
-            return ticker, None, None, None
+            return ticker, None, None, None, None
     with ThreadPoolExecutor(max_workers=min(len(watchlist), 5)) as pool:
-        for ticker, rsi, macd, trend in pool.map(lambda t: _fetch_indicators(t), watchlist):
+        for ticker, rsi, macd, trend, atr in pool.map(lambda t: _fetch_indicators(t), watchlist):
             rsi_cache[ticker] = rsi
             macd_cache[ticker] = macd
             trend_cache[ticker] = trend
+            atr_cache[ticker] = atr
+
+    # Foreign market correlation: S&P 500 and Nikkei
+    sp500_change, sp500_dir = fetch_index_change("^GSPC", "S&P 500")
+    nikkei_change, nikkei_dir = fetch_index_change("^N225", "Nikkei 225")
+    # Aggregate: if both foreign markets agree, stronger signal
+    foreign_direction = "flat"
+    if sp500_dir == nikkei_dir and sp500_dir != "flat":
+        foreign_direction = sp500_dir
+    elif sp500_dir != "flat":
+        foreign_direction = sp500_dir  # S&P has more weight
+    elif nikkei_dir != "flat":
+        foreign_direction = nikkei_dir
+
+    # Currency impact: USD/IDR
+    usd_idr_change, usd_idr_dir = fetch_usd_idr()
+
+    # Sentiment momentum: track sentiment trend across recent events per ticker
+    sentiment_momentum: dict[str, str] = {}  # ticker -> "strengthening" | "weakening" | "stable"
+    ticker_sentiments: dict[str, list[float]] = {}
+    for event in events:
+        for rel in event.get("stock_relationships", []):
+            t = normalize_ticker(rel.get("ticker", ""))
+            if t:
+                score = float(event.get("sentiment_score", 0.0) or 0.0)
+                ticker_sentiments.setdefault(t, []).append(score)
+    for t, scores in ticker_sentiments.items():
+        if len(scores) >= 3:
+            # Compare first half avg vs second half avg
+            mid = len(scores) // 2
+            first_avg = sum(scores[:mid]) / mid
+            second_avg = sum(scores[mid:]) / (len(scores) - mid)
+            delta = second_avg - first_avg
+            if delta > 0.15:
+                sentiment_momentum[t] = "strengthening"
+            elif delta < -0.15:
+                sentiment_momentum[t] = "weakening"
+            else:
+                sentiment_momentum[t] = "stable"
+
+    # Sector correlation: count how many stocks per sector have the same prediction direction
+    sector_direction_counts: dict[str, dict[str, int]] = {}  # sector -> {positive: N, negative: N}
+    for event in events:
+        for rel in event.get("stock_relationships", []):
+            sector = rel.get("sector", "")
+            direction = str(rel.get("impact_direction", "neutral"))
+            if sector and direction in ("positive", "negative"):
+                sector_direction_counts.setdefault(sector, {})
+                sector_direction_counts[sector][direction] = sector_direction_counts[sector].get(direction, 0) + 1
 
     # Event clustering: count events per ticker for confidence boost
     ticker_event_counts: dict[str, int] = {}
@@ -4443,6 +4547,110 @@ def build_refresh_payload(
                 relationship["event_cluster_count"] = event_count
                 relationship["event_cluster_factor"] = round(cluster_mult, 3)
 
+            # ATR volatility signal — high volatility stocks are more likely to move
+            atr_val = atr_cache.get(ticker_for_rsi)
+            if atr_val is not None and rel_direction in ("positive", "negative"):
+                current_price = float(relationship.get("price", 0) or 0)
+                if current_price > 0:
+                    atr_pct = (atr_val / current_price) * 100.0
+                    atr_mult = 1.0
+                    if atr_pct > 5.0:
+                        atr_mult = 1.10   # very high volatility: strong boost
+                    elif atr_pct > 3.0:
+                        atr_mult = 1.06   # high volatility: moderate boost
+                    elif atr_pct < 1.0:
+                        atr_mult = 0.94   # very low volatility: dampen (unlikely to move)
+                    if atr_mult != 1.0:
+                        cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                        adjusted_atr = clamp(cur_conf * atr_mult, 0.0, 1.0)
+                        relationship["confidence"] = round(adjusted_atr, 3)
+                        relationship["relationship_confidence"] = round(adjusted_atr, 3)
+                        relationship["atr_value"] = round(atr_val, 2)
+                        relationship["atr_pct"] = round(atr_pct, 2)
+                        relationship["atr_factor"] = round(atr_mult, 3)
+
+            # Sector correlation — multiple stocks in same sector agreeing = stronger signal
+            rel_sector = str(relationship.get("sector", ""))
+            if rel_sector and rel_direction in ("positive", "negative"):
+                sector_counts = sector_direction_counts.get(rel_sector, {})
+                same_dir_count = sector_counts.get(rel_direction, 0)
+                if same_dir_count >= 4:
+                    sector_mult = 1.08   # 4+ stocks in sector agree: strong
+                elif same_dir_count >= 2:
+                    sector_mult = 1.04   # 2+ stocks agree: moderate
+                else:
+                    sector_mult = 1.0
+                if sector_mult != 1.0:
+                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                    adjusted_sector = clamp(cur_conf * sector_mult, 0.0, 1.0)
+                    relationship["confidence"] = round(adjusted_sector, 3)
+                    relationship["relationship_confidence"] = round(adjusted_sector, 3)
+                    relationship["sector_correlation_count"] = same_dir_count
+                    relationship["sector_correlation_factor"] = round(sector_mult, 3)
+
+            # Foreign market correlation — global trend alignment
+            if rel_direction in ("positive", "negative") and foreign_direction != "flat":
+                foreign_mult = 1.0
+                if rel_direction == "positive" and foreign_direction == "up":
+                    foreign_mult = 1.06   # global rally aligned with positive prediction
+                elif rel_direction == "negative" and foreign_direction == "down":
+                    foreign_mult = 1.06   # global sell-off aligned with negative prediction
+                elif rel_direction == "positive" and foreign_direction == "down":
+                    foreign_mult = 0.94   # fighting global trend
+                elif rel_direction == "negative" and foreign_direction == "up":
+                    foreign_mult = 0.94   # fighting global trend
+                if foreign_mult != 1.0:
+                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                    adjusted_foreign = clamp(cur_conf * foreign_mult, 0.0, 1.0)
+                    relationship["confidence"] = round(adjusted_foreign, 3)
+                    relationship["relationship_confidence"] = round(adjusted_foreign, 3)
+                    relationship["foreign_market_factor"] = round(foreign_mult, 3)
+
+            # Sentiment momentum — sentiment getting stronger/weaker over recent events
+            s_momentum = sentiment_momentum.get(ticker_for_rsi, "stable")
+            if s_momentum != "stable" and rel_direction in ("positive", "negative"):
+                momentum_mult = 1.0
+                if s_momentum == "strengthening" and rel_direction == "positive":
+                    momentum_mult = 1.05
+                elif s_momentum == "weakening" and rel_direction == "negative":
+                    momentum_mult = 1.05
+                elif s_momentum == "strengthening" and rel_direction == "negative":
+                    momentum_mult = 0.95   # sentiment improving but predicting negative
+                elif s_momentum == "weakening" and rel_direction == "positive":
+                    momentum_mult = 0.95   # sentiment worsening but predicting positive
+                if momentum_mult != 1.0:
+                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                    adjusted_mom = clamp(cur_conf * momentum_mult, 0.0, 1.0)
+                    relationship["confidence"] = round(adjusted_mom, 3)
+                    relationship["relationship_confidence"] = round(adjusted_mom, 3)
+                    relationship["sentiment_momentum"] = s_momentum
+                    relationship["sentiment_momentum_factor"] = round(momentum_mult, 3)
+
+            # Currency impact — USD/IDR affects export/import stocks
+            if usd_idr_dir != "flat" and rel_direction in ("positive", "negative"):
+                exposure_factors = relationship.get("exposure_factors", {})
+                export_dep = str(exposure_factors.get("export_import_dependency", "low")).lower()
+                if export_dep in ("high", "medium"):
+                    currency_mult = 1.0
+                    # IDR weakening (USD/IDR up) = good for exporters, bad for importers
+                    # IDR strengthening (USD/IDR down) = bad for exporters, good for importers
+                    if usd_idr_dir == "up":  # IDR weakening
+                        if rel_direction == "positive":
+                            currency_mult = 1.05  # exporters benefit
+                        else:
+                            currency_mult = 0.97  # negative prediction less likely for exporters
+                    elif usd_idr_dir == "down":  # IDR strengthening
+                        if rel_direction == "negative":
+                            currency_mult = 1.03  # importers benefit from stronger IDR
+                        else:
+                            currency_mult = 0.97
+                    if currency_mult != 1.0:
+                        cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                        adjusted_curr = clamp(cur_conf * currency_mult, 0.0, 1.0)
+                        relationship["confidence"] = round(adjusted_curr, 3)
+                        relationship["relationship_confidence"] = round(adjusted_curr, 3)
+                        relationship["currency_factor"] = round(currency_mult, 3)
+
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
                 validation_status,
@@ -4556,6 +4764,15 @@ def build_refresh_payload(
                 "trend_factor": strongest_link[1].get("trend_factor", 1.0) if strongest_link else 1.0,
                 "event_cluster_count": ticker_event_counts.get(ticker, 0),
                 "event_cluster_factor": strongest_link[1].get("event_cluster_factor", 1.0) if strongest_link else 1.0,
+                "atr_value": atr_cache.get(ticker),
+                "atr_pct": strongest_link[1].get("atr_pct") if strongest_link else None,
+                "atr_factor": strongest_link[1].get("atr_factor", 1.0) if strongest_link else 1.0,
+                "sector_correlation_count": strongest_link[1].get("sector_correlation_count", 0) if strongest_link else 0,
+                "sector_correlation_factor": strongest_link[1].get("sector_correlation_factor", 1.0) if strongest_link else 1.0,
+                "foreign_market_factor": strongest_link[1].get("foreign_market_factor", 1.0) if strongest_link else 1.0,
+                "sentiment_momentum": strongest_link[1].get("sentiment_momentum", "stable") if strongest_link else "stable",
+                "sentiment_momentum_factor": strongest_link[1].get("sentiment_momentum_factor", 1.0) if strongest_link else 1.0,
+                "currency_factor": strongest_link[1].get("currency_factor", 1.0) if strongest_link else 1.0,
             }
         )
     stocks = sort_stocks_by_impact(stocks)
@@ -4640,6 +4857,15 @@ def build_refresh_payload(
         "sector_summary": sector_summary,
         "tracking": tracking,
         "market_index": market_index,
+        "global_markets": {
+            "sp500_change": sp500_change,
+            "sp500_direction": sp500_dir,
+            "nikkei_change": nikkei_change,
+            "nikkei_direction": nikkei_dir,
+            "foreign_direction": foreign_direction,
+            "usd_idr_change": usd_idr_change,
+            "usd_idr_direction": usd_idr_dir,
+        },
         "sources": sources,
         "source_health_summary": source_health_summary,
         "warnings": warnings,
@@ -4756,6 +4982,17 @@ def api_ticker_detail(ticker: str, window: str = DEFAULT_EVENT_WINDOW) -> dict[s
         trend = compute_trend(prices)
         if trend:
             data["trend"] = trend
+    # ATR from OHLC data
+    ohlc = data.get("ohlc_series", [])
+    if len(ohlc) >= 15:
+        highs = [float(d["high"]) for d in ohlc]
+        lows = [float(d["low"]) for d in ohlc]
+        cls = [float(d["close"]) for d in ohlc]
+        atr = compute_atr(highs, lows, cls)
+        if atr is not None:
+            data["atr"] = atr
+            if prices:
+                data["atr_pct"] = round((atr / prices[-1]) * 100, 2)
     return data
 
 

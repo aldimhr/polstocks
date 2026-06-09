@@ -1685,6 +1685,15 @@
       </div>
     </div>
 
+    <!-- Global Markets -->
+    <div class="card" id="globalMarketsCard" style="display:none">
+      <div class="card-header">
+        <span class="card-title">🌍 Global Markets</span>
+        <span class="card-badge">S&P 500 · Nikkei · USD/IDR</span>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0" id="globalMarketsGrid"></div>
+    </div>
+
     <!-- Sector heatmap -->
     <div class="card sector-card">
       <div class="card-header">
@@ -2019,7 +2028,7 @@
     return 'neu';
   }
 
-  const CHIP_INFO_MAP = { 'RSI': 'RSI', 'MACD': 'MACD', 'Trend': 'Trend', 'Direction': 'Direction', 'Validation': 'Validation' };
+  const CHIP_INFO_MAP = { 'RSI': 'RSI', 'MACD': 'MACD', 'Trend': 'Trend', 'Direction': 'Direction', 'Validation': 'Validation', 'ATR': 'ATR', 'Sector': 'Sector Correlation', 'Foreign': 'Foreign Market', 'Momentum': 'Sentiment Momentum', 'Currency': 'Currency' };
 
   function renderReasoningChip(label, value, kind) {
     if (value === null || value === undefined || value === '') return '';
@@ -2205,6 +2214,28 @@
     `;
   }
 
+  function renderGlobalMarkets(gm) {
+    const card = $('globalMarketsCard');
+    const root = $('globalMarketsGrid');
+    if (!card || !root) return;
+    const hasData = gm.sp500_change != null || gm.nikkei_change != null || gm.usd_idr_change != null;
+    if (!hasData) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    const items = [
+      { label: 'S&P 500', value: gm.sp500_change, dir: gm.sp500_direction },
+      { label: 'Nikkei 225', value: gm.nikkei_change, dir: gm.nikkei_direction },
+      { label: 'USD/IDR', value: gm.usd_idr_change, dir: gm.usd_idr_direction },
+    ].filter(i => i.value != null);
+    root.innerHTML = items.map(item => {
+      const cls = item.dir === 'up' ? 'up' : item.dir === 'down' ? 'down' : 'flat';
+      const arrow = item.dir === 'up' ? '▲' : item.dir === 'down' ? '▼' : '•';
+      return `<div style="flex:1;min-width:100px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:3px">${escapeHtml(item.label)}</div>
+        <div style="font-size:13px;font-weight:700;font-family:'DM Mono',monospace;color:var(--${cls === 'up' ? 'green' : cls === 'down' ? 'red' : 'text'})">${arrow} ${item.value > 0 ? '+' : ''}${item.value.toFixed(2)}%</div>
+      </div>`;
+    }).join('');
+  }
+
   function renderWatchlistEditor(tickers) {
     state.watchlist = Array.isArray(tickers) ? [...tickers] : [];
     $('watchlistBadge').textContent = `${state.watchlist.length} tickers`;
@@ -2288,6 +2319,48 @@
         • <strong>Reversed</strong> = Stock moved opposite to prediction<br>
         • <strong>Unvalidated</strong> = Not enough time has passed to check yet<br><br>
         Predictions need time windows (1h, 4h, 24h) to elapse before we can validate them.`
+    },
+    'ATR': {
+      icon: '🌡️',
+      title: 'ATR — Average True Range',
+      body: `Measures <strong>volatility</strong> — how much a stock typically moves per day.<br><br>
+        • <strong>> 5%</strong> = High volatility — stock moves a lot, more likely to hit prediction targets<br>
+        • <strong>3–5%</strong> = Moderate volatility<br>
+        • <strong>< 1%</strong> = Low volatility — stock barely moves, harder to profit from predictions<br><br>
+        ATR doesn't tell you direction — it tells you "how much could this move?" A high-ATR stock with a strong prediction is more actionable than a low-ATR one. Our system boosts confidence for volatile stocks because they're more likely to actually move.`
+    },
+    'Sector Correlation': {
+      icon: '🏭',
+      title: 'Sector Correlation',
+      body: `When <strong>multiple stocks in the same sector</strong> have the same predicted direction, the signal is stronger.<br><br>
+        • <strong>4+ stocks</strong> in the sector agreeing = +8% confidence boost<br>
+        • <strong>2+ stocks</strong> agreeing = +4% boost<br><br>
+        If a policy event affects one bank, it probably affects all banks. Sector-wide agreement means the prediction isn't just about one company — it's about a whole industry trend.`
+    },
+    'Foreign Market': {
+      icon: '🌍',
+      title: 'Foreign Market Correlation',
+      body: `Checks if <strong>S&P 500</strong> (US) and <strong>Nikkei 225</strong> (Japan) are trending in the same direction as the prediction.<br><br>
+        • Both foreign markets <strong>agreeing</strong> with prediction = +6% boost<br>
+        • Both <strong>fighting</strong> the prediction = -6% dampening<br><br>
+        Indonesian stocks are influenced by global sentiment. If Wall Street is selling off, a positive prediction on an IDX stock needs to be very strong to overcome the global headwind.`
+    },
+    'Sentiment Momentum': {
+      icon: '📊',
+      title: 'Sentiment Momentum',
+      body: `Tracks whether news sentiment is <strong>getting stronger or weaker</strong> over recent events for the same stock.<br><br>
+        • <strong>Strengthening</strong> = Recent news is more positive than earlier news<br>
+        • <strong>Weakening</strong> = Recent news is more negative than earlier news<br>
+        • <strong>Stable</strong> = No clear trend<br><br>
+        If sentiment is improving and the prediction is positive, that's a good sign. If sentiment is worsening but we're predicting positive, something might be off.`
+    },
+    'Currency': {
+      icon: '💱',
+      title: 'Currency Impact (USD/IDR)',
+      body: `The USD/IDR exchange rate affects companies with <strong>export/import exposure</strong>.<br><br>
+        • <strong>IDR weakening</strong> (USD/IDR up) = Good for exporters (more IDR revenue), mixed for importers<br>
+        • <strong>IDR strengthening</strong> (USD/IDR down) = Good for importers (cheaper inputs), mixed for exporters<br><br>
+        Only applies to stocks with high or medium export/import dependency. Mining, agriculture, and consumer goods companies are most affected.`
     }
   };
 
@@ -2613,6 +2686,14 @@
         ? `${formatPrice(sma20)} / ${formatPrice(sma50)}`
         : strength > 0 ? `${(strength * 100).toFixed(1)}%` : '—';
       stats.push({ label: `Trend · ${trendDir.charAt(0).toUpperCase() + trendDir.slice(1)}`, value: trendVal, cls: trendClass, infoKey: 'Trend' });
+    }
+    // Add ATR stat if available
+    const atrVal = payload.atr;
+    const atrPct = payload.atr_pct;
+    if (atrVal != null) {
+      const atrClass = atrPct > 5 ? 'down' : atrPct > 3 ? 'flat' : 'flat';
+      const atrLabel = atrPct > 5 ? 'High Vol' : atrPct > 3 ? 'Moderate' : atrPct < 1 ? 'Low Vol' : 'Normal';
+      stats.push({ label: `ATR · ${atrLabel}`, value: atrPct != null ? `${atrPct.toFixed(1)}%` : formatPrice(atrVal), cls: atrClass, infoKey: 'ATR' });
     }
     $('tickerModalStats').innerHTML = stats.map((item) => `
       <div class="ticker-stat">
@@ -2945,7 +3026,17 @@
       const trendObj = stock.trend;
       const trendDir = (trendObj && typeof trendObj === 'object' ? trendObj.trend : stock.sma_trend) || '';
       const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'rsi') : '';
-      const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, conflictBadges].filter(Boolean).join(' ');
+      const atrPct = stock.atr_pct;
+      const atrChip = atrPct != null ? renderReasoningChip('ATR', `${atrPct.toFixed(1)}%${atrPct > 5 ? ' ▲' : atrPct < 1 ? ' ▼' : ''}`, 'rsi') : '';
+      const sectorCount = stock.sector_correlation_count;
+      const sectorChip = sectorCount >= 2 ? renderReasoningChip('Sector', `${sectorCount} aligned`, 'rsi') : '';
+      const foreignFactor = stock.foreign_market_factor;
+      const foreignChip = foreignFactor != null && foreignFactor !== 1.0 ? renderReasoningChip('Foreign', foreignFactor > 1 ? 'Aligned ▲' : 'Fighting ▼', 'rsi') : '';
+      const sMomentum = stock.sentiment_momentum;
+      const momentumChip = sMomentum && sMomentum !== 'stable' ? renderReasoningChip('Momentum', sMomentum === 'strengthening' ? '↑ Strengthening' : '↓ Weakening', 'rsi') : '';
+      const currFactor = stock.currency_factor;
+      const currChip = currFactor != null && currFactor !== 1.0 ? renderReasoningChip('Currency', currFactor > 1 ? 'Favorable ▲' : 'Headwind ▼', 'rsi') : '';
+      const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, atrChip, sectorChip, foreignChip, momentumChip, currChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationParts = [];
       if (stock.validation_status) {
@@ -3214,6 +3305,7 @@
     safeRender(() => renderSectorGrid(payload.sector_summary || {}), 'sectorGrid', 'Sectors');
     safeRender(() => renderSources(payload.sources || [], events), 'sourceTags', 'Sources');
     safeRender(() => renderMarketIndex(payload.market_index || {}), 'ihsgChart', 'Market Index');
+    safeRender(() => renderGlobalMarkets(payload.global_markets || {}), 'globalMarketsGrid', 'Global Markets');
     safeRender(() => renderWatchlistEditor(watchlist), 'watchlistChips', 'Watchlist');
     $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || 'last 24 hours'} · cache TTL 5 minutes`;
   }
