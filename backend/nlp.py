@@ -12,6 +12,7 @@ Results are cached with LRU to avoid re-inference on repeated text.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from functools import lru_cache
 from typing import Any
@@ -26,10 +27,16 @@ _ner_load_failed = False
 _sentiment_load_failed = False
 
 
+def _ml_nlp_enabled() -> bool:
+    """Return whether transformer-backed NLP is enabled for this process."""
+    value = os.getenv("POLSTOCK_ENABLE_ML_NLP", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
 def _load_ner():
     """Load IndoBERT NER model on first use."""
     global _ner_model, _ner_load_failed
-    if _ner_model is not None or _ner_load_failed:
+    if _ner_model is not None or _ner_load_failed or not _ml_nlp_enabled():
         return
     try:
         from transformers import pipeline
@@ -51,7 +58,7 @@ def _load_ner():
 def _load_sentiment():
     """Load RoBERTa sentiment model on first use."""
     global _sentiment_model, _sentiment_load_failed
-    if _sentiment_model is not None or _sentiment_load_failed:
+    if _sentiment_model is not None or _sentiment_load_failed or not _ml_nlp_enabled():
         return
     try:
         from transformers import pipeline
@@ -390,9 +397,11 @@ def analyze_article_nlp(title: str, text: str = "") -> dict[str, Any]:
 
 def get_nlp_status() -> dict[str, Any]:
     """Return current NLP model status for dashboard display."""
+    ml_enabled = _ml_nlp_enabled()
     ner_loaded = _ner_model is not None
     sentiment_loaded = _sentiment_model is not None
     return {
+        "ml_enabled": ml_enabled,
         "sentiment_engine": "ensemble_keyword_roberta" if sentiment_loaded else "expanded_keyword_v2",
         "sentiment_model": "w11wo/indonesian-roberta-base-sentiment-classifier" if sentiment_loaded else None,
         "sentiment_model_loaded": sentiment_loaded,

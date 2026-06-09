@@ -1,3 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi>=0.115
 uvicorn>=0.30
 requests>=2.32
+
+# NLP enhancement stack. CPU-only torch avoids pulling multi-GB CUDA wheels on VPS.
+torch==2.6.0+cpu
+transformers>=4.40,<5
+safetensors>=0.4
+tokenizers>=0.19
