@@ -1525,6 +1525,40 @@
   .metric:nth-child(2) { animation: fadeIn 0.4s ease 0.06s both; }
   .metric:nth-child(3) { animation: fadeIn 0.4s ease 0.12s both; }
   .metric:nth-child(4) { animation: fadeIn 0.4s ease 0.18s both; }
+
+  /* Prediction History */
+  .history-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    transition: background 0.15s;
+  }
+  .history-row:hover { background: var(--surface); }
+  .history-row:last-child { border-bottom: none; }
+  .history-icon { font-size: 14px; flex-shrink: 0; width: 20px; text-align: center; }
+  .history-ticker { font-weight: 700; font-family: 'DM Mono', monospace; min-width: 50px; }
+  .history-headline { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  .history-return { font-family: 'DM Mono', monospace; font-weight: 600; min-width: 60px; text-align: right; }
+  .history-return.positive { color: var(--positive); }
+  .history-return.negative { color: var(--negative); }
+  .history-return.neutral { color: var(--muted); }
+  .history-confidence { font-family: 'DM Mono', monospace; min-width: 45px; text-align: right; color: var(--muted); }
+  .history-time { font-size: 10px; color: var(--muted); min-width: 50px; text-align: right; }
+  .chip-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .chip-btn:hover { border-color: var(--accent); }
+  .chip-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -1692,6 +1726,22 @@
         <span class="card-badge">S&P 500 · Nikkei · USD/IDR</span>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0" id="globalMarketsGrid"></div>
+    </div>
+
+    <!-- Prediction History -->
+    <div class="card" id="predictionHistoryCard">
+      <div class="card-header">
+        <span class="card-title">📜 Prediction History</span>
+        <span class="card-badge" id="historyBadge">Loading...</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <button class="chip-btn active" onclick="loadHistory(null, this)">All</button>
+        <button class="chip-btn" onclick="loadHistory('resolved', this)">✅ Resolved</button>
+        <button class="chip-btn" onclick="loadHistory('pending', this)">⏳ Pending</button>
+      </div>
+      <div id="predictionHistoryList" style="max-height:400px;overflow-y:auto">
+        <div class="stat-sub">Loading predictions...</div>
+      </div>
     </div>
 
     <!-- Sector heatmap -->
@@ -2280,6 +2330,157 @@
     root.innerHTML = state.watchlist.length
       ? state.watchlist.map((ticker) => `<span class="watchlist-chip"><button type="button" class="watchlist-chip-main" data-ticker="${escapeHtml(ticker)}">${escapeHtml(ticker)}</button><button type="button" data-remove-ticker="${escapeHtml(ticker)}">×</button></span>`).join('')
       : '<span class="watchlist-note">No tickers in watchlist.</span>';
+  }
+
+  // ── Prediction History Panel ──
+  let _historyFilter = null;
+  let _historyOffset = 0;
+  const _historyPageSize = 50;
+
+  async function loadHistory(status, btn) {
+    // Update active chip
+    document.querySelectorAll('#predictionHistoryCard .chip-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    _historyFilter = status;
+    _historyOffset = 0;
+    const list = $('predictionHistoryList');
+    list.innerHTML = '<div class="stat-sub">Loading predictions...</div>';
+
+    try {
+      const params = new URLSearchParams({ limit: _historyPageSize, offset: 0 });
+      if (status) params.set('status', status);
+      const resp = await fetch(`/api/predictions/history?${params}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      $('historyBadge').textContent = `${data.total} predictions`;
+      renderHistory(data.predictions, data.total);
+    } catch (e) {
+      list.innerHTML = `<div class="stat-sub" style="color:var(--negative)">Failed to load: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderHistory(predictions, total) {
+    const list = $('predictionHistoryList');
+    if (!predictions || predictions.length === 0) {
+      list.innerHTML = '<div class="stat-sub">No predictions found.</div>';
+      return;
+    }
+
+    const html = predictions.map(p => {
+      const dir = p.predicted_direction === 'up' ? '▲' : p.predicted_direction === 'down' ? '▼' : '•';
+      const dirColor = p.predicted_direction === 'up' ? 'var(--positive)' : p.predicted_direction === 'down' ? 'var(--negative)' : 'var(--muted)';
+
+      // Return display
+      let retClass = 'neutral';
+      let retText = '—';
+      if (p.outcome_status === 'resolved' && p.actual_return_24h != null) {
+        const r = p.actual_return_24h;
+        retClass = r > 0 ? 'positive' : r < 0 ? 'negative' : 'neutral';
+        retText = `${r > 0 ? '+' : ''}${r.toFixed(2)}%`;
+      } else if (p.outcome_status === 'pending') {
+        retText = '⏳';
+      }
+
+      // Correct/incorrect icon
+      let statusIcon = '';
+      if (p.outcome_status === 'resolved') {
+        statusIcon = p.is_correct ? '✅' : '❌';
+      }
+
+      // Time display — handle both Unix timestamps and ISO/date strings
+      let timeStr = '';
+      if (p.created_at) {
+        const d = typeof p.created_at === 'number' ? new Date(p.created_at * 1000) : new Date(p.created_at.replace(' ', 'T') + (p.created_at.includes('+') ? '' : '+07:00'));
+        if (!isNaN(d)) timeStr = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+      }
+
+      // Confidence
+      const conf = p.confidence != null ? `${Math.round(p.confidence * 100)}%` : '';
+
+      // Headline (truncated)
+      const headline = escapeHtml(p.event_headline || '');
+
+      return `<div class="history-row" title="${headline}">
+        <span class="history-icon">${statusIcon || dir}</span>
+        <span class="history-ticker" style="color:${dirColor}">${escapeHtml(p.ticker || '')}</span>
+        <span class="history-headline">${headline}</span>
+        <span class="history-confidence">${conf}</span>
+        <span class="history-return ${retClass}">${retText}</span>
+        <span class="history-time">${timeStr}</span>
+      </div>`;
+    }).join('');
+
+    // Add "Load more" button if there are more
+    let moreBtn = '';
+    if (_historyOffset + _historyPageSize < total) {
+      moreBtn = `<div style="text-align:center;padding:8px">
+        <button class="chip-btn" onclick="loadMoreHistory()">Load more (${total - _historyOffset - _historyPageSize} remaining)</button>
+      </div>`;
+    }
+
+    list.innerHTML = html + moreBtn;
+  }
+
+  async function loadMoreHistory() {
+    _historyOffset += _historyPageSize;
+    try {
+      const params = new URLSearchParams({ limit: _historyPageSize, offset: _historyOffset });
+      if (_historyFilter) params.set('status', _historyFilter);
+      const resp = await fetch(`/api/predictions/history?${params}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      // Append rows before the "Load more" button
+      const list = $('predictionHistoryList');
+      const moreDiv = list.querySelector('div:last-child');
+
+      const newHtml = data.predictions.map(p => {
+        const dir = p.predicted_direction === 'up' ? '▲' : p.predicted_direction === 'down' ? '▼' : '•';
+        const dirColor = p.predicted_direction === 'up' ? 'var(--positive)' : p.predicted_direction === 'down' ? 'var(--negative)' : 'var(--muted)';
+        let retClass = 'neutral', retText = '—';
+        if (p.outcome_status === 'resolved' && p.actual_return_24h != null) {
+          const r = p.actual_return_24h;
+          retClass = r > 0 ? 'positive' : r < 0 ? 'negative' : 'neutral';
+          retText = `${r > 0 ? '+' : ''}${r.toFixed(2)}%`;
+        } else if (p.outcome_status === 'pending') { retText = '⏳'; }
+        let statusIcon = '';
+        if (p.outcome_status === 'resolved') statusIcon = p.is_correct ? '✅' : '❌';
+        let timeStr = '';
+        if (p.created_at) {
+          const d = typeof p.created_at === 'number' ? new Date(p.created_at * 1000) : new Date(p.created_at.replace(' ', 'T') + (p.created_at.includes('+') ? '' : '+07:00'));
+          if (!isNaN(d)) timeStr = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+        }
+        const conf = p.confidence != null ? `${Math.round(p.confidence * 100)}%` : '';
+        const headline = escapeHtml(p.event_headline || '');
+        return `<div class="history-row" title="${headline}">
+          <span class="history-icon">${statusIcon || dir}</span>
+          <span class="history-ticker" style="color:${dirColor}">${escapeHtml(p.ticker || '')}</span>
+          <span class="history-headline">${headline}</span>
+          <span class="history-confidence">${conf}</span>
+          <span class="history-return ${retClass}">${retText}</span>
+          <span class="history-time">${timeStr}</span>
+        </div>`;
+      }).join('');
+
+      // Remove old "Load more" button
+      if (moreDiv) moreDiv.remove();
+      list.insertAdjacentHTML('beforeend', newHtml);
+
+      // Add new "Load more" if needed
+      const newOffset = _historyOffset + _historyPageSize;
+      if (newOffset < data.total) {
+        list.insertAdjacentHTML('beforeend', `<div style="text-align:center;padding:8px">
+          <button class="chip-btn" onclick="loadMoreHistory()">Load more (${data.total - newOffset} remaining)</button>
+        </div>`);
+      }
+
+      // Update badge
+      $('historyBadge').textContent = `${data.total} predictions`;
+    } catch (e) {
+      console.error('loadMoreHistory failed:', e);
+    }
   }
 
   function formatSignedNumber(value, digits = 2) {
@@ -3344,6 +3545,7 @@
     safeRender(() => renderMarketIndex(payload.market_index || {}), 'ihsgChart', 'Market Index');
     safeRender(() => renderGlobalMarkets(payload.global_markets || {}), 'globalMarketsGrid', 'Global Markets');
     safeRender(() => renderWatchlistEditor(watchlist), 'watchlistChips', 'Watchlist');
+    loadHistory(null);  // Fire-and-forget: loads prediction history panel
     $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || 'last 24 hours'} · cache TTL 5 minutes`;
   }
 
