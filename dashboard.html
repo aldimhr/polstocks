@@ -4029,6 +4029,75 @@
     loadDashboard(false);
     startAutoRefresh();
     startStalenessBar();
+
+    // ── Telegram Mini App integration ─────────────────────────────────
+    // Listen for postMessage from miniapp.html iframe parent
+    window.addEventListener('message', (event) => {
+      if (!event.data || event.data.type !== 'tg_init') return;
+      const { themeParams, startParam, colorScheme } = event.data;
+
+      // Apply Telegram theme to CSS variables
+      if (themeParams) {
+        const root = document.documentElement;
+        const map = {
+          bg_color: '--bg',
+          secondary_bg_color: '--surface',
+          bottom_bar_bg_color: '--surface2',
+          text_color: '--text',
+          hint_color: '--muted',
+          subtitle_text_color: '--muted2',
+          link_color: '--accent',
+          destructive_text_color: '--red',
+          button_color: '--accent',
+          button_text_color: '--bg',
+          header_bg_color: '--surface',
+          section_header_text_color: '--muted2',
+          accent_text_color: '--accent',
+        };
+        for (const [tgKey, cssVar] of Object.entries(map)) {
+          if (themeParams[tgKey]) root.style.setProperty(cssVar, themeParams[tgKey]);
+        }
+        // Derived colors
+        if (themeParams.section_bg_color) root.style.setProperty('--surface2', themeParams.section_bg_color);
+        if (themeParams.separator_color) {
+          root.style.setProperty('--border', themeParams.separator_color);
+          root.style.setProperty('--border2', themeParams.separator_color);
+        }
+      }
+
+      // Handle startParam deep-linking (e.g. "ticker:BBCA.JK")
+      if (startParam) {
+        const parts = startParam.split(':');
+        if (parts[0] === 'ticker' && parts[1]) {
+          // Wait for dashboard data to load, then open the ticker modal
+          const tryOpen = () => {
+            if (state.payload) {
+              openTickerModal(parts[1]);
+            } else {
+              setTimeout(tryOpen, 500);
+            }
+          };
+          tryOpen();
+        }
+      }
+    });
+
+    // Also handle URL hash startapp param (direct URL access from Telegram)
+    const urlParams = new URLSearchParams(window.location.search);
+    const startapp = urlParams.get('startapp');
+    if (startapp) {
+      const parts = startapp.split(':');
+      if (parts[0] === 'ticker' && parts[1]) {
+        const tryOpen = () => {
+          if (state.payload) {
+            openTickerModal(parts[1]);
+          } else {
+            setTimeout(tryOpen, 500);
+          }
+        };
+        tryOpen();
+      }
+    }
   });
 </script>
 <div class="toast-container" id="toastContainer"></div>
