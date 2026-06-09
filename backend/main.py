@@ -4549,25 +4549,26 @@ def build_refresh_payload(
 
             # ATR volatility signal — high volatility stocks are more likely to move
             atr_val = atr_cache.get(ticker_for_rsi)
-            if atr_val is not None and rel_direction in ("positive", "negative"):
+            if atr_val is not None:
                 current_price = float(relationship.get("price", 0) or 0)
                 if current_price > 0:
                     atr_pct = (atr_val / current_price) * 100.0
-                    atr_mult = 1.0
-                    if atr_pct > 5.0:
-                        atr_mult = 1.10   # very high volatility: strong boost
-                    elif atr_pct > 3.0:
-                        atr_mult = 1.06   # high volatility: moderate boost
-                    elif atr_pct < 1.0:
-                        atr_mult = 0.94   # very low volatility: dampen (unlikely to move)
-                    if atr_mult != 1.0:
-                        cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
-                        adjusted_atr = clamp(cur_conf * atr_mult, 0.0, 1.0)
-                        relationship["confidence"] = round(adjusted_atr, 3)
-                        relationship["relationship_confidence"] = round(adjusted_atr, 3)
-                        relationship["atr_value"] = round(atr_val, 2)
-                        relationship["atr_pct"] = round(atr_pct, 2)
-                        relationship["atr_factor"] = round(atr_mult, 3)
+                    relationship["atr_value"] = round(atr_val, 2)
+                    relationship["atr_pct"] = round(atr_pct, 2)
+                    if rel_direction in ("positive", "negative"):
+                        atr_mult = 1.0
+                        if atr_pct > 5.0:
+                            atr_mult = 1.10   # very high volatility: strong boost
+                        elif atr_pct > 3.0:
+                            atr_mult = 1.06   # high volatility: moderate boost
+                        elif atr_pct < 1.0:
+                            atr_mult = 0.94   # very low volatility: dampen (unlikely to move)
+                        if atr_mult != 1.0:
+                            cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                            adjusted_atr = clamp(cur_conf * atr_mult, 0.0, 1.0)
+                            relationship["confidence"] = round(adjusted_atr, 3)
+                            relationship["relationship_confidence"] = round(adjusted_atr, 3)
+                            relationship["atr_factor"] = round(atr_mult, 3)
 
             # Sector correlation — multiple stocks in same sector agreeing = stronger signal
             rel_sector = str(relationship.get("sector", ""))
