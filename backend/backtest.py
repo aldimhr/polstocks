@@ -1016,20 +1016,23 @@ def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minu
 # ── Weight Recommendations ────────────────────────────────────────
 
 # Current scoring weights (from scoring.py / events.py)
-CURRENT_WEIGHTS = {
-    "indirect_relationship_multiplier": {"current": 0.70, "location": "weights.py", "description": "Multiplier for indirect stock relationships"},
-    "direct_relationship_multiplier": {"current": 1.0, "location": "scoring.py:411", "description": "Multiplier for direct stock relationships"},
-    "directional_sentiment_floor": {"current": 0.55, "location": "weights.py", "description": "Min absolute sentiment for positive/negative direction"},
-    "mixed_direction_factor": {"current": 0.35, "location": "scoring.py:423", "description": "Sentiment factor for mixed direction"},
-    "significance_base": {"current": 0.35, "location": "scoring.py:393", "description": "Base value in significance formula"},
-    "significance_multiplier": {"current": 0.55, "location": "weights.py", "description": "Final multiplier in significance formula"},
-    "source_quality_blend": {"current": 0.45, "location": "scoring.py:393", "description": "Source quality weight in significance"},
-    "confidence_base": {"current": 0.1, "location": "scoring.py:346", "description": "Base confidence value"},
-    "sentiment_confidence_weight": {"current": 0.16, "location": "scoring.py:354", "description": "Weight of sentiment confidence in total confidence"},
-    "neutral_direction_penalty": {"current": 0.65, "location": "events.py:133", "description": "Confidence penalty for neutral sentiment + directional prediction"},
-    "low_confidence_penalty": {"current": 0.80, "location": "events.py:136", "description": "Confidence penalty for low sentiment confidence + directional prediction"},
-    "vagueness_downgrade": {"current": 1.0, "location": "events.py:104", "description": "Whether vague government rhetoric is downgraded to neutral (1=yes)"},
-}
+def current_weight_snapshot() -> dict[str, dict[str, Any]]:
+    from backend.weights import get_weight
+
+    return {
+        "indirect_relationship_multiplier": {"current": get_weight("indirect_relationship_multiplier"), "location": "weights.py", "description": "Multiplier for indirect stock relationships"},
+        "direct_relationship_multiplier": {"current": 1.0, "location": "scoring.py", "description": "Multiplier for direct stock relationships"},
+        "directional_sentiment_floor": {"current": get_weight("directional_sentiment_floor"), "location": "weights.py", "description": "Min absolute sentiment for positive/negative direction"},
+        "mixed_direction_factor": {"current": 0.35, "location": "scoring.py", "description": "Sentiment factor for mixed direction"},
+        "significance_base": {"current": get_weight("significance_base"), "location": "weights.py", "description": "Base value in significance formula"},
+        "significance_multiplier": {"current": get_weight("significance_multiplier"), "location": "weights.py", "description": "Final multiplier in significance formula"},
+        "source_quality_blend": {"current": 0.45, "location": "scoring.py", "description": "Source quality weight in significance"},
+        "confidence_base": {"current": 0.1, "location": "scoring.py", "description": "Base confidence value"},
+        "sentiment_confidence_weight": {"current": 0.16, "location": "scoring.py", "description": "Weight of sentiment confidence in total confidence"},
+        "neutral_direction_penalty": {"current": 0.65, "location": "events.py", "description": "Confidence penalty for neutral sentiment + directional prediction"},
+        "low_confidence_penalty": {"current": 0.80, "location": "events.py", "description": "Confidence penalty for low sentiment confidence + directional prediction"},
+        "vagueness_downgrade": {"current": 1.0, "location": "events.py", "description": "Whether vague government rhetoric is downgraded to neutral (1=yes)"},
+    }
 
 
 def suggest_weight_adjustments(min_samples: int = 10) -> dict[str, Any]:
@@ -1185,14 +1188,28 @@ def suggest_weight_adjustments(min_samples: int = 10) -> dict[str, Any]:
                     "sample_size": cat["total"],
                 })
 
+        current_weights = current_weight_snapshot()
+        filtered_suggestions = []
+        for suggestion in suggestions:
+            weight = suggestion.get("weight")
+            current_meta = current_weights.get(weight)
+            if not current_meta:
+                filtered_suggestions.append(suggestion)
+                continue
+            current_value = current_meta["current"]
+            suggestion["current_value"] = current_value
+            if float(current_value) == float(suggestion.get("suggested_value")):
+                continue
+            filtered_suggestions.append(suggestion)
+
         return {
             "ready": True,
             "total_predictions": metrics["total_predictions"],
             "resolved": metrics["resolved"],
             "overall_hit_rate": metrics["hit_rate"],
-            "suggestion_count": len(suggestions),
-            "suggestions": suggestions,
-            "current_weights": CURRENT_WEIGHTS,
+            "suggestion_count": len(filtered_suggestions),
+            "suggestions": filtered_suggestions,
+            "current_weights": current_weights,
         }
     finally:
         conn.close()

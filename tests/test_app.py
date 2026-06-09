@@ -2349,3 +2349,30 @@ def test_compute_ticker_score_uses_calibrated_indirect_multiplier():
     }
 
     assert compute_ticker_score(article, "ANTM.JK") == 0.385
+
+def test_suggestions_do_not_repeat_already_applied_weight(monkeypatch):
+    import backend.backtest as backtest
+
+    monkeypatch.setattr(backtest, "compute_accuracy_metrics", lambda window_days=30: {
+        "total_predictions": 40,
+        "resolved": 40,
+        "with_result": 40,
+        "hit_rate": 0.5,
+        "by_direction": {
+            "negative": {"total": 20, "correct": 0, "hit_rate": 0.0},
+        },
+        "by_confidence": {},
+        "by_relationship_type": {},
+        "by_significance": {},
+        "bias": {"direction": "stable"},
+        "by_category": [],
+    })
+
+    result = backtest.suggest_weight_adjustments(min_samples=10)
+
+    assert result["ready"] is True
+    assert not any(
+        item["weight"] == "directional_sentiment_floor" and item["suggested_value"] == 0.55
+        for item in result["suggestions"]
+    )
+    assert result["current_weights"]["directional_sentiment_floor"]["current"] == 0.55
