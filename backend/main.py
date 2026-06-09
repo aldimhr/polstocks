@@ -2710,6 +2710,55 @@ def api_backtest_backfill() -> dict[str, Any]:
     return backfill_from_cache()
 
 
+class WebBackfillRequest(BaseModel):
+    sources: list[str] = Field(default_factory=lambda: ["wayback", "archives", "newsapi"])
+    from_date: str = "20260101"
+    to_date: str = "20260609"
+    max_articles: int = 300
+    dry_run: bool = True
+    min_timestamp_confidence: float = 0.8
+
+
+@app.post("/api/backtest/backfill-web")
+def api_backtest_backfill_web(body: WebBackfillRequest) -> dict[str, Any]:
+    """Collect historical articles from web archives and import into staging.
+
+    Pipeline: collect → filter for political relevance → stage into
+    historical_events table → optionally replay through scoring pipeline.
+
+    Sources: "wayback" (Wayback Machine CDX), "archives" (news site scrapes),
+    "newsapi" (requires POLSTOCK_NEWSAPI_KEY env var).
+    """
+    from backend.backfill import collect_historical_articles, filter_political_articles
+    from backend.backtest import import_historical_articles
+
+    # 1. Collect from web sources
+    collection = collect_historical_articles(
+        sources=body.sources,
+        from_date=body.from_date,
+        to_date=body.to_date,
+        max_articles=body.max_articles,
+    )
+    raw_articles = collection["articles"]
+
+    # 2. Filter for political/economic relevance
+    filtered = filter_political_articles(raw_articles, min_keyword_hits=1)
+
+    # 3. Stage into historical_events table
+    import_result = import_historical_articles(
+        filtered,
+        dry_run=body.dry_run,
+        min_timestamp_confidence=body.min_timestamp_confidence,
+    )
+
+    return {
+        "collection_stats": collection["stats"],
+        "raw_articles": len(raw_articles),
+        "politically_filtered": len(filtered),
+        "import_result": import_result,
+    }
+
+
 @app.post("/api/backtest/historical-import")
 def api_historical_backfill_import(body: HistoricalBackfillRequest) -> dict[str, Any]:
     """Validate/import historical internet articles into a staging table.

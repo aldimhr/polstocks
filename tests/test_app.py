@@ -2732,7 +2732,6 @@ def test_signal_dedup_within_window():
 def test_signal_resolve_win_loss():
     """resolve_signals correctly marks win/loss based on current prices."""
     from backend.signals import log_signal, resolve_signals, get_signal_history, _get_conn
-    from datetime import datetime, timezone
 
     conn = _get_conn()
     conn.execute("DELETE FROM signal_history")
@@ -2774,7 +2773,7 @@ def test_signal_resolve_loss():
 
 def test_signal_stats():
     """get_signal_stats returns aggregate counts."""
-    from backend.signals import log_signal, resolve_signals, get_signal_stats, _get_conn
+    from backend.signals import log_signal, get_signal_stats, _get_conn
 
     conn = _get_conn()
     conn.execute("DELETE FROM signal_history")
@@ -2912,3 +2911,90 @@ def test_signals_api_endpoint():
     assert "signals" in data
     assert "stats" in data
     assert "total_signals" in data["stats"]
+
+
+# ── Historical Backfill Tests ────────────────────────────────────
+
+def test_backfill_filter_political_articles():
+    """filter_political_articles keeps articles with political keywords."""
+    from backend.backfill import filter_political_articles
+
+    articles = [
+        {"headline": "IHSG ditutup menguat 0.5%", "summary": "Saham BUMN naik"},
+        {"headline": "Resep nasi goreng enak", "summary": "Masakan rumahan"},
+        {"headline": "OJK atur kebijakan baru aset kripto", "summary": "Regulasi kripto Indonesia"},
+        {"headline": "Cuaca hari ini cerah", "summary": "Prakiraan cuaca Jakarta"},
+    ]
+
+    filtered = filter_political_articles(articles, min_keyword_hits=1)
+    assert len(filtered) == 2  # IHSG (ihsg+saham+bumn) and OJK (ojk+gula in regulasi)
+
+    # Verify keyword hits are attached
+    ihsg_art = next(a for a in filtered if "IHSG" in a["headline"])
+    assert ihsg_art["_political_keyword_hits"] >= 1
+
+
+def test_backfill_parse_rss_xml():
+    """_parse_rss_xml extracts articles from RSS XML."""
+    from backend.backfill import _parse_rss_xml
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel>
+        <item>
+            <title>IHSG Menguat di Tengah Kebijakan Baru</title>
+            <link>https://example.com/1</link>
+            <description>Pasar saham Indonesia menguat.</description>
+            <pubDate>Mon, 15 Jan 2026 10:30:00 +0700</pubDate>
+        </item>
+        <item>
+            <title>Ekspor CPO Naik 15 Persen</title>
+            <link>https://example.com/2</link>
+            <description>Ekspor sawit Indonesia meningkat.</description>
+            <pubDate>Mon, 15 Jan 2026 09:00:00 +0700</pubDate>
+        </item>
+    </channel></rss>"""
+
+    articles = _parse_rss_xml(xml, "Test Source")
+    assert len(articles) == 2
+    assert articles[0]["headline"] == "IHSG Menguat di Tengah Kebijakan Baru"
+    assert articles[0]["source"] == "Test Source"
+    assert articles[0]["url"] == "https://example.com/1"
+    assert articles[0]["provenance"]["collection_method"] == "wayback_machine"
+
+
+def test_backfill_parse_rss_xml_handles_invalid():
+    """_parse_rss_xml returns empty list for invalid XML."""
+    from backend.backfill import _parse_rss_xml
+    assert _parse_rss_xml("not xml", "test") == []
+    assert _parse_rss_xml("", "test") == []
+
+
+def test_collect_historical_articles_respects_max():
+    """collect_historical_articles respects max_articles limit."""
+    from backend.backfill import collect_historical_articles
+
+    # With only archives source (no network calls to wayback), should return quickly
+    result = collect_historical_articles(
+        sources=["archives"],
+        max_articles=5,
+    )
+    assert "articles" in result
+    assert "stats" in result
+    assert len(result["articles"]) <= 5
+    assert result["stats"]["total_deduped"] <= result["stats"]["total_collected"]
+
+
+def test_backfill_web_endpoint_dry_run():
+    """POST /api/backtest/backfill-web with dry_run returns stats without DB writes."""
+    response = client.post("/api/backtest/backfill-web", json={
+        "sources": ["archives"],
+        "max_articles": 10,
+        "dry_run": True,
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert "collection_stats" in data
+    assert "import_result" in data
+    assert data["import_result"]["dry_run"] is True
+    assert "raw_articles" in data
+    assert "politically_filtered" in data
