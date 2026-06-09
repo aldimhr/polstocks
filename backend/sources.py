@@ -4,38 +4,31 @@ from __future__ import annotations
 
 import html
 import json
-import math
-import os
 import re
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime
 from typing import Any
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
 
 import requests
 
 from backend.config import (
-    PROJECT_ROOT, COMPANY_KNOWLEDGE_FILE, POLICY_SIGNAL_RULES_FILE,
+    COMPANY_KNOWLEDGE_FILE, POLICY_SIGNAL_RULES_FILE,
     MARKET_VALIDATION_CONFIG_FILE, SOURCE_REGISTRY_FILE, WATCHLIST_FILE,
-    CACHE_TTL_SECONDS, SOURCE_TIMEOUT_SECONDS, WIB, REQUEST_HEADERS,
-    SOURCE_TYPE_RANKS, POLITICAL_SIGNAL_KEYWORDS, SECTORS, DEFAULT_WATCHLIST,
-    STOCK_MASTER, SECTOR_KEYWORDS, CATEGORY_RULES, CATEGORY_TO_SECTORS,
-    POLICY_THEMES, MIN_RELATIONSHIP_SCORE, NEWS_SOURCES, DEFAULT_EVENT_WINDOW,
-    EVENT_WINDOWS, STOCK_SEED,
+    SOURCE_TIMEOUT_SECONDS, REQUEST_HEADERS,
+    SOURCE_TYPE_RANKS, POLITICAL_SIGNAL_KEYWORDS, DEFAULT_WATCHLIST,
+    SECTOR_KEYWORDS, CATEGORY_RULES, POLICY_THEMES, NEWS_SOURCES, DEFAULT_EVENT_WINDOW,
 )
 from backend.state import (
     WATCHLIST_LOCK, WATCHLIST_STATE, COMPANY_KNOWLEDGE,
     POLICY_SIGNAL_RULES, MARKET_VALIDATION_CONFIG, SOURCE_REGISTRY,
 )
 from backend.utils import (
-    now_wib, now_iso, normalize_ticker, strip_tags, local_name, safe_text,
+    now_wib, now_iso, normalize_ticker, strip_tags, safe_text,
     parse_datetime, extract_html_published_at, clamp, normalize_match_text,
-    collect_phrase_hits, normalize_event_window, event_window_config,
-    event_window_delta, text_similarity, is_stale_article,
-    sector_for_ticker, company_name_for_ticker, article_text,
+    text_similarity, is_stale_article,
+    article_text,
 )
 from backend.nlp import analyze_sentiment_ml, extract_entities_ml
 
@@ -987,11 +980,9 @@ def parse_html_signal(source: dict[str, Any], html_text: str) -> list[dict[str, 
     match = re.search(r"<title[^>]*>(.*?)</title>", html_text, flags=re.I | re.S)
     if match:
         page_title = strip_tags(match.group(1))
-    heading = ""
     for tag in ("h1", "h2", "h3"):
         match = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", html_text, flags=re.I | re.S)
         if match:
-            heading = strip_tags(match.group(1))
             break
     description = ""
     match = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']', html_text, flags=re.I)

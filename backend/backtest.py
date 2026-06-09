@@ -1098,7 +1098,6 @@ def suggest_weight_adjustments(min_samples: int = 10) -> dict[str, Any]:
                 })
 
         # ── 3. Confidence calibration ──
-        high_conf = metrics["by_confidence"].get("high", {})
         med_conf = metrics["by_confidence"].get("medium", {})
         low_conf = metrics["by_confidence"].get("low", {})
 
@@ -1169,7 +1168,7 @@ def suggest_weight_adjustments(min_samples: int = 10) -> dict[str, Any]:
                 "weight": "significance_multiplier",
                 "current_value": 0.45,
                 "suggested_value": 0.55,
-                "reason": f"System underestimates impact. Raise significance multiplier to surface more events.",
+                "reason": "System underestimates impact. Raise significance multiplier to surface more events.",
                 "confidence": "medium",
                 "sample_size": metrics["with_result"],
             })

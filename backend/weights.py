@@ -5,7 +5,6 @@ The scoring chain reads from get_weight() instead of hardcoded values.
 Auto-tune writes overrides to weights_override.json.
 """
 import json
-import os
 import threading
 from pathlib import Path
 

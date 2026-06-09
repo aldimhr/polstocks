@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
-from typing import Any
+from datetime import datetime
+from typing import Any, Callable
 
 from backend.config import (
     WIB,
     MIN_EVIDENCE_QUALITY,
-    STOCK_MASTER, TICKER_EXPOSURE_PROFILES, POLICY_THEMES,
-    MIN_RELATIONSHIP_SCORE, DEFAULT_EVENT_WINDOW, EVENT_WINDOWS,
-    SECTORS, DEFAULT_WATCHLIST, CACHE_TTL_SECONDS,
+    STOCK_MASTER, TICKER_EXPOSURE_PROFILES, MIN_RELATIONSHIP_SCORE, DEFAULT_EVENT_WINDOW, CACHE_TTL_SECONDS,
 )
 from backend.state import CACHE, CACHE_LOCK, POLICY_SIGNAL_RULES
 from backend.sources import (
@@ -42,11 +40,8 @@ from backend.validation import (
     validation_outcome_multiplier,
 )
 from backend.utils import (
-    now_wib, now_iso, normalize_ticker, strip_tags, safe_text,
-    parse_datetime, extract_html_published_at, clamp, normalize_match_text,
-    collect_phrase_hits, normalize_event_window, event_window_config,
-    event_window_delta, event_window_label, text_similarity,
-    is_stale_article, within_trading_hours, sector_for_ticker,
+    now_wib, now_iso, clamp, normalize_match_text,
+    collect_phrase_hits, normalize_event_window, event_window_delta, event_window_label, sector_for_ticker,
     company_name_for_ticker, article_text, normalize_ticker,
 )
 
@@ -594,8 +589,8 @@ def build_reasoning_summary(events: list[dict[str, Any]], event_threads: list[di
         f"{insufficient} insufficient-data links" if insufficient else None,
         f"{contested} contested threads" if contested else None,
         f"{reversed_threads} reversed threads" if reversed_threads else None,
-        f"⚠ all predictions unconfirmed" if "all_predictions_unconfirmed" in validation_warnings_list else None,
-        f"⚠ more rejected than confirmed" if "more_rejected_than_confirmed" in validation_warnings_list else None,
+        "⚠ all predictions unconfirmed" if "all_predictions_unconfirmed" in validation_warnings_list else None,
+        "⚠ more rejected than confirmed" if "more_rejected_than_confirmed" in validation_warnings_list else None,
     ]
     summary_line = " · ".join(bit for bit in summary_bits if bit) or "No reasoning summary yet"
 

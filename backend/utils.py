@@ -11,8 +11,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 from backend.config import (
-    WIB, SECTORS, STOCK_MASTER, STOCK_SEED,
-    DEFAULT_EVENT_WINDOW, EVENT_WINDOWS,
+    WIB, STOCK_MASTER, DEFAULT_EVENT_WINDOW, EVENT_WINDOWS,
 )
 
 def now_wib() -> datetime:

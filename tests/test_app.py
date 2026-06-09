@@ -2063,7 +2063,6 @@ def test_formatted_events_include_confidence_label():
 def test_mixed_direction_penalizes_confidence():
     # Verify the mixed direction code path exists and applies 0.7x penalty
     # Directly test by checking the penalty multiplier in the code
-    from backend.main import clamp
     base_confidence = 0.8
     # Simulate mixed direction penalty
     mixed_confidence = base_confidence * 0.7

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import sqlite3
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlsplit
 
@@ -17,8 +15,7 @@ from backend.config import (
     WIB,
     SOURCE_TIMEOUT_SECONDS,
     REQUEST_HEADERS,
-    SOURCE_OUTCOME_HISTORY_FILE, SOURCE_REGISTRY_FILE,
-    DEFAULT_EVENT_WINDOW, EVENT_WINDOWS,
+    SOURCE_OUTCOME_HISTORY_FILE, EVENT_WINDOWS,
     PROJECT_ROOT,
 )
 from backend.state import MARKET_VALIDATION_CONFIG
@@ -29,12 +26,7 @@ from backend.sources import (
     corroboration_coverage_items, load_market_validation_config,
 )
 from backend.utils import (
-    now_wib, now_iso, normalize_ticker, strip_tags, safe_text,
-    parse_datetime, extract_html_published_at, clamp, normalize_match_text,
-    collect_phrase_hits, normalize_event_window, event_window_config,
-    event_window_delta, event_window_label, text_similarity,
-    is_stale_article, within_trading_hours, sector_for_ticker,
-    company_name_for_ticker, article_text,
+    now_wib, now_iso, normalize_ticker, clamp, normalize_match_text,
 )
 
 def article_source_domain(article: dict[str, Any]) -> str:

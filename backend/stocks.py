@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
@@ -14,16 +12,11 @@ import requests
 from backend.config import (
     SOURCE_TIMEOUT_SECONDS,
     SECTORS,
-    STOCK_MASTER, DEFAULT_WATCHLIST, DEFAULT_EVENT_WINDOW, EVENT_WINDOWS,
     STOCK_HISTORY_WINDOWS, REQUEST_HEADERS, WIB,
 )
 from backend.utils import (
-    now_wib, now_iso, normalize_ticker, strip_tags, safe_text,
-    parse_datetime, extract_html_published_at, clamp, normalize_match_text,
-    collect_phrase_hits, normalize_event_window, event_window_config,
-    event_window_delta, event_window_label, text_similarity,
-    is_stale_article, within_trading_hours, sector_for_ticker,
-    company_name_for_ticker, article_text, normalize_ticker,
+    now_wib, now_iso, normalize_event_window, event_window_label, within_trading_hours, sector_for_ticker,
+    company_name_for_ticker, normalize_ticker,
 )
 
 
@@ -88,7 +81,6 @@ def compute_macd(closes: list[float], fast: int = 12, slow: int = 26, signal: in
     signal_line = _ema(macd_line, signal)
     if not signal_line:
         return None
-    offset2 = len(macd_line) - len(signal_line)
     histogram = macd_line[-1] - signal_line[-1]
     return {
         "macd": round(macd_line[-1], 4),
@@ -285,14 +277,14 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
                 continue
             o = raw_opens[i] if i < len(raw_opens) else None
             h = raw_highs[i] if i < len(raw_highs) else None
-            l = raw_lows[i] if i < len(raw_lows) else None
+            low = raw_lows[i] if i < len(raw_lows) else None
             c = raw_closes[i] if i < len(raw_closes) else None
-            if all(v is not None for v in (o, h, l, c)):
+            if all(v is not None for v in (o, h, low, c)):
                 ohlc_series.append({
                     "time": int(ts),
                     "open": float(o),
                     "high": float(h),
-                    "low": float(l),
+                    "low": float(low),
                     "close": float(c),
                 })
         # Build volume series with color
@@ -309,7 +301,6 @@ def fetch_ticker_history(ticker: str, window: str | None = None) -> dict[str, An
                     "value": float(vol),
                     "color": "rgba(77,219,142,0.35)" if (c is not None and o is not None and float(c) >= float(o)) else "rgba(255,92,92,0.35)",
                 })
-        volumes = [float(value) for value in raw_volumes if value is not None]
         price = meta.get("regularMarketPrice")
         change_pct = meta.get("regularMarketChangePercent")
         change_points = meta.get("regularMarketChange")

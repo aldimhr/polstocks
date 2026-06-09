@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import math
-import re
 from datetime import datetime
 from typing import Any
 
 from backend.config import (
     CATEGORY_TO_SECTORS,
-    STOCK_MASTER, TICKER_EXPOSURE_PROFILES, POLICY_THEMES,
-    MIN_RELATIONSHIP_SCORE, MIN_EVIDENCE_QUALITY, DEFAULT_EVENT_WINDOW,
-    SECTOR_KEYWORDS, CATEGORY_RULES,
+    POLICY_THEMES,
+    DEFAULT_EVENT_WINDOW,
 )
 from backend.sources import (
     analyze_sentiment, classify_categories, detect_event_stage,
@@ -20,12 +17,8 @@ from backend.sources import (
     source_type_rank,
 )
 from backend.utils import (
-    now_wib, now_iso, normalize_ticker, strip_tags, safe_text,
-    parse_datetime, extract_html_published_at, clamp, normalize_match_text,
-    collect_phrase_hits, normalize_event_window, event_window_config,
-    event_window_delta, event_window_label, text_similarity,
-    is_stale_article, within_trading_hours, sector_for_ticker,
-    company_name_for_ticker, article_text, normalize_ticker,
+    now_wib, clamp, normalize_match_text,
+    collect_phrase_hits, normalize_event_window, event_window_delta, article_text,
 )
 
 def evidence_quality_score(article: dict[str, Any], themes: list[dict[str, Any]], direct_alias_hit: bool, company_evidence: list[dict[str, Any]] | None = None) -> float:

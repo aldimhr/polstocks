@@ -16,78 +16,85 @@ from __future__ import annotations
 import difflib
 import html
 import json
-import math
 import os
 import re
 import sqlite3
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
 import requests
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from backend.weights import get_weight, get_all_weights, get_overrides, apply_overrides, reset_to_defaults
 
 from backend.stocks import (
-    _ema, fetch_live_quote, fetch_stock_quotes, stock_history_window_config,
-    fetch_ticker_history, sort_stocks_by_impact, compute_sector_summary,
+    _ema, fetch_stock_quotes, fetch_ticker_history, sort_stocks_by_impact, compute_sector_summary,
     THREAD_STATUS_RANK,
 )
 from backend.events import (
-    build_stock_relationships, normalize_thread_token, thread_category_family,
+    normalize_thread_token, thread_category_family,
     thread_institution_label, thread_entity_label, thread_focus_label,
-    build_event_thread_key, event_primary_direction, summarize_thread_status,
+    build_event_thread_key, summarize_thread_status,
     build_event_tracking, build_reasoning_summary, build_dashboard_cues,
     _background_refresh,
 )
 from backend.sources import (
     score_political_relevance, detect_event_stage, detect_negation_or_reversal,
-    is_relevant_article, source_weight, infer_source_type, normalize_domain,
-    canonicalize_article_url, canonical_source_key, claim_signature,
-    _article_merge_priority, merge_duplicate_articles, _source_registry_defaults,
-    normalize_source_registry, load_source_registry, _fallback_source_profile,
-    source_profile_for_domain, source_profile_for_name, source_profile_for_url,
-    source_profile_resolution, source_quality_score_for_profile,
-    source_freshness_score, source_quality_metrics_for_article,
-    corroboration_family_key, corroboration_domain_key, corroboration_coverage_items,
-    source_corroboration_metrics_for_article, source_metadata_for, source_type_rank,
-    normalize_watchlist_values, normalize_company_knowledge,
+    infer_source_type, merge_duplicate_articles, load_source_registry, normalize_watchlist_values,
     load_company_knowledge_from_disk, company_knowledge_for_ticker,
-    normalize_policy_signal_rules, load_policy_signal_rules,
-    normalize_market_validation_config, load_market_validation_config,
-    load_watchlist_from_disk, save_watchlist_to_disk, get_watchlist,
-    _extract_loose_xml_text, parse_rss_items, parse_html_signal,
-    enrich_html_article_dates, build_source_diagnostic,
+    load_policy_signal_rules, load_market_validation_config, get_watchlist,
+    canonicalize_article_url, parse_rss_items, parse_html_signal, fetch_source,
+    source_profile_for_domain, source_profile_for_name, source_profile_for_url,
+    source_freshness_score, source_metadata_for,
     summarize_source_diagnostics_from_articles, build_source_health_summary,
-    unpack_news_fetch_result, fetch_source, fetch_news_bundle, classify_categories,
-    sector_matches, detect_policy_themes, policy_specificity_score,
+    unpack_news_fetch_result, fetch_news_bundle,
 )
 from backend.scoring import (
-    evidence_quality_score, recency_weight_for_article, infer_article_policy_signal,
-    match_policy_channels, score_company_exposure, expected_direction_for_company,
-    relationship_type_for_link, relationship_confidence_label, analyze_article,
+    evidence_quality_score, relationship_confidence_label, analyze_article,
 )
 from backend.validation import (
-    article_source_domain, corroboration_group_key,
-    corroboration_multiplier_for_group, apply_corroboration_to_events,
+    apply_corroboration_to_events,
     _source_outcome_history_defaults, normalize_source_outcome_history,
-    source_reliability_history_key, source_outcome_weight,
-    historical_reliability_metrics, channel_reliability_metrics,
+    source_reliability_history_key, historical_reliability_metrics, channel_reliability_metrics,
     record_source_outcome, validation_outcome_multiplier,
-    calibrate_source_confidence_from_validation, source_conflict_scope_key,
-    apply_source_conflicts_to_events, fetch_market_validation_series,
-    validation_window_for_article, _alternate_validation_window, sample_stddev,
-    validate_market_reaction,
+    calibrate_source_confidence_from_validation, apply_source_conflicts_to_events,
+    fetch_market_validation_series, validate_market_reaction,
+)
+from backend.state import (
+    WATCHLIST_LOCK, CACHE_LOCK, WATCHLIST_STATE,
+    CACHE, COMPANY_KNOWLEDGE, POLICY_SIGNAL_RULES,
+    MARKET_VALIDATION_CONFIG, SOURCE_REGISTRY,
 )
 
+
+
+# Compatibility exports: tests and older callers import helper functions from
+# backend.main even after the deduplication moved implementations to modules.
+__all__ = [
+    "DEFAULT_WATCHLIST", "MIN_RELATIONSHIP_SCORE", "PROJECT_ROOT", "SECTORS",
+    "WATCHLIST_STATE", "_source_outcome_history_defaults", "analyze_article",
+    "app", "article_text", "build_event_tracking", "build_refresh_payload",
+    "canonicalize_article_url", "company_knowledge_for_ticker",
+    "company_name_for_ticker", "detect_event_stage", "detect_negation_or_reversal",
+    "event_window_label", "evidence_quality_score", "fetch_market_validation_series",
+    "fetch_source", "get_watchlist", "group_articles_into_threads",
+    "load_market_validation_config", "load_policy_signal_rules",
+    "load_source_registry", "load_watchlist_from_disk", "merge_duplicate_articles",
+    "normalize_source_outcome_history", "now_iso", "now_wib", "parse_datetime",
+    "parse_html_signal", "parse_rss_items", "requests", "reset_runtime_state",
+    "score_political_relevance", "sector_for_ticker", "set_watchlist",
+    "source_freshness_score", "source_metadata_for", "source_profile_for_domain",
+    "source_profile_for_name", "source_profile_for_url", "validate_market_reaction",
+]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_FILE = PROJECT_ROOT / "dashboard.html"
@@ -562,7 +569,6 @@ app = FastAPI(title=APP_TITLE, version="1.0.0")
 
 
 # ── Rate Limiting ───────────────────────────────────────────────
-import time as _time
 
 _RATE_LIMIT_WINDOW = 60  # seconds
 _RATE_LIMIT_MAX_REQUESTS = 120  # per window per IP
@@ -611,13 +617,6 @@ def _cleanup_rate_store():
                 del _rate_store[ip]
 
 threading.Thread(target=_cleanup_rate_store, daemon=True, name="rate-limit-cleanup").start()
-
-
-from backend.state import (
-    WATCHLIST_LOCK, CACHE_LOCK, WATCHLIST_STATE,
-    CACHE, COMPANY_KNOWLEDGE, POLICY_SIGNAL_RULES,
-    MARKET_VALIDATION_CONFIG, SOURCE_REGISTRY,
-)
 
 
 class RefreshRequest(BaseModel):
@@ -1064,14 +1063,14 @@ def fetch_market_index() -> tuple[dict[str, Any], list[str]]:
                     continue
                 o = raw_opens[i] if i < len(raw_opens) else None
                 h = raw_highs[i] if i < len(raw_highs) else None
-                l = raw_lows[i] if i < len(raw_lows) else None
+                low = raw_lows[i] if i < len(raw_lows) else None
                 c = raw_closes[i] if i < len(raw_closes) else None
-                if all(v is not None for v in (o, h, l, c)):
+                if all(v is not None for v in (o, h, low, c)):
                     ohlc_series.append({
                         "time": int(ts),
                         "open": float(o),
                         "high": float(h),
-                        "low": float(l),
+                        "low": float(low),
                         "close": float(c),
                     })
             price = meta.get("regularMarketPrice")
