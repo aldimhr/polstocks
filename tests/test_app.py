@@ -2531,3 +2531,138 @@ def test_signal_strength_composite_score():
     assert "signal_strength" in stock
     assert isinstance(stock["signal_strength"], (int, float))
     assert 0.0 <= stock["signal_strength"] <= 1.0
+
+# ── Phase 2: Trade Signal Tests ──
+
+def test_compute_bollinger_bands_basic():
+    from backend.stocks import compute_bollinger_bands
+    closes = [100 + i * 0.5 for i in range(30)]
+    result = compute_bollinger_bands(closes, period=20, std_dev=2.0)
+    assert "upper" in result
+    assert "middle" in result
+    assert "lower" in result
+    assert "bandwidth" in result
+    assert "squeeze" in result
+    assert "percent_b" in result
+    assert result["upper"] > result["middle"] > result["lower"]
+    assert isinstance(result["squeeze"], bool)
+    assert 0.0 <= result["percent_b"] <= 1.0
+
+
+def test_compute_bollinger_bands_insufficient_data():
+    from backend.stocks import compute_bollinger_bands
+    closes = [100, 101, 102]
+    result = compute_bollinger_bands(closes, period=20)
+    assert result["upper"] == 0
+    assert result["squeeze"] is False
+
+
+def test_compute_support_resistance_basic():
+    from backend.stocks import compute_support_resistance
+    ohlc = [{"high": 100 + i % 5, "low": 95 + i % 3, "close": 98 + i % 4} for i in range(60)]
+    result = compute_support_resistance(ohlc, lookback=50)
+    assert "support" in result
+    assert "resistance" in result
+    assert isinstance(result["support"], list)
+    assert isinstance(result["resistance"], list)
+    # All support levels should be below all resistance levels
+    if result["support"] and result["resistance"]:
+        assert max(result["support"]) < min(result["resistance"])
+
+
+def test_detect_volume_spike_basic():
+    from backend.stocks import detect_volume_spike
+    volumes = [1000000] * 20 + [5000000]
+    result = detect_volume_spike(volumes, period=20)
+    assert "spike_ratio" in result
+    assert "is_spike" in result
+    assert "avg_volume" in result
+    assert result["is_spike"] is True
+    assert result["spike_ratio"] > 3.0
+
+
+def test_detect_volume_spike_no_spike():
+    from backend.stocks import detect_volume_spike
+    volumes = [1000000] * 25
+    result = detect_volume_spike(volumes, period=20)
+    assert result["is_spike"] is False
+    assert result["spike_ratio"] < 2.0
+
+
+def test_generate_trade_signal_buy():
+    from backend.stocks import generate_trade_signal
+    signal = generate_trade_signal(
+        price=1000.0,
+        signal_strength=0.7,
+        impact_direction="positive",
+        rsi=45.0,
+        macd_histogram=1.5,
+        trend_direction="bullish",
+        atr=20.0,
+        bb_percent_b=0.6,
+        volume_spike_ratio=1.0,
+    )
+    assert signal["action"] == "BUY"
+    assert signal["entry"] == 1000.0
+    assert signal["stop_loss"] < 1000.0
+    assert signal["take_profit"] > 1000.0
+    assert signal["risk_reward"] >= 1.5
+    assert signal["timeframe"] in ("intraday", "1-3d", "1w")
+
+
+def test_generate_trade_signal_hold():
+    from backend.stocks import generate_trade_signal
+    signal = generate_trade_signal(
+        price=1000.0,
+        signal_strength=0.3,
+        impact_direction="neutral",
+        rsi=50.0,
+        macd_histogram=0.0,
+        trend_direction="neutral",
+        atr=20.0,
+        bb_percent_b=0.5,
+        volume_spike_ratio=1.0,
+    )
+    assert signal["action"] == "HOLD"
+    assert signal["stop_loss"] is None
+    assert signal["take_profit"] is None
+
+
+def test_generate_trade_signal_weak_strength_is_hold():
+    """Even with positive direction, weak signal_strength forces HOLD."""
+    from backend.stocks import generate_trade_signal
+    signal = generate_trade_signal(
+        price=1000.0,
+        signal_strength=0.4,
+        impact_direction="positive",
+        rsi=45.0,
+        macd_histogram=1.5,
+        trend_direction="bullish",
+        atr=20.0,
+        bb_percent_b=0.6,
+        volume_spike_ratio=1.0,
+    )
+    assert signal["action"] == "HOLD"
+
+
+def test_stock_payload_includes_trade_signal():
+    response = client.get("/api/dashboard?window=24h")
+    assert response.status_code == 200
+    stocks = response.json().get("payload", {}).get("stocks", [])
+    assert len(stocks) > 0
+    stock = stocks[0]
+    assert "trade_signal" in stock
+    ts = stock["trade_signal"]
+    assert "action" in ts
+    assert ts["action"] in ("BUY", "SELL", "HOLD")
+
+
+def test_stock_payload_includes_bollinger():
+    response = client.get("/api/dashboard?window=24h")
+    assert response.status_code == 200
+    stocks = response.json().get("payload", {}).get("stocks", [])
+    assert len(stocks) > 0
+    stock = stocks[0]
+    assert "bollinger" in stock
+    assert "support_resistance" in stock
+    assert "volume_spike" in stock

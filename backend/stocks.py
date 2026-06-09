@@ -127,6 +127,200 @@ def compute_trend(closes: list[float]) -> dict[str, Any] | None:
     }
 
 
+def compute_bollinger_bands(closes: list[float], period: int = 20, std_dev: float = 2.0) -> dict[str, Any]:
+    """Compute Bollinger Bands from closing prices.
+
+    Returns dict with upper, middle, lower, bandwidth, squeeze, percent_b.
+    Squeeze = True when bandwidth < 3% (low volatility, breakout imminent).
+    percent_b = where price is within the bands (0 = lower, 1 = upper).
+    """
+    if len(closes) < period:
+        return {"upper": 0, "middle": 0, "lower": 0, "bandwidth": 0, "squeeze": False, "percent_b": 0.5}
+    recent = closes[-period:]
+    middle = sum(recent) / period
+    variance = sum((x - middle) ** 2 for x in recent) / period
+    std = variance ** 0.5
+    upper = middle + std_dev * std
+    lower = middle - std_dev * std
+    bandwidth = (upper - lower) / middle if middle else 0
+    current = closes[-1]
+    percent_b = (current - lower) / (upper - lower) if upper != lower else 0.5
+    squeeze = bandwidth < 0.03
+    return {
+        "upper": round(upper, 2),
+        "middle": round(middle, 2),
+        "lower": round(lower, 2),
+        "bandwidth": round(bandwidth, 4),
+        "squeeze": squeeze,
+        "percent_b": round(min(max(percent_b, 0.0), 2.0), 3),
+    }
+
+
+def compute_support_resistance(ohlc_series: list[dict], lookback: int = 50) -> dict[str, list[float]]:
+    """Compute support and resistance levels from OHLC data using pivot points.
+
+    Returns dict with 'support' (list of up to 2 levels) and 'resistance' (list of up to 2 levels).
+    """
+    if len(ohlc_series) < 5:
+        return {"support": [], "resistance": []}
+
+    recent = ohlc_series[-lookback:] if len(ohlc_series) >= lookback else ohlc_series
+    highs = [float(e.get("high", 0) or 0) for e in recent if e.get("high")]
+    lows = [float(e.get("low", 0) or 0) for e in recent if e.get("low")]
+
+    if not highs or not lows:
+        return {"support": [], "resistance": []}
+
+    # Find pivot highs (local maxima) and pivot lows (local minima)
+    pivot_highs = []
+    pivot_lows = []
+    for i in range(2, len(recent) - 2):
+        h = float(recent[i].get("high", 0) or 0)
+        low_val = float(recent[i].get("low", 0) or 0)
+        if h > 0 and all(h >= float(recent[j].get("high", 0) or 0) for j in range(max(0, i-2), min(len(recent), i+3))):
+            pivot_highs.append(h)
+        if low_val > 0 and all(low_val <= float(recent[j].get("low", 0) or 0) for j in range(max(0, i-2), min(len(recent), i+3))):
+            pivot_lows.append(low_val)
+
+    # Fallback to simple high/low ranges if no pivots found
+    if not pivot_highs:
+        pivot_highs = sorted(set(highs))[-2:]
+    if not pivot_lows:
+        pivot_lows = sorted(set(lows))[:2]
+
+    # Cluster nearby levels (within 1% of each other)
+    def cluster_levels(levels: list[float], max_pct: float = 0.01) -> list[float]:
+        if not levels:
+            return []
+        sorted_levels = sorted(levels)
+        clusters = [[sorted_levels[0]]]
+        for lv in sorted_levels[1:]:
+            if abs(lv - clusters[-1][-1]) / max(clusters[-1][-1], 1) < max_pct:
+                clusters[-1].append(lv)
+            else:
+                clusters.append([lv])
+        return [round(sum(c) / len(c), 2) for c in clusters]
+
+    resistance = cluster_levels(pivot_highs)[-2:]
+    support = cluster_levels(pivot_lows)[:2]
+
+    return {"support": support, "resistance": resistance}
+
+
+def detect_volume_spike(volumes: list[float | int], period: int = 20) -> dict[str, Any]:
+    """Detect unusual volume compared to rolling average.
+
+    Returns dict with spike_ratio, is_spike (ratio >= 2x), avg_volume, current_volume.
+    """
+    if len(volumes) < 2:
+        return {"spike_ratio": 1.0, "is_spike": False, "avg_volume": 0, "current_volume": 0}
+    current = float(volumes[-1])
+    window = [float(v) for v in volumes[-(period+1):-1] if v and float(v) > 0]
+    if not window:
+        return {"spike_ratio": 1.0, "is_spike": False, "avg_volume": 0, "current_volume": current}
+    avg = sum(window) / len(window)
+    ratio = current / avg if avg > 0 else 1.0
+    return {
+        "spike_ratio": round(ratio, 2),
+        "is_spike": ratio >= 2.0,
+        "avg_volume": int(avg),
+        "current_volume": int(current),
+    }
+
+
+def generate_trade_signal(
+    price: float,
+    signal_strength: float,
+    impact_direction: str,
+    rsi: float | None,
+    macd_histogram: float | None,
+    trend_direction: str,
+    atr: float | None,
+    bb_percent_b: float | None,
+    volume_spike_ratio: float | None,
+) -> dict[str, Any]:
+    """Generate an explicit BUY/SELL/HOLD trade signal with entry, stop-loss, take-profit.
+
+    Returns dict with action, entry, stop_loss, take_profit, risk_reward, timeframe, reasons.
+    """
+    reasons = []
+
+    # Gate: must have minimum signal strength
+    if signal_strength < 0.6:
+        reasons.append(f"signal_strength {signal_strength:.2f} < 0.6 threshold")
+        return {"action": "HOLD", "entry": price, "stop_loss": None, "take_profit": None, "risk_reward": None, "timeframe": None, "reasons": reasons}
+
+    if impact_direction not in ("positive", "negative"):
+        reasons.append(f"direction is {impact_direction}, need positive or negative")
+        return {"action": "HOLD", "entry": price, "stop_loss": None, "take_profit": None, "risk_reward": None, "timeframe": None, "reasons": reasons}
+
+    # ATR for stop-loss/take-profit sizing
+    atr_val = atr if atr and atr > 0 else price * 0.02  # fallback: 2% of price
+
+    if impact_direction == "positive":
+        action = "BUY"
+        # Check for overbought
+        if rsi is not None and rsi >= 70:
+            reasons.append(f"RSI {rsi:.0f} overbought — HOLD instead")
+            return {"action": "HOLD", "entry": price, "stop_loss": None, "take_profit": None, "risk_reward": None, "timeframe": None, "reasons": reasons}
+        # Check MACD alignment
+        if macd_histogram is not None and macd_histogram < 0:
+            reasons.append("MACD histogram negative — weak momentum")
+            signal_strength *= 0.8
+        # Check trend alignment
+        if trend_direction == "bearish":
+            reasons.append("fighting bearish trend")
+            signal_strength *= 0.7
+        stop_loss = round(price - 1.5 * atr_val, 2)
+        take_profit = round(price + 3.0 * atr_val, 2)
+    else:
+        action = "SELL"
+        if rsi is not None and rsi <= 30:
+            reasons.append(f"RSI {rsi:.0f} oversold — HOLD instead")
+            return {"action": "HOLD", "entry": price, "stop_loss": None, "take_profit": None, "risk_reward": None, "timeframe": None, "reasons": reasons}
+        if macd_histogram is not None and macd_histogram > 0:
+            reasons.append("MACD histogram positive — weak bearish momentum")
+            signal_strength *= 0.8
+        if trend_direction == "bullish":
+            reasons.append("fighting bullish trend")
+            signal_strength *= 0.7
+        stop_loss = round(price + 1.5 * atr_val, 2)
+        take_profit = round(price - 3.0 * atr_val, 2)
+
+    # Volume bonus
+    if volume_spike_ratio and volume_spike_ratio >= 2.0:
+        reasons.append(f"volume spike {volume_spike_ratio:.1f}x — institutional interest")
+        signal_strength = min(1.0, signal_strength * 1.1)
+
+    # Bollinger squeeze bonus
+    if bb_percent_b is not None:
+        if action == "BUY" and bb_percent_b < 0.2:
+            reasons.append("near lower Bollinger Band — potential bounce")
+        elif action == "SELL" and bb_percent_b > 0.8:
+            reasons.append("near upper Bollinger Band — potential reversal")
+
+    risk_reward = abs(take_profit - price) / abs(price - stop_loss) if abs(price - stop_loss) > 0 else 0
+
+    # Timeframe based on signal strength
+    if signal_strength >= 0.8:
+        timeframe = "1-3d"
+    elif signal_strength >= 0.65:
+        timeframe = "1w"
+    else:
+        timeframe = "intraday"
+
+    return {
+        "action": action,
+        "entry": price,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "risk_reward": round(risk_reward, 2),
+        "timeframe": timeframe,
+        "reasons": reasons,
+        "signal_quality": round(signal_strength, 3),
+    }
+
+
 def fetch_live_quote(ticker: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker)}?range=1d&interval=1d&includePrePost=false&events=div,splits"
     response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS, headers=REQUEST_HEADERS)

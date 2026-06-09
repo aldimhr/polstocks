@@ -1867,6 +1867,49 @@ def build_refresh_payload(
         )
         stock["signal_strength"] = round(signal_strength, 3)
 
+    # Phase 2: Add technical indicators and trade signals to each stock
+    from backend.stocks import compute_bollinger_bands, compute_support_resistance, detect_volume_spike, generate_trade_signal, fetch_ticker_history
+    for stock in stocks:
+        ticker = stock.get("ticker", "")
+        # Fetch OHLC data for Bollinger Bands and support/resistance
+        try:
+            ticker_hist = fetch_ticker_history(ticker, window="3mo")
+        except Exception:
+            ticker_hist = None
+        ohlc_series = (ticker_hist or {}).get("ohlc_series", [])
+        volume_series_raw = (ticker_hist or {}).get("volume_series", [])
+        closes = [float(e.get("close", 0) or e.get("value", 0) or 0) for e in ohlc_series if e.get("close") or e.get("value")]
+        volumes = [float(v.get("volume", 0) or v.get("value", 0) or 0) for v in volume_series_raw if v.get("volume") or v.get("value")]
+
+        # Bollinger Bands
+        bb = compute_bollinger_bands(closes, period=20, std_dev=2.0)
+        stock["bollinger"] = bb
+
+        # Support/Resistance
+        sr = compute_support_resistance(ohlc_series, lookback=50)
+        stock["support_resistance"] = sr
+
+        # Volume spike
+        vol = detect_volume_spike(volumes, period=20)
+        stock["volume_spike"] = vol
+
+        # Trade signal
+        trend_data = trend_cache.get(ticker) or {}
+        macd_data = macd_cache.get(ticker) or {}
+        rsi_val = rsi_cache.get(ticker)
+        trade = generate_trade_signal(
+            price=stock.get("price", 0) or 0,
+            signal_strength=stock.get("signal_strength", 0),
+            impact_direction=stock.get("impact_direction", "neutral"),
+            rsi=rsi_val,
+            macd_histogram=macd_data.get("histogram") if isinstance(macd_data, dict) else None,
+            trend_direction=trend_data.get("trend", "neutral") if isinstance(trend_data, dict) else "neutral",
+            atr=atr_cache.get(ticker),
+            bb_percent_b=bb.get("percent_b"),
+            volume_spike_ratio=vol.get("spike_ratio"),
+        )
+        stock["trade_signal"] = trade
+
     stocks = sort_stocks_by_impact(stocks)
 
     event_id_map = {f"evt_{idx+1:03d}": event for idx, event in enumerate(events)}

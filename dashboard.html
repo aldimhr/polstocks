@@ -2112,6 +2112,10 @@
       if (normalized.includes('Headwind')) return 'neg';
       return 'neu';
     }
+    if (kind === 'buy') return 'pos';
+    if (kind === 'sell') return 'neg';
+    if (kind === 'squeeze') return 'warn';
+    if (kind === 'volume') return 'info';
     return 'neu';
   }
 
@@ -3274,7 +3278,18 @@
       const momentumChip = sMomentum && sMomentum !== 'stable' ? renderReasoningChip('Momentum', sMomentum === 'strengthening' ? '↑ Strengthening' : '↓ Weakening', 'momentum') : '';
       const currFactor = stock.currency_factor;
       const currChip = currFactor != null && currFactor !== 1.0 ? renderReasoningChip('Currency', currFactor > 1 ? 'Favorable ▲' : 'Headwind ▼', 'currency') : '';
-      const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, atrChip, sectorChip, foreignChip, momentumChip, currChip, conflictBadges].filter(Boolean).join(' ');
+      // Phase 2: Trade signal chip
+      const ts = stock.trade_signal;
+      const tradeChip = ts && ts.action && ts.action !== 'HOLD'
+        ? renderReasoningChip(ts.action, `SL ${formatPrice(ts.stop_loss)} · TP ${formatPrice(ts.take_profit)} · RR ${ts.risk_reward}`, ts.action === 'BUY' ? 'buy' : 'sell')
+        : '';
+      // Phase 2: Bollinger squeeze chip
+      const bb = stock.bollinger;
+      const bbChip = bb && bb.squeeze ? renderReasoningChip('BB Squeeze', `BW ${(bb.bandwidth * 100).toFixed(1)}%`, 'squeeze') : '';
+      // Phase 2: Volume spike chip
+      const vs = stock.volume_spike;
+      const volSpikeChip = vs && vs.is_spike ? renderReasoningChip('Vol Spike', `${vs.spike_ratio}x avg`, 'volume') : '';
+      const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, atrChip, sectorChip, foreignChip, momentumChip, currChip, tradeChip, bbChip, volSpikeChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationParts = [];
       if (stock.validation_status) {
