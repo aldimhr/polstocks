@@ -2333,6 +2333,156 @@ def api_portfolio(
         conn.close()
 
 
+@app.get("/api/portfolio/live")
+def api_portfolio_live() -> dict[str, Any]:
+    """Get open positions with live P&L based on current market prices."""
+    from backend.signals import init_signal_tables, _get_conn
+    from backend.stocks import fetch_stock_quotes
+    init_signal_tables()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM portfolio WHERE status = 'open' ORDER BY entry_date DESC"
+        ).fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM portfolio LIMIT 0").description]
+        positions = [dict(zip(cols, row)) for row in rows]
+
+        if not positions:
+            return {"positions": [], "summary": {"open_count": 0, "total_invested": 0, "total_current_value": 0, "total_unrealized_pnl": 0, "total_unrealized_pct": 0}}
+
+        # Fetch live prices for all tickers in portfolio
+        tickers = list(dict.fromkeys(p["ticker"] for p in positions))
+        quotes, _ = fetch_stock_quotes(tickers)
+        price_map = {t: q.get("price") for t, q in quotes.items() if q.get("price")}
+
+        total_invested = 0.0
+        total_current_value = 0.0
+
+        enriched = []
+        for p in positions:
+            entry = p.get("entry_price", 0)
+            shares = p.get("shares", 0)
+            direction = p.get("direction", "long")
+            invested = entry * shares
+            current_price = price_map.get(p["ticker"])
+            lots = shares // 100
+
+            pos: dict[str, Any] = {
+                "id": p["id"],
+                "ticker": p["ticker"],
+                "direction": direction,
+                "lots": lots,
+                "shares": shares,
+                "entry_price": entry,
+                "invested": round(invested, 2),
+                "stop_loss": p.get("stop_loss"),
+                "take_profit": p.get("take_profit"),
+                "sector": p.get("sector"),
+                "entry_date": p.get("entry_date"),
+            }
+
+            if current_price and current_price > 0:
+                if direction == "long":
+                    pnl = (current_price - entry) * shares
+                else:
+                    pnl = (entry - current_price) * shares
+                pnl_pct = (pnl / invested * 100) if invested else 0
+                current_value = current_price * shares
+                pos["current_price"] = round(current_price, 2)
+                pos["unrealized_pnl"] = round(pnl, 2)
+                pos["unrealized_pct"] = round(pnl_pct, 3)
+                pos["current_value"] = round(current_value, 2)
+                total_invested += invested
+                total_current_value += current_value
+            else:
+                pos["current_price"] = None
+                pos["unrealized_pnl"] = None
+                pos["unrealized_pct"] = None
+                pos["current_value"] = None
+                total_invested += invested
+                total_current_value += invested  # assume no change if price unavailable
+
+            enriched.append(pos)
+
+        total_unrealized = total_current_value - total_invested
+        total_unrealized_pct = (total_unrealized / total_invested * 100) if total_invested else 0
+
+        # Closed P&L for all-time summary
+        closed_rows = conn.execute(
+            "SELECT pnl FROM portfolio WHERE status = 'closed'"
+        ).fetchall()
+        realized_pnl = sum(r[0] or 0 for r in closed_rows)
+        closed_wins = sum(1 for r in closed_rows if (r[0] or 0) > 0)
+        closed_losses = sum(1 for r in closed_rows if (r[0] or 0) < 0)
+        closed_total = closed_wins + closed_losses
+
+        return {
+            "positions": enriched,
+            "summary": {
+                "open_count": len(enriched),
+                "total_invested": round(total_invested, 2),
+                "total_current_value": round(total_current_value, 2),
+                "total_unrealized_pnl": round(total_unrealized, 2),
+                "total_unrealized_pct": round(total_unrealized_pct, 3),
+                "realized_pnl": round(realized_pnl, 2),
+                "all_time_pnl": round(realized_pnl + total_unrealized, 2),
+                "closed_trades": closed_total,
+                "win_rate": round(closed_wins / closed_total, 3) if closed_total else None,
+            },
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/portfolio/history")
+def api_portfolio_history(limit: int = 50) -> dict[str, Any]:
+    """Get closed positions (trade history)."""
+    from backend.signals import init_signal_tables, _get_conn
+    init_signal_tables()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM portfolio WHERE status = 'closed' ORDER BY exit_date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM portfolio LIMIT 0").description]
+        closed = [dict(zip(cols, row)) for row in rows]
+
+        total_pnl = sum(p.get("pnl") or 0 for p in closed)
+        wins = sum(1 for p in closed if (p.get("pnl") or 0) > 0)
+        losses = sum(1 for p in closed if (p.get("pnl") or 0) < 0)
+        count = wins + losses
+
+        return {
+            "trades": closed,
+            "summary": {
+                "total_trades": count,
+                "wins": wins,
+                "losses": losses,
+                "win_rate": round(wins / count, 3) if count else None,
+                "total_pnl": round(total_pnl, 2),
+                "avg_pnl": round(total_pnl / count, 2) if count else 0,
+            },
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/api/portfolio/reset")
+def api_portfolio_reset() -> dict[str, Any]:
+    """Delete all portfolio positions (open and closed)."""
+    from backend.signals import init_signal_tables, _get_conn
+    init_signal_tables()
+    conn = _get_conn()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM portfolio").fetchone()[0]
+        conn.execute("DELETE FROM portfolio")
+        conn.commit()
+        return {"ok": True, "deleted": count}
+    finally:
+        conn.close()
+
+
 @app.post("/api/portfolio/position")
 def api_portfolio_add(payload: dict[str, Any]) -> dict[str, Any]:
     """Add a position to the portfolio."""
