@@ -3408,24 +3408,39 @@ def build_stock_relationships(
         timing = max(1.0, min(5.0, 5.0 - recency_hours / max(6.0, event_window_delta(window).total_seconds() / 21600.0)))
         evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit, knowledge.get("evidence", []))
         direction = expected_direction_for_company(matched_themes or themes, matched_channels, knowledge)
-        # Vagueness penalty — downgrade generic government optimism to neutral
-        _VAGUE_PHRASES = [
+        # Vagueness penalty — downgrade generic government rhetoric to neutral
+        _VAGUE_POSITIVE = [
             "tegaskan komitmen", "yakin fundamental", "perkuat pengawasan",
             "dukung penegakan hukum", "komitmen perang", "tetap kuat",
             "menegaskan kembali", "optimis terhadap", "berkomitmen untuk",
             "tegaskan kembali", "perkuat komitmen", "menegaskan pentingnya",
         ]
+        _VAGUE_NEGATIVE = [
+            "menolak tegas", "mengecam keras", "sangat prihatin",
+            "mengutuk keras", "sangat menyesalkan", "menyayangkan hal ini",
+            "menuntut pertanggungjawaban", "mendesak segera", "tegas menolak",
+            "sangat menyayangkan", "prihatin atas", "kecewa terhadap",
+        ]
         _was_vague = False
+        headline_lower = str(article.get("headline", "") or "").lower()
+        combined = f"{headline_lower} {text}"
         if direction.get("impact_direction") == "positive":
-            headline_lower = str(article.get("headline", "") or "").lower()
-            combined = f"{headline_lower} {text}"
-            vague_count = sum(1 for p in _VAGUE_PHRASES if p in combined)
+            vague_count = sum(1 for p in _VAGUE_POSITIVE if p in combined)
             if vague_count > 0:
                 _was_vague = True
                 direction = {
                     **direction,
                     "impact_direction": "neutral",
                     "direction_rationale": f"downgraded from positive: generic government rhetoric ({vague_count} vague phrases detected)",
+                }
+        elif direction.get("impact_direction") == "negative":
+            vague_count = sum(1 for p in _VAGUE_NEGATIVE if p in combined)
+            if vague_count > 0:
+                _was_vague = True
+                direction = {
+                    **direction,
+                    "impact_direction": "neutral",
+                    "direction_rationale": f"downgraded from negative: generic outrage rhetoric ({vague_count} vague phrases detected)",
                 }
         source_quality = clamp(float(article.get("source_quality_score", 0.0) or 0.0), 0.0, 1.0)
         source_freshness = clamp(float(article.get("source_freshness_score", 1.0) or 0.0), 0.0, 1.0)
@@ -4454,82 +4469,70 @@ def build_refresh_payload(
                 relationship["relationship_confidence"] = round(adjusted_mkt, 3)
                 relationship["market_context_factor"] = round(mkt_mult, 3)
 
-            # RSI signal — stock-level overbought/oversold context
+            # Technical alignment — composite of RSI + MACD + SMA (capped at ±15%)
+            # These three indicators all measure the same thing (technical momentum),
+            # so combining them prevents triple-counting.
             ticker_for_rsi = normalize_ticker(relationship.get("ticker", ""))
-            rsi_val = rsi_cache.get(ticker_for_rsi)
-            if rsi_val is not None and rel_direction in ("positive", "negative"):
-                rsi_mult = 1.0
-                if rel_direction == "positive":
-                    if rsi_val > 80:
-                        rsi_mult = 0.85   # extremely overbought: strong dampen
-                    elif rsi_val > 70:
-                        rsi_mult = 0.92   # overbought: dampen
-                    elif rsi_val < 20:
-                        rsi_mult = 1.12   # extremely oversold: strong boost
-                    elif rsi_val < 30:
-                        rsi_mult = 1.06   # oversold: boost
-                elif rel_direction == "negative":
-                    if rsi_val < 20:
-                        rsi_mult = 0.88   # extremely oversold: dampen (already at floor)
-                    elif rsi_val < 30:
-                        rsi_mult = 0.94   # oversold: dampen
-                    elif rsi_val > 80:
-                        rsi_mult = 1.10   # extremely overbought: boost (more room to fall)
-                    elif rsi_val > 70:
-                        rsi_mult = 1.05   # overbought: slight boost
-                if rsi_mult != 1.0:
-                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
-                    adjusted_rsi = clamp(cur_conf * rsi_mult, 0.0, 1.0)
-                    relationship["confidence"] = round(adjusted_rsi, 3)
-                    relationship["relationship_confidence"] = round(adjusted_rsi, 3)
+            if rel_direction in ("positive", "negative"):
+                tech_signals = []  # each is -1 (bearish), 0 (neutral), or +1 (bullish)
+                rsi_val = rsi_cache.get(ticker_for_rsi)
+                if rsi_val is not None:
+                    if rel_direction == "positive":
+                        if rsi_val >= 80:
+                            tech_signals.append(-1.0)  # extremely overbought
+                        elif rsi_val >= 70:
+                            tech_signals.append(-0.5)  # overbought
+                        elif rsi_val <= 20:
+                            tech_signals.append(1.0)   # extremely oversold
+                        elif rsi_val <= 30:
+                            tech_signals.append(0.5)   # oversold
+                    elif rel_direction == "negative":
+                        if rsi_val <= 20:
+                            tech_signals.append(-1.0)  # extremely oversold (bad for negative)
+                        elif rsi_val <= 30:
+                            tech_signals.append(-0.5)
+                        elif rsi_val >= 80:
+                            tech_signals.append(1.0)   # extremely overbought (good for negative)
+                        elif rsi_val >= 70:
+                            tech_signals.append(0.5)
                     relationship["rsi_value"] = round(rsi_val, 1)
-                    relationship["rsi_factor"] = round(rsi_mult, 3)
 
-            # MACD signal — trend momentum confirmation/conflict
-            macd_data = macd_cache.get(ticker_for_rsi)
-            if macd_data is not None and rel_direction in ("positive", "negative"):
-                macd_mult = 1.0
-                hist = macd_data["histogram"]
-                if rel_direction == "positive":
-                    if hist > 0:
-                        macd_mult = 1.06   # MACD bullish alignment
-                    elif hist < 0:
-                        macd_mult = 0.94   # MACD bearish conflict
-                elif rel_direction == "negative":
-                    if hist < 0:
-                        macd_mult = 1.06   # MACD bearish alignment
-                    elif hist > 0:
-                        macd_mult = 0.94   # MACD bullish conflict
-                if macd_mult != 1.0:
-                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
-                    adjusted_macd = clamp(cur_conf * macd_mult, 0.0, 1.0)
-                    relationship["confidence"] = round(adjusted_macd, 3)
-                    relationship["relationship_confidence"] = round(adjusted_macd, 3)
+                macd_data = macd_cache.get(ticker_for_rsi)
+                if macd_data is not None:
+                    hist = macd_data["histogram"]
+                    if rel_direction == "positive":
+                        tech_signals.append(1.0 if hist > 0 else -1.0 if hist < 0 else 0)
+                    elif rel_direction == "negative":
+                        tech_signals.append(1.0 if hist < 0 else -1.0 if hist > 0 else 0)
                     relationship["macd_histogram"] = round(hist, 4)
-                    relationship["macd_factor"] = round(macd_mult, 3)
 
-            # SMA trend signal — trend direction confirmation/conflict
-            trend_data = trend_cache.get(ticker_for_rsi)
-            if trend_data is not None and rel_direction in ("positive", "negative"):
-                trend_mult = 1.0
-                stock_trend = trend_data["trend"]
-                if rel_direction == "positive":
-                    if stock_trend == "bullish":
-                        trend_mult = 1.05   # aligned with uptrend
-                    elif stock_trend == "bearish":
-                        trend_mult = 0.93   # fighting the downtrend
-                elif rel_direction == "negative":
-                    if stock_trend == "bearish":
-                        trend_mult = 1.05   # aligned with downtrend
-                    elif stock_trend == "bullish":
-                        trend_mult = 0.93   # fighting the uptrend
-                if trend_mult != 1.0:
-                    cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
-                    adjusted_trend = clamp(cur_conf * trend_mult, 0.0, 1.0)
-                    relationship["confidence"] = round(adjusted_trend, 3)
-                    relationship["relationship_confidence"] = round(adjusted_trend, 3)
+                trend_data = trend_cache.get(ticker_for_rsi)
+                if trend_data is not None:
+                    stock_trend = trend_data["trend"]
+                    if rel_direction == "positive":
+                        tech_signals.append(1.0 if stock_trend == "bullish" else -1.0 if stock_trend == "bearish" else 0)
+                    elif rel_direction == "negative":
+                        tech_signals.append(1.0 if stock_trend == "bearish" else -1.0 if stock_trend == "bullish" else 0)
                     relationship["sma_trend"] = stock_trend
-                    relationship["trend_factor"] = round(trend_mult, 3)
+
+                # Combine: average signal → capped composite factor (max ±15%)
+                if tech_signals:
+                    avg_signal = sum(tech_signals) / len(tech_signals)
+                    # Map to factor: +1 avg → 1.15, -1 avg → 0.85, 0 → 1.0
+                    composite_mult = 1.0 + (avg_signal * 0.15)
+                    composite_mult = max(0.85, min(1.15, composite_mult))
+                    if composite_mult != 1.0:
+                        cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
+                        adjusted_tech = clamp(cur_conf * composite_mult, 0.0, 1.0)
+                        relationship["confidence"] = round(adjusted_tech, 3)
+                        relationship["relationship_confidence"] = round(adjusted_tech, 3)
+                    # Store individual factors for transparency
+                    if rsi_val is not None:
+                        relationship["rsi_factor"] = round(composite_mult, 3) if rsi_val is not None else 1.0
+                    if macd_data is not None:
+                        relationship["macd_factor"] = round(composite_mult, 3)
+                    if trend_data is not None:
+                        relationship["trend_factor"] = round(composite_mult, 3)
 
             # Event clustering — multiple events about same ticker = stronger signal
             event_count = ticker_event_counts.get(ticker_for_rsi, 0)
@@ -4627,24 +4630,34 @@ def build_refresh_payload(
                     relationship["sentiment_momentum"] = s_momentum
                     relationship["sentiment_momentum_factor"] = round(momentum_mult, 3)
 
-            # Currency impact — USD/IDR affects export/import stocks
+            # Currency impact — USD/IDR affects export/import stocks differently
             if usd_idr_dir != "flat" and rel_direction in ("positive", "negative"):
                 exposure_factors = relationship.get("exposure_factors", {})
                 export_dep = str(exposure_factors.get("export_import_dependency", "low")).lower()
                 if export_dep in ("high", "medium"):
+                    # Determine if stock is exporter or importer based on sector
+                    rel_sector = str(relationship.get("sector", "")).lower()
+                    is_exporter = any(s in rel_sector for s in ("basic materials", "energy", "mining"))
+                    is_importer = any(s in rel_sector for s in ("consumer", "food", "retail"))
                     currency_mult = 1.0
-                    # IDR weakening (USD/IDR up) = good for exporters, bad for importers
-                    # IDR strengthening (USD/IDR down) = bad for exporters, good for importers
                     if usd_idr_dir == "up":  # IDR weakening
-                        if rel_direction == "positive":
-                            currency_mult = 1.05  # exporters benefit
-                        else:
-                            currency_mult = 0.97  # negative prediction less likely for exporters
+                        if is_exporter and rel_direction == "positive":
+                            currency_mult = 1.05  # exporters benefit from weak IDR
+                        elif is_importer and rel_direction == "negative":
+                            currency_mult = 1.03  # importers hurt by weak IDR
+                        elif is_exporter and rel_direction == "negative":
+                            currency_mult = 0.97  # fighting exporter tailwind
+                        elif is_importer and rel_direction == "positive":
+                            currency_mult = 0.97  # fighting importer headwind
                     elif usd_idr_dir == "down":  # IDR strengthening
-                        if rel_direction == "negative":
-                            currency_mult = 1.03  # importers benefit from stronger IDR
-                        else:
-                            currency_mult = 0.97
+                        if is_importer and rel_direction == "positive":
+                            currency_mult = 1.04  # importers benefit from strong IDR
+                        elif is_exporter and rel_direction == "negative":
+                            currency_mult = 1.03  # exporters hurt by strong IDR
+                        elif is_importer and rel_direction == "negative":
+                            currency_mult = 0.97  # fighting importer tailwind
+                        elif is_exporter and rel_direction == "positive":
+                            currency_mult = 0.97  # fighting exporter headwind
                     if currency_mult != 1.0:
                         cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                         adjusted_curr = clamp(cur_conf * currency_mult, 0.0, 1.0)
@@ -4771,7 +4784,7 @@ def build_refresh_payload(
                 "sector_correlation_count": strongest_link[1].get("sector_correlation_count", 0) if strongest_link else 0,
                 "sector_correlation_factor": strongest_link[1].get("sector_correlation_factor", 1.0) if strongest_link else 1.0,
                 "foreign_market_factor": strongest_link[1].get("foreign_market_factor", 1.0) if strongest_link else 1.0,
-                "sentiment_momentum": strongest_link[1].get("sentiment_momentum", "stable") if strongest_link else "stable",
+                "sentiment_momentum": strongest_link[1].get("sentiment_momentum") or "stable" if strongest_link else "stable",
                 "sentiment_momentum_factor": strongest_link[1].get("sentiment_momentum_factor", 1.0) if strongest_link else 1.0,
                 "currency_factor": strongest_link[1].get("currency_factor", 1.0) if strongest_link else 1.0,
             }

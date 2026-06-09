@@ -2025,6 +2025,43 @@
       }
       return 'neu';
     }
+    if (kind === 'macd') {
+      if (normalized.includes('+') || normalized.includes('▲')) return 'pos';
+      if (normalized.includes('-') || normalized.includes('▼')) return 'neg';
+      return 'neu';
+    }
+    if (kind === 'trend') {
+      if (normalized.includes('Bull')) return 'pos';
+      if (normalized.includes('Bear')) return 'neg';
+      return 'neu';
+    }
+    if (kind === 'atr') {
+      const num = parseFloat(normalized);
+      if (Number.isFinite(num)) {
+        if (num > 5) return 'neg';   // very volatile
+        if (num > 3) return 'warn';  // moderate
+      }
+      return 'neu';
+    }
+    if (kind === 'sector') {
+      if (normalized.includes('aligned')) return 'pos';
+      return 'neu';
+    }
+    if (kind === 'foreign') {
+      if (normalized.includes('Aligned')) return 'pos';
+      if (normalized.includes('Fighting')) return 'neg';
+      return 'neu';
+    }
+    if (kind === 'momentum') {
+      if (normalized.includes('Strengthening')) return 'pos';
+      if (normalized.includes('Weakening')) return 'neg';
+      return 'neu';
+    }
+    if (kind === 'currency') {
+      if (normalized.includes('Favorable')) return 'pos';
+      if (normalized.includes('Headwind')) return 'neg';
+      return 'neu';
+    }
     return 'neu';
   }
 
@@ -3022,20 +3059,20 @@
       const rsiChip = rsiVal != null ? renderReasoningChip('RSI', `${rsiVal.toFixed(0)}${rsiVal > 70 ? ' ▲' : rsiVal < 30 ? ' ▼' : ''}`, 'rsi') : '';
       const macdObj = stock.macd;
       const macdHist = macdObj && typeof macdObj === 'object' ? macdObj.histogram : stock.macd_histogram;
-      const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${Number(macdHist).toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'rsi') : '';
+      const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${Number(macdHist).toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'macd') : '';
       const trendObj = stock.trend;
       const trendDir = (trendObj && typeof trendObj === 'object' ? trendObj.trend : stock.sma_trend) || '';
-      const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'rsi') : '';
+      const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'trend') : '';
       const atrPct = stock.atr_pct;
-      const atrChip = atrPct != null ? renderReasoningChip('ATR', `${atrPct.toFixed(1)}%${atrPct > 5 ? ' ▲' : atrPct < 1 ? ' ▼' : ''}`, 'rsi') : '';
+      const atrChip = atrPct != null ? renderReasoningChip('ATR', `${atrPct.toFixed(1)}%${atrPct > 5 ? ' ▲' : atrPct < 1 ? ' ▼' : ''}`, 'atr') : '';
       const sectorCount = stock.sector_correlation_count;
-      const sectorChip = sectorCount >= 2 ? renderReasoningChip('Sector', `${sectorCount} aligned`, 'rsi') : '';
+      const sectorChip = sectorCount >= 2 ? renderReasoningChip('Sector', `${sectorCount} aligned`, 'sector') : '';
       const foreignFactor = stock.foreign_market_factor;
-      const foreignChip = foreignFactor != null && foreignFactor !== 1.0 ? renderReasoningChip('Foreign', foreignFactor > 1 ? 'Aligned ▲' : 'Fighting ▼', 'rsi') : '';
+      const foreignChip = foreignFactor != null && foreignFactor !== 1.0 ? renderReasoningChip('Foreign', foreignFactor > 1 ? 'Aligned ▲' : 'Fighting ▼', 'foreign') : '';
       const sMomentum = stock.sentiment_momentum;
-      const momentumChip = sMomentum && sMomentum !== 'stable' ? renderReasoningChip('Momentum', sMomentum === 'strengthening' ? '↑ Strengthening' : '↓ Weakening', 'rsi') : '';
+      const momentumChip = sMomentum && sMomentum !== 'stable' ? renderReasoningChip('Momentum', sMomentum === 'strengthening' ? '↑ Strengthening' : '↓ Weakening', 'momentum') : '';
       const currFactor = stock.currency_factor;
-      const currChip = currFactor != null && currFactor !== 1.0 ? renderReasoningChip('Currency', currFactor > 1 ? 'Favorable ▲' : 'Headwind ▼', 'rsi') : '';
+      const currChip = currFactor != null && currFactor !== 1.0 ? renderReasoningChip('Currency', currFactor > 1 ? 'Favorable ▲' : 'Headwind ▼', 'currency') : '';
       const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, atrChip, sectorChip, foreignChip, momentumChip, currChip, conflictBadges].filter(Boolean).join(' ');
       const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationParts = [];

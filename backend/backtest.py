@@ -555,49 +555,50 @@ def start_outcome_resolver(interval_seconds: int = 3600) -> None:
 
 
 def resolve_pending_outcomes() -> int:
-    """Fetch current prices for pending predictions and record outcomes."""
-    from backend.stocks import fetch_live_quote
+    """Fetch current prices for pending predictions and record outcomes.
+
+    Uses historical OHLC data to get the actual price at each hour mark
+    (1h, 4h, 24h after publication), not the current price.
+    """
+    from backend.stocks import fetch_ticker_history
 
     pending = get_pending_predictions()
     if not pending:
         return 0
 
     resolved_count = 0
-    # Group by ticker to minimize API calls
-    tickers_needed = set()
     now = datetime.utcnow()
 
+    # Group by ticker to minimize API calls
+    tickers_needed: set[str] = set()
     for pred in pending:
         try:
             pub_dt = datetime.fromisoformat(pred["published_at"].replace("Z", "+00:00").split("+")[0])
         except (ValueError, AttributeError):
             continue
-
         age_hours = (now - pub_dt).total_seconds() / 3600
-
-        # Only resolve if enough time has passed
         if age_hours < 1.0:
             continue
-
         tickers_needed.add(pred["ticker"])
 
     if not tickers_needed:
         return 0
 
-    # Fetch current prices
-    prices: dict[str, float] = {}
+    # Fetch historical OHLC data for all tickers (30d window covers all needs)
+    price_history: dict[str, list[dict]] = {}
     for ticker in tickers_needed:
         try:
-            quote = fetch_live_quote(ticker)
-            if quote and quote.get("price"):
-                prices[ticker] = quote["price"]
+            hist = fetch_ticker_history(ticker, "1mo")
+            ohlc = hist.get("ohlc_series", [])
+            if ohlc:
+                price_history[ticker] = ohlc
         except Exception as e:
-            logger.warning(f"Failed to fetch price for {ticker}: {e}")
+            logger.warning(f"Failed to fetch history for {ticker}: {e}")
 
-    # Update predictions
+    # Update predictions using historical prices at exact hour marks
     for pred in pending:
         ticker = pred["ticker"]
-        if ticker not in prices:
+        if ticker not in price_history:
             continue
 
         try:
@@ -606,15 +607,26 @@ def resolve_pending_outcomes() -> int:
             continue
 
         age_hours = (now - pub_dt).total_seconds() / 3600
-        current_price = prices[ticker]
+        ohlc = price_history[ticker]
+
+        # Find prices at 1h, 4h, 24h after publication
+        target_1h = pub_dt + timedelta(hours=1)
+        target_4h = pub_dt + timedelta(hours=4)
+        target_24h = pub_dt + timedelta(hours=24)
 
         kwargs = {}
         if age_hours >= 1.0 and not pred.get("price_after_1h"):
-            kwargs["price_after_1h"] = current_price
+            p = _find_closest_price(ohlc, target_1h)
+            if p:
+                kwargs["price_after_1h"] = p
         if age_hours >= 4.0 and not pred.get("price_after_4h"):
-            kwargs["price_after_4h"] = current_price
+            p = _find_closest_price(ohlc, target_4h)
+            if p:
+                kwargs["price_after_4h"] = p
         if age_hours >= 24.0 and not pred.get("price_after_24h"):
-            kwargs["price_after_24h"] = current_price
+            p = _find_closest_price(ohlc, target_24h)
+            if p:
+                kwargs["price_after_24h"] = p
 
         if kwargs:
             record_outcome(pred["id"], **kwargs)
@@ -908,6 +920,59 @@ def backfill_new_indicators() -> dict[str, int]:
             stats["errors"] += 1
 
     logger.info(f"Backfill indicators complete: updated={stats['updated']}, errors={stats['errors']}")
+    return stats
+
+
+def fix_prediction_data() -> dict[str, int]:
+    """Fix known data quality issues in the predictions table.
+
+    Fixes:
+    1. Transition stuck 'pending' predictions that have is_correct set to 'resolved'
+    2. Clear identical multi-horizon returns (re-resolve with historical prices)
+    3. Fix sentiment_momentum storing 'None' string instead of NULL
+
+    Returns: {"stuck_fixed": N, "returns_reset": N, "none_fixed": N}
+    """
+    stats = {"stuck_fixed": 0, "returns_reset": 0, "none_fixed": 0}
+
+    conn = _get_conn()
+    try:
+        # Fix 1: Transition stuck pending predictions
+        cur = conn.execute(
+            "UPDATE predictions SET outcome_status = 'resolved' "
+            "WHERE outcome_status = 'pending' AND is_correct IS NOT NULL"
+        )
+        stats["stuck_fixed"] = cur.rowcount
+
+        # Fix 2: Clear identical multi-horizon returns (where 1h == 4h == 24h)
+        cur = conn.execute(
+            "UPDATE predictions SET "
+            "price_after_1h = NULL, price_after_4h = NULL, price_after_24h = NULL, "
+            "actual_return_1h = NULL, actual_return_4h = NULL, actual_return_24h = NULL, "
+            "actual_direction = NULL, is_correct = NULL, "
+            "outcome_status = 'pending', resolved_at = NULL "
+            "WHERE outcome_status = 'resolved' "
+            "AND price_after_1h IS NOT NULL AND price_after_4h IS NOT NULL AND price_after_24h IS NOT NULL "
+            "AND price_after_1h = price_after_4h AND price_after_4h = price_after_24h"
+        )
+        stats["returns_reset"] = cur.rowcount
+
+        # Fix 3: Fix sentiment_momentum 'None' string
+        cur = conn.execute(
+            "UPDATE predictions SET sentiment_momentum = NULL "
+            "WHERE sentiment_momentum = 'None'"
+        )
+        stats["none_fixed"] = cur.rowcount
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    logger.info(
+        f"Data fix: stuck_pending={stats['stuck_fixed']}, "
+        f"returns_reset={stats['returns_reset']}, "
+        f"none_string_fixed={stats['none_fixed']}"
+    )
     return stats
 
 

@@ -99,24 +99,39 @@ def build_stock_relationships(
         timing = max(1.0, min(5.0, 5.0 - recency_hours / max(6.0, event_window_delta(window).total_seconds() / 21600.0)))
         evidence_quality = evidence_quality_score(article, matched_themes or themes, direct_alias_hit, knowledge.get("evidence", []))
         direction = expected_direction_for_company(matched_themes or themes, matched_channels, knowledge)
-        # Vagueness penalty — downgrade generic government optimism to neutral
-        _VAGUE_PHRASES = [
+        # Vagueness penalty — downgrade generic government rhetoric to neutral
+        _VAGUE_POSITIVE = [
             "tegaskan komitmen", "yakin fundamental", "perkuat pengawasan",
             "dukung penegakan hukum", "komitmen perang", "tetap kuat",
             "menegaskan kembali", "optimis terhadap", "berkomitmen untuk",
             "tegaskan kembali", "perkuat komitmen", "menegaskan pentingnya",
         ]
+        _VAGUE_NEGATIVE = [
+            "menolak tegas", "mengecam keras", "sangat prihatin",
+            "mengutuk keras", "sangat menyesalkan", "menyayangkan hal ini",
+            "menuntut pertanggungjawaban", "mendesak segera", "tegas menolak",
+            "sangat menyayangkan", "prihatin atas", "kecewa terhadap",
+        ]
         _was_vague = False
+        headline_lower = str(article.get("headline", "") or "").lower()
+        combined = f"{headline_lower} {text}"
         if direction.get("impact_direction") == "positive":
-            headline_lower = str(article.get("headline", "") or "").lower()
-            combined = f"{headline_lower} {text}"
-            vague_count = sum(1 for p in _VAGUE_PHRASES if p in combined)
+            vague_count = sum(1 for p in _VAGUE_POSITIVE if p in combined)
             if vague_count > 0:
                 _was_vague = True
                 direction = {
                     **direction,
                     "impact_direction": "neutral",
                     "direction_rationale": f"downgraded from positive: generic government rhetoric ({vague_count} vague phrases detected)",
+                }
+        elif direction.get("impact_direction") == "negative":
+            vague_count = sum(1 for p in _VAGUE_NEGATIVE if p in combined)
+            if vague_count > 0:
+                _was_vague = True
+                direction = {
+                    **direction,
+                    "impact_direction": "neutral",
+                    "direction_rationale": f"downgraded from negative: generic outrage rhetoric ({vague_count} vague phrases detected)",
                 }
         source_quality = clamp(float(article.get("source_quality_score", 0.0) or 0.0), 0.0, 1.0)
         source_freshness = clamp(float(article.get("source_freshness_score", 1.0) or 0.0), 0.0, 1.0)
