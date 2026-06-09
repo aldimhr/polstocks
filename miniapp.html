@@ -27,10 +27,9 @@
     tg.ready();
     tg.expand();
 
+    // Pass user context to the iframe via postMessage once it loads
     const iframe = document.getElementById('dashboard');
-
-    function sendInit() {
-      if (!iframe.contentWindow) return;
+    iframe.addEventListener('load', () => {
       iframe.contentWindow.postMessage({
         type: 'tg_init',
         user: tg.initDataUnsafe?.user || null,
@@ -39,14 +38,6 @@
         themeParams: tg.themeParams,
         initData: tg.initData,
       }, '*');
-    }
-
-    // Send init once iframe loads
-    iframe.addEventListener('load', sendInit);
-
-    // Re-send on theme change (user switches dark/light in Telegram)
-    tg.onEvent('themeChanged', () => {
-      sendInit();
     });
 
     // Close the app when user taps back
