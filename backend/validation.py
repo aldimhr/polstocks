@@ -8,8 +8,10 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote, urlsplit
+
+import requests
 
 from backend.config import (
     WIB,
@@ -32,7 +34,7 @@ from backend.utils import (
     collect_phrase_hits, normalize_event_window, event_window_config,
     event_window_delta, event_window_label, text_similarity,
     is_stale_article, within_trading_hours, sector_for_ticker,
-    company_name_for_ticker, article_text, normalize_ticker,
+    company_name_for_ticker, article_text,
 )
 
 def article_source_domain(article: dict[str, Any]) -> str:
@@ -179,7 +181,7 @@ def normalize_source_outcome_history(raw: Any) -> dict[str, Any]:
 def load_source_outcome_history() -> dict[str, Any]:
     """Load source outcome history from SQLite (falls back to JSON file on first run)."""
     db_path = PROJECT_ROOT / "data" / "polstock_backend.db"
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30)
     try:
         conn.execute("CREATE TABLE IF NOT EXISTS source_outcomes (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))")
         cur = conn.execute("SELECT data FROM source_outcomes WHERE id = 1")
@@ -205,7 +207,7 @@ def save_source_outcome_history(history: dict[str, Any]) -> None:
     normalized = normalize_source_outcome_history(history)
     db_path = PROJECT_ROOT / "data" / "polstock_backend.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30)
     try:
         conn.execute(
             "INSERT OR REPLACE INTO source_outcomes (id, data, updated_at) VALUES (1, ?, datetime('now'))",

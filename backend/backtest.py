@@ -28,8 +28,11 @@ _db_lock = threading.Lock()
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(BACKEND_DB_PATH), timeout=5)
+    BACKEND_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(BACKEND_DB_PATH), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 

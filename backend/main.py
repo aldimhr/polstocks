@@ -132,7 +132,7 @@ def get_user_watchlist_from_bot_db(user_id: int) -> list[str]:
     if not os.path.exists(db_path):
         return []
     try:
-        conn = sqlite3.connect(db_path, timeout=2)
+        conn = sqlite3.connect(db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             "SELECT ticker FROM user_watchlists WHERE user_id = ? ORDER BY added_at",
@@ -150,7 +150,7 @@ def save_user_watchlist_to_bot_db(user_id: int, tickers: list[str]) -> None:
     if not os.path.exists(db_path):
         return
     try:
-        conn = sqlite3.connect(db_path, timeout=2)
+        conn = sqlite3.connect(db_path, timeout=10)
         conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
         conn.execute("DELETE FROM user_watchlists WHERE user_id = ?", (user_id,))
         conn.executemany(
@@ -165,9 +165,18 @@ def save_user_watchlist_to_bot_db(user_id: int, tickers: list[str]) -> None:
 # ── Backend-owned SQLite DB (source outcomes, event cache) ──────────
 BACKEND_DB_PATH = PROJECT_ROOT / "data" / "polstock_backend.db"
 
+def _backend_conn() -> sqlite3.Connection:
+    """Open the backend SQLite DB with production-safe lock handling."""
+    BACKEND_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(BACKEND_DB_PATH), timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
 def init_backend_db() -> None:
     """Create backend-owned tables if they don't exist."""
-    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    conn = _backend_conn()
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS source_outcomes (
@@ -189,7 +198,7 @@ def init_backend_db() -> None:
 
 def load_source_outcome_history() -> dict[str, Any]:
     """Load source outcome history from SQLite (falls back to JSON file on first run)."""
-    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    conn = _backend_conn()
     try:
         conn.execute("CREATE TABLE IF NOT EXISTS source_outcomes (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))")
         cur = conn.execute("SELECT data FROM source_outcomes WHERE id = 1")
@@ -212,7 +221,7 @@ def load_source_outcome_history() -> dict[str, Any]:
 def save_source_outcome_history(history: dict[str, Any]) -> None:
     """Save source outcome history to SQLite."""
     normalized = normalize_source_outcome_history(history)
-    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    conn = _backend_conn()
     try:
         conn.execute(
             "INSERT OR REPLACE INTO source_outcomes (id, data, updated_at) VALUES (1, ?, datetime('now'))",
@@ -226,7 +235,7 @@ def save_source_outcome_history(history: dict[str, Any]) -> None:
 def save_cache_to_db(cache_key: tuple, payload: dict[str, Any]) -> None:
     """Persist a cache entry to SQLite for cold-start recovery."""
     key_str = json.dumps(list(cache_key))
-    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    conn = _backend_conn()
     try:
         conn.execute(
             "INSERT OR REPLACE INTO events_cache (event_id, data, cached_at) VALUES (?, ?, datetime('now'))",
@@ -242,7 +251,7 @@ def save_cache_to_db(cache_key: tuple, payload: dict[str, Any]) -> None:
 def load_cache_from_db() -> dict[tuple, dict[str, Any]]:
     """Load cached payloads from SQLite on startup."""
     result: dict[tuple, dict[str, Any]] = {}
-    conn = sqlite3.connect(str(BACKEND_DB_PATH))
+    conn = _backend_conn()
     try:
         cur = conn.execute("SELECT event_id, data, cached_at FROM events_cache")
         for row in cur.fetchall():
