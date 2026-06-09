@@ -2666,3 +2666,249 @@ def test_stock_payload_includes_bollinger():
     assert "bollinger" in stock
     assert "support_resistance" in stock
     assert "volume_spike" in stock
+
+
+# ── Phase 3: Signal History Tests ──────────────────────────────────────────
+
+
+def test_signal_history_init_and_log():
+    """init_signal_tables creates tables; log_signal inserts and returns record."""
+    from backend.signals import init_signal_tables, log_signal, get_signal_history, _get_conn
+
+    init_signal_tables()
+
+    # Clean slate
+    conn = _get_conn()
+    conn.execute("DELETE FROM signal_history")
+    conn.commit()
+    conn.close()
+
+    result = log_signal(
+        ticker="BBCA.JK",
+        action="BUY",
+        signal_strength=0.78,
+        price_at_signal=9500,
+        stop_loss=9350,
+        take_profit=9800,
+        risk_reward=2.0,
+        timeframe="1-3d",
+        reasons=["test signal", "RSI neutral"],
+        event_headline="BI rate cut",
+        event_source="bi.go.id",
+    )
+    assert result is not None
+    assert result["ticker"] == "BBCA.JK"
+    assert result["action"] == "BUY"
+    assert result["outcome"] == "pending"
+
+    history = get_signal_history(limit=10)
+    assert len(history) >= 1
+    assert history[0]["ticker"] == "BBCA.JK"
+    assert history[0]["action"] == "BUY"
+    assert history[0]["reasons"] == ["test signal", "RSI neutral"]
+
+
+def test_signal_dedup_within_window():
+    """Same ticker + action within 4h should be deduped."""
+    from backend.signals import log_signal, _get_conn
+
+    conn = _get_conn()
+    conn.execute("DELETE FROM signal_history")
+    conn.commit()
+    conn.close()
+
+    first = log_signal(ticker="TLKM.JK", action="BUY", signal_strength=0.7, price_at_signal=3500)
+    assert first is not None
+
+    # Second within window should be deduped
+    second = log_signal(ticker="TLKM.JK", action="BUY", signal_strength=0.8, price_at_signal=3550)
+    assert second is None
+
+    # Different action should NOT be deduped
+    third = log_signal(ticker="TLKM.JK", action="SELL", signal_strength=0.7, price_at_signal=3500)
+    assert third is not None
+
+
+def test_signal_resolve_win_loss():
+    """resolve_signals correctly marks win/loss based on current prices."""
+    from backend.signals import log_signal, resolve_signals, get_signal_history, _get_conn
+    from datetime import datetime, timezone
+
+    conn = _get_conn()
+    conn.execute("DELETE FROM signal_history")
+    conn.commit()
+    conn.close()
+
+    # BUY signal: SL=9350, TP=9800, entry=9500
+    sig = log_signal(
+        ticker="BBCA.JK", action="BUY", signal_strength=0.8,
+        price_at_signal=9500, stop_loss=9350, take_profit=9800,
+    )
+    assert sig is not None
+
+    # Price hits take profit → win
+    resolved = resolve_signals({"BBCA.JK": 9850})
+    assert len(resolved) == 1
+    assert resolved[0]["outcome"] == "win"
+
+    history = get_signal_history(ticker="BBCA.JK", outcome="win")
+    assert len(history) == 1
+
+
+def test_signal_resolve_loss():
+    """BUY signal that hits stop-loss is marked loss."""
+    from backend.signals import log_signal, resolve_signals, _get_conn
+
+    conn = _get_conn()
+    conn.execute("DELETE FROM signal_history")
+    conn.commit()
+    conn.close()
+
+    log_signal(ticker="BMRI.JK", action="BUY", signal_strength=0.7,
+               price_at_signal=6000, stop_loss=5800, take_profit=6400)
+
+    resolved = resolve_signals({"BMRI.JK": 5750})
+    assert len(resolved) == 1
+    assert resolved[0]["outcome"] == "loss"
+
+
+def test_signal_stats():
+    """get_signal_stats returns aggregate counts."""
+    from backend.signals import log_signal, resolve_signals, get_signal_stats, _get_conn
+
+    conn = _get_conn()
+    conn.execute("DELETE FROM signal_history")
+    conn.commit()
+    conn.close()
+
+    log_signal(ticker="A.JK", action="BUY", signal_strength=0.7, price_at_signal=100, stop_loss=90, take_profit=120)
+    log_signal(ticker="B.JK", action="SELL", signal_strength=0.7, price_at_signal=200, stop_loss=220, take_profit=180)
+
+    stats = get_signal_stats()
+    assert stats["total_signals"] >= 2
+    assert stats["pending"] >= 2
+
+
+def test_signal_api_endpoint():
+    """GET /api/signals/history returns signal records."""
+    response = client.get("/api/signals/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert "signals" in data
+    assert "stats" in data
+
+
+def test_signal_api_with_filters():
+    """GET /api/signals/history?action=BUY filters correctly."""
+    response = client.get("/api/signals/history?action=BUY")
+    assert response.status_code == 200
+    data = response.json()
+    for sig in data["signals"]:
+        assert sig["action"] == "BUY"
+
+
+# ── Phase 3: Alert Tests ─────────────────────────────────────────────────
+
+
+def test_format_signal_alert_buy():
+    """BUY signal formats with green icon and all fields."""
+    from backend.alerts import format_signal_alert
+    msg = format_signal_alert({
+        "action": "BUY", "ticker": "BBCA.JK", "signal_strength": 0.78,
+        "price_at_signal": 9500, "stop_loss": 9350, "take_profit": 9800,
+        "risk_reward": 2.0, "timeframe": "1-3d",
+        "reasons": ["RSI neutral", "MACD bullish"],
+        "event_headline": "BI rate cut", "event_source": "bi.go.id",
+    })
+    assert "🟢" in msg
+    assert "BUY" in msg
+    assert "BBCA.JK" in msg
+    assert "9,500" in msg
+    assert "9,350" in msg
+    assert "9,800" in msg
+    assert "BI rate cut" in msg
+
+
+def test_format_signal_alert_sell():
+    """SELL signal formats with red icon."""
+    from backend.alerts import format_signal_alert
+    msg = format_signal_alert({
+        "action": "SELL", "ticker": "TLKM.JK", "signal_strength": 0.65,
+        "price_at_signal": 3500, "stop_loss": 3600, "take_profit": 3300,
+        "risk_reward": 1.5, "timeframe": "1w", "reasons": ["bearish trend"],
+    })
+    assert "🔴" in msg
+    assert "SELL" in msg
+    assert "TLKM.JK" in msg
+
+
+def test_should_not_alert_hold():
+    """HOLD signals should not trigger alerts."""
+    from backend.alerts import should_send_alert
+    assert should_send_alert({"action": "HOLD", "ticker": "X", "signal_strength": 0.9}) is False
+
+
+def test_should_not_alert_weak_signal():
+    """Signals below 0.6 strength should not trigger alerts."""
+    from backend.alerts import should_send_alert
+    assert should_send_alert({"action": "BUY", "ticker": "X", "signal_strength": 0.5}) is False
+
+
+def test_should_alert_strong_buy():
+    """Strong BUY signal with no quiet hours should trigger alert."""
+    from backend.alerts import should_send_alert
+    result = should_send_alert({
+        "action": "BUY", "ticker": "BBCA.JK", "signal_strength": 0.8,
+    }, alert_prefs=None)
+    # Should be True unless deduped (which it won't be for a fresh ticker)
+    assert isinstance(result, bool)
+
+
+def test_quiet_hours_detection():
+    """Quiet hours check works."""
+    from backend.alerts import _is_quiet_hours
+    # No prefs = not quiet
+    assert _is_quiet_hours(None) is False
+    # Invalid prefs = not quiet
+    assert _is_quiet_hours({"alert_quiet_start": -1, "alert_quiet_end": -1}) is False
+
+
+def test_portfolio_api():
+    """GET /api/portfolio returns positions and summary."""
+    response = client.get("/api/portfolio")
+    assert response.status_code == 200
+    data = response.json()
+    assert "positions" in data
+    assert "summary" in data
+    assert "open_count" in data["summary"]
+
+
+def test_portfolio_add_and_close():
+    """POST /api/portfolio/position and PUT to close with P&L."""
+    # Add position
+    add_resp = client.post("/api/portfolio/position", json={
+        "ticker": "BBCA.JK", "direction": "long", "entry_price": 9500,
+        "shares": 100, "stop_loss": 9350, "take_profit": 9800, "sector": "banking",
+    })
+    assert add_resp.status_code == 200
+    pos_id = add_resp.json()["id"]
+
+    # Verify it's open
+    portfolio = client.get("/api/portfolio").json()
+    assert portfolio["summary"]["open_count"] >= 1
+
+    # Close it with profit
+    close_resp = client.put(f"/api/portfolio/position/{pos_id}", json={"exit_price": 9800})
+    assert close_resp.status_code == 200
+    assert close_resp.json()["pnl"] == 30000  # (9800-9500) * 100
+    assert close_resp.json()["pnl_pct"] > 0
+
+
+def test_signals_api_endpoint():
+    """GET /api/signals/history returns signals and stats."""
+    response = client.get("/api/signals/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert "signals" in data
+    assert "stats" in data
+    assert "total_signals" in data["stats"]

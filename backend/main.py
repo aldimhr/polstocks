@@ -1912,6 +1912,49 @@ def build_refresh_payload(
 
     stocks = sort_stocks_by_impact(stocks)
 
+    # Phase 3: Log BUY/SELL signals to history and send Telegram alerts
+    _actionable_signals: list[dict[str, Any]] = []
+    for stock in stocks:
+        trade = stock.get("trade_signal") or {}
+        if trade.get("action") not in ("BUY", "SELL"):
+            continue
+        sig_record = {
+            "ticker": stock.get("ticker", ""),
+            "action": trade["action"],
+            "signal_strength": trade.get("signal_quality", 0),
+            "price_at_signal": trade.get("entry", 0),
+            "stop_loss": trade.get("stop_loss"),
+            "take_profit": trade.get("take_profit"),
+            "risk_reward": trade.get("risk_reward"),
+            "timeframe": trade.get("timeframe"),
+            "reasons": trade.get("reasons", []),
+            "event_headline": stock.get("headline", ""),
+            "event_source": stock.get("source", ""),
+        }
+        _actionable_signals.append(sig_record)
+    if _actionable_signals:
+        try:
+            from backend.signals import log_signal
+            for _sig in _actionable_signals:
+                log_signal(
+                    ticker=_sig["ticker"], action=_sig["action"],
+                    signal_strength=_sig["signal_strength"],
+                    price_at_signal=_sig["price_at_signal"],
+                    stop_loss=_sig["stop_loss"], take_profit=_sig["take_profit"],
+                    risk_reward=_sig["risk_reward"], timeframe=_sig["timeframe"],
+                    reasons=_sig["reasons"],
+                    event_headline=_sig["event_headline"],
+                    event_source=_sig["event_source"],
+                    signal_source="auto",
+                )
+        except Exception:
+            pass  # non-critical
+        try:
+            from backend.alerts import check_and_alert
+            check_and_alert(_actionable_signals)
+        except Exception:
+            pass  # non-critical: don't break dashboard on alert failure
+
     event_id_map = {f"evt_{idx+1:03d}": event for idx, event in enumerate(events)}
     formatted_events = []
     for event_id, event in event_id_map.items():
@@ -2203,6 +2246,162 @@ def api_put_alert_prefs(payload: dict[str, Any], user_id: int | None = None) -> 
         conn.close()
 
 
+# ── Signal History API ────────────────────────────────────────────────────
+
+
+@app.get("/api/signals/history")
+def api_signal_history(
+    limit: int = 50,
+    action: str | None = None,
+    ticker: str | None = None,
+    outcome: str | None = None,
+) -> dict[str, Any]:
+    """Query signal history with optional filters."""
+    from backend.signals import get_signal_history, get_signal_stats, init_signal_tables
+    init_signal_tables()
+    signals = get_signal_history(limit=limit, action=action, ticker=ticker, outcome=outcome)
+    stats = get_signal_stats()
+    return {"signals": signals, "stats": stats}
+
+
+@app.post("/api/signals/resolve")
+def api_signal_resolve() -> dict[str, Any]:
+    """Resolve pending signals against current prices."""
+    from backend.signals import resolve_signals, get_signal_history
+    # Get all pending signal tickers
+    pending = get_signal_history(limit=500, outcome="pending")
+    tickers = list({s["ticker"] for s in pending})
+    if not tickers:
+        return {"resolved": [], "message": "No pending signals"}
+
+    # Fetch current prices
+    from backend.stocks import fetch_live_quote
+    prices: dict[str, float] = {}
+    for t in tickers:
+        try:
+            q = fetch_live_quote(t)
+            if q and q.get("price"):
+                prices[t] = float(q["price"])
+        except Exception:
+            continue
+
+    resolved = resolve_signals(prices)
+    return {"resolved": resolved, "prices_checked": len(prices)}
+
+
+@app.get("/api/portfolio")
+def api_portfolio(
+    status: str = "open",
+) -> dict[str, Any]:
+    """Get portfolio positions and risk summary."""
+    from backend.signals import init_signal_tables, _get_conn
+    init_signal_tables()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM portfolio WHERE status = ? ORDER BY entry_date DESC", (status,)
+        ).fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM portfolio LIMIT 0").description]
+        positions = [dict(zip(cols, row)) for row in rows]
+
+        # Risk summary
+        open_positions = [p for p in positions if p["status"] == "open"]
+        total_exposure = sum(p.get("entry_price", 0) * p.get("shares", 0) for p in open_positions)
+        sectors: dict[str, int] = {}
+        for p in open_positions:
+            sec = p.get("sector") or "unknown"
+            sectors[sec] = sectors.get(sec, 0) + 1
+
+        # P&L for closed positions
+        total_pnl = sum(p.get("pnl") or 0 for p in positions if p["status"] == "closed")
+        wins = sum(1 for p in positions if p["status"] == "closed" and (p.get("pnl") or 0) > 0)
+        losses = sum(1 for p in positions if p["status"] == "closed" and (p.get("pnl") or 0) < 0)
+        closed_count = wins + losses
+
+        return {
+            "positions": positions,
+            "summary": {
+                "open_count": len(open_positions),
+                "total_exposure": round(total_exposure, 2),
+                "sector_breakdown": sectors,
+                "closed_count": closed_count,
+                "total_pnl": round(total_pnl, 2),
+                "win_rate": round(wins / closed_count, 3) if closed_count > 0 else None,
+            },
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/api/portfolio/position")
+def api_portfolio_add(payload: dict[str, Any]) -> dict[str, Any]:
+    """Add a position to the portfolio."""
+    from backend.signals import init_signal_tables, _get_conn
+    init_signal_tables()
+
+    ticker = payload.get("ticker")
+    direction = payload.get("direction", "long")
+    entry_price = payload.get("entry_price")
+    shares = payload.get("shares", 0)
+    stop_loss = payload.get("stop_loss")
+    take_profit = payload.get("take_profit")
+    signal_id = payload.get("signal_id")
+    sector = payload.get("sector")
+
+    if not ticker or not entry_price:
+        return {"error": "ticker and entry_price are required"}
+
+    conn = _get_conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO portfolio (ticker, direction, entry_price, shares, stop_loss, take_profit, signal_id, sector)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ticker, direction, entry_price, shares, stop_loss, take_profit, signal_id, sector),
+        )
+        conn.commit()
+        return {"ok": True, "id": cur.lastrowid}
+    finally:
+        conn.close()
+
+
+@app.put("/api/portfolio/position/{position_id}")
+def api_portfolio_close(position_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    """Close a portfolio position."""
+    from backend.signals import init_signal_tables, _get_conn
+    init_signal_tables()
+
+    exit_price = payload.get("exit_price")
+    if not exit_price:
+        return {"error": "exit_price is required"}
+
+    conn = _get_conn()
+    try:
+        row = conn.execute("SELECT * FROM portfolio WHERE id = ?", (position_id,)).fetchone()
+        if not row:
+            return {"error": "Position not found"}
+
+        cols = [d[0] for d in conn.execute("SELECT * FROM portfolio LIMIT 0").description]
+        pos = dict(zip(cols, row))
+        entry = pos["entry_price"]
+        direction = pos["direction"]
+
+        if direction == "long":
+            pnl = (exit_price - entry) * pos["shares"]
+            pnl_pct = (exit_price - entry) / entry * 100 if entry else 0
+        else:
+            pnl = (entry - exit_price) * pos["shares"]
+            pnl_pct = (entry - exit_price) / entry * 100 if entry else 0
+
+        conn.execute(
+            "UPDATE portfolio SET status = 'closed', exit_price = ?, exit_date = datetime('now'), pnl = ?, pnl_pct = ? WHERE id = ?",
+            (exit_price, round(pnl, 2), round(pnl_pct, 3), position_id),
+        )
+        conn.commit()
+        return {"ok": True, "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 3)}
+    finally:
+        conn.close()
+
+
 @app.post("/api/refresh")
 def api_refresh(payload: RefreshRequest) -> JSONResponse:
     result = build_refresh_payload(payload.tickers, force=payload.force, window=payload.window)
@@ -2367,6 +2566,13 @@ def _prewarm_cache() -> None:
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Backtest init failed: {e}")
+    # Initialize signal history and portfolio tables
+    try:
+        from backend.signals import init_signal_tables
+        init_signal_tables()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Signal tables init failed: {e}")
     # Load persisted cache so dashboard has data immediately
     persisted = load_cache_from_db()
     if persisted:
