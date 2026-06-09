@@ -1190,3 +1190,187 @@ def suggest_weight_adjustments(min_samples: int = 10) -> dict[str, Any]:
         }
     finally:
         conn.close()
+
+
+def analyze_indicator_effectiveness(min_samples: int = 5) -> dict[str, Any]:
+    """Analyze how well each indicator predicted correct outcomes.
+
+    For each indicator, compares predictions where the indicator boosted
+    confidence (factor > 1.0) vs dampened (factor < 1.0) and checks
+    if the boost/dampen was justified by actual outcomes.
+    """
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+
+        # Get resolved predictions with indicator factors
+        cursor.execute("""
+            SELECT
+                is_correct, actual_return_24h, predicted_direction,
+                rsi_factor, macd_factor, trend_factor,
+                atr_factor, sector_correlation_factor,
+                foreign_market_factor, sentiment_momentum_factor, currency_factor,
+                event_cluster_factor
+            FROM predictions
+            WHERE outcome_status = 'resolved'
+              AND predicted_direction != 'neutral'
+        """)
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        if len(rows) < min_samples:
+            return {
+                "ready": False,
+                "reason": f"Need {min_samples} resolved predictions, have {len(rows)}",
+                "indicators": {},
+            }
+
+        indicators = {}
+        indicator_cols = {
+            "rsi": "rsi_factor",
+            "macd": "macd_factor",
+            "sma_trend": "trend_factor",
+            "atr": "atr_factor",
+            "sector_correlation": "sector_correlation_factor",
+            "foreign_market": "foreign_market_factor",
+            "sentiment_momentum": "sentiment_momentum_factor",
+            "currency": "currency_factor",
+            "event_cluster": "event_cluster_factor",
+        }
+
+        for name, col in indicator_cols.items():
+            # Filter rows where this indicator was applied (factor != 1.0 and not None)
+            active = [r for r in rows if r[col] is not None and r[col] != 1.0]
+            if len(active) < min_samples:
+                indicators[name] = {
+                    "coverage": len(active),
+                    "total_resolved": len(rows),
+                    "ready": False,
+                    "reason": f"Only {len(active)} predictions with {name} data",
+                }
+                continue
+
+            # Split into boosted (>1.0) and dampened (<1.0)
+            boosted = [r for r in active if r[col] > 1.0]
+            dampened = [r for r in active if r[col] < 1.0]
+
+            boost_hr = (sum(1 for r in boosted if r["is_correct"]) / len(boosted)) if boosted else None
+            dampen_hr = (sum(1 for r in dampened if r["is_correct"]) / len(dampened)) if dampened else None
+            overall_hr = sum(1 for r in active if r["is_correct"]) / len(active)
+
+            # Average factor when correct vs incorrect
+            correct_factors = [r[col] for r in active if r["is_correct"]]
+            incorrect_factors = [r[col] for r in active if not r["is_correct"]]
+            avg_correct_factor = sum(correct_factors) / len(correct_factors) if correct_factors else None
+            avg_incorrect_factor = sum(incorrect_factors) / len(incorrect_factors) if incorrect_factors else None
+
+            # Direction analysis: did the indicator help?
+            # If boosted predictions have higher hit rate than dampened → indicator is useful
+            effectiveness = "unknown"
+            suggested_adjustment = 0.0
+
+            if boost_hr is not None and dampen_hr is not None:
+                if boost_hr > dampen_hr + 0.1:
+                    effectiveness = "helpful"
+                    # Indicator correctly boosted/dampened — could be more aggressive
+                    suggested_adjustment = min(0.05, (boost_hr - dampen_hr) * 0.1)
+                elif dampen_hr > boost_hr + 0.1:
+                    effectiveness = "counterproductive"
+                    # Indicator is hurting — should be dampened
+                    suggested_adjustment = max(-0.05, (dampen_hr - boost_hr) * -0.1)
+                else:
+                    effectiveness = "neutral"
+                    suggested_adjustment = 0.0
+            elif boost_hr is not None:
+                effectiveness = "boost_only"
+                suggested_adjustment = 0.02 if boost_hr > 0.6 else -0.02 if boost_hr < 0.4 else 0
+            elif dampen_hr is not None:
+                effectiveness = "dampen_only"
+                suggested_adjustment = 0.02 if dampen_hr > 0.6 else -0.02 if dampen_hr < 0.4 else 0
+
+            indicators[name] = {
+                "coverage": len(active),
+                "total_resolved": len(rows),
+                "ready": True,
+                "active_count": len(active),
+                "boosted_count": len(boosted),
+                "dampened_count": len(dampened),
+                "boost_hit_rate": round(boost_hr, 3) if boost_hr is not None else None,
+                "dampen_hit_rate": round(dampen_hr, 3) if dampen_hr is not None else None,
+                "overall_hit_rate": round(overall_hr, 3),
+                "avg_factor_when_correct": round(avg_correct_factor, 4) if avg_correct_factor else None,
+                "avg_factor_when_incorrect": round(avg_incorrect_factor, 4) if avg_incorrect_factor else None,
+                "effectiveness": effectiveness,
+                "suggested_adjustment": round(suggested_adjustment, 4),
+            }
+
+        # Generate auto-tune weight adjustments based on indicator analysis
+        auto_tune = {}
+        for name, data in indicators.items():
+            if not data.get("ready"):
+                continue
+            adj = data["suggested_adjustment"]
+            if abs(adj) >= 0.01:
+                # Map indicator name to weight keys
+                weight_map = {
+                    "rsi": None,  # RSI uses thresholds, not multipliers
+                    "macd": None,  # part of technical alignment
+                    "sma_trend": None,  # part of technical alignment
+                    "atr": "atr_high_mult",
+                    "sector_correlation": "sector_2plus_mult",
+                    "foreign_market": "foreign_aligned_mult",
+                    "sentiment_momentum": "momentum_strong_mult",
+                    "currency": "currency_exporter_mult",
+                    "event_cluster": "cluster_2_mult",
+                }
+                weight_key = weight_map.get(name)
+                if weight_key:
+                    from backend.weights import get_weight, DEFAULTS
+                    current = get_weight(weight_key)
+                    default = DEFAULTS[weight_key]
+                    # Adjust relative to default, not current
+                    new_val = round(default + adj, 3)
+                    new_val = max(0.8, min(1.2, new_val))  # safety clamp
+                    if abs(new_val - current) > 0.005:
+                        auto_tune[weight_key] = {
+                            "current": current,
+                            "suggested": new_val,
+                            "reason": f"{name}: {data['effectiveness']} "
+                                      f"(boost={data.get('boost_hit_rate', 'N/A')}, "
+                                      f"dampen={data.get('dampen_hit_rate', 'N/A')})",
+                            "sample_size": data["active_count"],
+                        }
+
+        # Also adjust technical_cap based on RSI/MACD/SMA collective performance
+        tech_indicators = [indicators.get(k) for k in ("rsi", "macd", "sma_trend") if indicators.get(k, {}).get("ready")]
+        if tech_indicators:
+            avg_effectiveness = sum(
+                1 if t["effectiveness"] == "helpful" else -1 if t["effectiveness"] == "counterproductive" else 0
+                for t in tech_indicators
+            ) / len(tech_indicators)
+            from backend.weights import get_weight as gw, DEFAULTS
+            current_cap = gw("technical_cap")
+            if avg_effectiveness < -0.3:
+                auto_tune["technical_cap"] = {
+                    "current": current_cap,
+                    "suggested": max(0.05, current_cap - 0.03),
+                    "reason": "Technical indicators collectively counterproductive — reduce cap",
+                    "sample_size": sum(t["active_count"] for t in tech_indicators),
+                }
+            elif avg_effectiveness > 0.3:
+                auto_tune["technical_cap"] = {
+                    "current": current_cap,
+                    "suggested": min(0.25, current_cap + 0.03),
+                    "reason": "Technical indicators collectively helpful — increase cap",
+                    "sample_size": sum(t["active_count"] for t in tech_indicators),
+                }
+
+        return {
+            "ready": True,
+            "total_resolved": len(rows),
+            "indicators": indicators,
+            "auto_tune": auto_tune,
+            "auto_tune_count": len(auto_tune),
+        }
+    finally:
+        conn.close()

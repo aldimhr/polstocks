@@ -34,6 +34,8 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from backend.weights import get_weight, get_all_weights, get_overrides, apply_overrides, reset_to_defaults
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_FILE = PROJECT_ROOT / "dashboard.html"
 MINIAPP_FILE = PROJECT_ROOT / "miniapp.html"
@@ -4291,16 +4293,16 @@ def build_refresh_payload(
 
     # Market context factor — flat market dampens directional predictions
     ihsg_change = abs(float(market_index.get("change_pct") or 0.0))
-    if ihsg_change < 0.15:
-        market_context_factor = 0.82   # very flat market: strong dampening
-    elif ihsg_change < 0.30:
-        market_context_factor = 0.90   # flat market: moderate dampening
+    if ihsg_change < get_weight("market_flat_threshold"):
+        market_context_factor = get_weight("market_flat_mult")
+    elif ihsg_change < get_weight("market_mild_threshold"):
+        market_context_factor = get_weight("market_mild_mult")
     elif ihsg_change < 0.60:
         market_context_factor = 0.95   # mild movement: slight dampening
     elif ihsg_change > 1.5:
         market_context_factor = 1.08   # strong trend: boost aligned signals
-    elif ihsg_change > 1.0:
-        market_context_factor = 1.04   # moderate trend: slight boost
+    elif ihsg_change > get_weight("market_strong_threshold"):
+        market_context_factor = get_weight("market_strong_mult")
     else:
         market_context_factor = 1.0    # normal market
     ihsg_direction = "positive" if float(market_index.get("change_pct") or 0.0) > 0 else "negative"
@@ -4439,13 +4441,13 @@ def build_refresh_payload(
             vol_ratio = float(relationship.get("abnormal_volume_ratio", 0.0) or 0.0)
             vol_mult = 1.0
             if vol_ratio > 3.0:
-                vol_mult = 1.12   # massive volume spike: strong signal
+                vol_mult = get_weight("volume_3x_mult")
             elif vol_ratio > 2.0:
-                vol_mult = 1.07   # significant volume spike
+                vol_mult = get_weight("volume_2x_mult")
             elif vol_ratio > 1.5:
                 vol_mult = 1.03   # moderate volume increase
             elif vol_ratio < 0.4 and vol_ratio > 0:
-                vol_mult = 0.92   # volume dried up: event may be noise
+                vol_mult = get_weight("volume_low_mult")
             if vol_mult != 1.0:
                 cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                 adjusted_vol = clamp(cur_conf * vol_mult, 0.0, 1.0)
@@ -4478,22 +4480,22 @@ def build_refresh_payload(
                 rsi_val = rsi_cache.get(ticker_for_rsi)
                 if rsi_val is not None:
                     if rel_direction == "positive":
-                        if rsi_val >= 80:
+                        if rsi_val >= get_weight("rsi_overbought_extreme"):
                             tech_signals.append(-1.0)  # extremely overbought
-                        elif rsi_val >= 70:
+                        elif rsi_val >= get_weight("rsi_overbought"):
                             tech_signals.append(-0.5)  # overbought
-                        elif rsi_val <= 20:
+                        elif rsi_val <= get_weight("rsi_oversold_extreme"):
                             tech_signals.append(1.0)   # extremely oversold
-                        elif rsi_val <= 30:
+                        elif rsi_val <= get_weight("rsi_oversold"):
                             tech_signals.append(0.5)   # oversold
                     elif rel_direction == "negative":
-                        if rsi_val <= 20:
+                        if rsi_val <= get_weight("rsi_oversold_extreme"):
                             tech_signals.append(-1.0)  # extremely oversold (bad for negative)
-                        elif rsi_val <= 30:
+                        elif rsi_val <= get_weight("rsi_oversold"):
                             tech_signals.append(-0.5)
-                        elif rsi_val >= 80:
+                        elif rsi_val >= get_weight("rsi_overbought_extreme"):
                             tech_signals.append(1.0)   # extremely overbought (good for negative)
-                        elif rsi_val >= 70:
+                        elif rsi_val >= get_weight("rsi_overbought"):
                             tech_signals.append(0.5)
                     relationship["rsi_value"] = round(rsi_val, 1)
 
@@ -4519,8 +4521,9 @@ def build_refresh_payload(
                 if tech_signals:
                     avg_signal = sum(tech_signals) / len(tech_signals)
                     # Map to factor: +1 avg → 1.15, -1 avg → 0.85, 0 → 1.0
-                    composite_mult = 1.0 + (avg_signal * 0.15)
-                    composite_mult = max(0.85, min(1.15, composite_mult))
+                    tech_cap = get_weight("technical_cap")
+                    composite_mult = 1.0 + (avg_signal * tech_cap)
+                    composite_mult = max(1.0 - tech_cap, min(1.0 + tech_cap, composite_mult))
                     if composite_mult != 1.0:
                         cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                         adjusted_tech = clamp(cur_conf * composite_mult, 0.0, 1.0)
@@ -4537,9 +4540,9 @@ def build_refresh_payload(
             # Event clustering — multiple events about same ticker = stronger signal
             event_count = ticker_event_counts.get(ticker_for_rsi, 0)
             if event_count >= 3:
-                cluster_mult = 1.10   # 3+ events: strong clustering boost
+                cluster_mult = get_weight("cluster_3plus_mult")
             elif event_count >= 2:
-                cluster_mult = 1.05   # 2 events: moderate boost
+                cluster_mult = get_weight("cluster_2_mult")
             else:
                 cluster_mult = 1.0
             if cluster_mult != 1.0:
@@ -4560,12 +4563,12 @@ def build_refresh_payload(
                     relationship["atr_pct"] = round(atr_pct, 2)
                     if rel_direction in ("positive", "negative"):
                         atr_mult = 1.0
-                        if atr_pct > 5.0:
-                            atr_mult = 1.10   # very high volatility: strong boost
-                        elif atr_pct > 3.0:
-                            atr_mult = 1.06   # high volatility: moderate boost
-                        elif atr_pct < 1.0:
-                            atr_mult = 0.94   # very low volatility: dampen (unlikely to move)
+                        if atr_pct > get_weight("atr_very_high_pct"):
+                            atr_mult = get_weight("atr_very_high_mult")
+                        elif atr_pct > get_weight("atr_high_pct"):
+                            atr_mult = get_weight("atr_high_mult")
+                        elif atr_pct < get_weight("atr_low_pct"):
+                            atr_mult = get_weight("atr_low_mult")
                         if atr_mult != 1.0:
                             cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                             adjusted_atr = clamp(cur_conf * atr_mult, 0.0, 1.0)
@@ -4579,9 +4582,9 @@ def build_refresh_payload(
                 sector_counts = sector_direction_counts.get(rel_sector, {})
                 same_dir_count = sector_counts.get(rel_direction, 0)
                 if same_dir_count >= 4:
-                    sector_mult = 1.08   # 4+ stocks in sector agree: strong
+                    sector_mult = get_weight("sector_4plus_mult")
                 elif same_dir_count >= 2:
-                    sector_mult = 1.04   # 2+ stocks agree: moderate
+                    sector_mult = get_weight("sector_2plus_mult")
                 else:
                     sector_mult = 1.0
                 if sector_mult != 1.0:
@@ -4596,13 +4599,13 @@ def build_refresh_payload(
             if rel_direction in ("positive", "negative") and foreign_direction != "flat":
                 foreign_mult = 1.0
                 if rel_direction == "positive" and foreign_direction == "up":
-                    foreign_mult = 1.06   # global rally aligned with positive prediction
+                    foreign_mult = get_weight("foreign_aligned_mult")
                 elif rel_direction == "negative" and foreign_direction == "down":
-                    foreign_mult = 1.06   # global sell-off aligned with negative prediction
+                    foreign_mult = get_weight("foreign_aligned_mult")
                 elif rel_direction == "positive" and foreign_direction == "down":
-                    foreign_mult = 0.94   # fighting global trend
+                    foreign_mult = get_weight("foreign_against_mult")
                 elif rel_direction == "negative" and foreign_direction == "up":
-                    foreign_mult = 0.94   # fighting global trend
+                    foreign_mult = get_weight("foreign_against_mult")
                 if foreign_mult != 1.0:
                     cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                     adjusted_foreign = clamp(cur_conf * foreign_mult, 0.0, 1.0)
@@ -4615,13 +4618,13 @@ def build_refresh_payload(
             if s_momentum != "stable" and rel_direction in ("positive", "negative"):
                 momentum_mult = 1.0
                 if s_momentum == "strengthening" and rel_direction == "positive":
-                    momentum_mult = 1.05
+                    momentum_mult = get_weight("momentum_strong_mult")
                 elif s_momentum == "weakening" and rel_direction == "negative":
-                    momentum_mult = 1.05
+                    momentum_mult = get_weight("momentum_strong_mult")
                 elif s_momentum == "strengthening" and rel_direction == "negative":
-                    momentum_mult = 0.95   # sentiment improving but predicting negative
+                    momentum_mult = get_weight("momentum_weakening_mult")
                 elif s_momentum == "weakening" and rel_direction == "positive":
-                    momentum_mult = 0.95   # sentiment worsening but predicting positive
+                    momentum_mult = get_weight("momentum_weakening_mult")
                 if momentum_mult != 1.0:
                     cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                     adjusted_mom = clamp(cur_conf * momentum_mult, 0.0, 1.0)
@@ -4642,22 +4645,22 @@ def build_refresh_payload(
                     currency_mult = 1.0
                     if usd_idr_dir == "up":  # IDR weakening
                         if is_exporter and rel_direction == "positive":
-                            currency_mult = 1.05  # exporters benefit from weak IDR
+                            currency_mult = get_weight("currency_exporter_mult")
                         elif is_importer and rel_direction == "negative":
-                            currency_mult = 1.03  # importers hurt by weak IDR
+                            currency_mult = get_weight("currency_importer_mult")
                         elif is_exporter and rel_direction == "negative":
-                            currency_mult = 0.97  # fighting exporter tailwind
+                            currency_mult = get_weight("currency_against_mult")
                         elif is_importer and rel_direction == "positive":
-                            currency_mult = 0.97  # fighting importer headwind
+                            currency_mult = get_weight("currency_against_mult")
                     elif usd_idr_dir == "down":  # IDR strengthening
                         if is_importer and rel_direction == "positive":
-                            currency_mult = 1.04  # importers benefit from strong IDR
+                            currency_mult = get_weight("currency_exporter_mult")
                         elif is_exporter and rel_direction == "negative":
-                            currency_mult = 1.03  # exporters hurt by strong IDR
+                            currency_mult = get_weight("currency_importer_mult")
                         elif is_importer and rel_direction == "negative":
-                            currency_mult = 0.97  # fighting importer tailwind
+                            currency_mult = get_weight("currency_against_mult")
                         elif is_exporter and rel_direction == "positive":
-                            currency_mult = 0.97  # fighting exporter headwind
+                            currency_mult = get_weight("currency_against_mult")
                     if currency_mult != 1.0:
                         cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                         adjusted_curr = clamp(cur_conf * currency_mult, 0.0, 1.0)
@@ -5122,6 +5125,66 @@ def api_backtest_suggestions(min_samples: int = 10) -> dict[str, Any]:
     """Return weight adjustment suggestions based on backtest data."""
     from backend.backtest import suggest_weight_adjustments
     return suggest_weight_adjustments(min_samples=min_samples)
+
+
+@app.get("/api/backtest/indicator-analysis")
+def api_indicator_analysis(min_samples: int = 5) -> dict[str, Any]:
+    """Analyze per-indicator effectiveness and suggest auto-tune adjustments."""
+    from backend.backtest import analyze_indicator_effectiveness
+    return analyze_indicator_effectiveness(min_samples=min_samples)
+
+
+@app.get("/api/weights")
+def api_get_weights() -> dict[str, Any]:
+    """Return current scoring weights (defaults + overrides)."""
+    return {
+        "weights": get_all_weights(),
+        "overrides": get_overrides(),
+        "defaults": dict(__import__("backend.weights", fromlist=["DEFAULTS"]).DEFAULTS),
+    }
+
+
+class WeightOverride(BaseModel):
+    weights: dict[str, float | int]
+
+
+@app.post("/api/weights")
+def api_apply_weights(body: WeightOverride) -> dict[str, Any]:
+    """Apply weight overrides. Partial updates supported."""
+    result = apply_overrides(body.weights)
+    return {"status": "ok", "applied": result, "weights": get_all_weights()}
+
+
+@app.post("/api/weights/auto-tune")
+def api_auto_tune(min_samples: int = 5) -> dict[str, Any]:
+    """Run indicator analysis and auto-apply suggested weight adjustments."""
+    from backend.backtest import analyze_indicator_effectiveness
+    analysis = analyze_indicator_effectiveness(min_samples=min_samples)
+
+    if not analysis.get("ready"):
+        return {"status": "not_ready", "reason": analysis.get("reason"), "applied": {}}
+
+    auto_tune = analysis.get("auto_tune", {})
+    if not auto_tune:
+        return {"status": "no_changes", "reason": "All indicators within normal range", "applied": {}}
+
+    # Apply suggested weights
+    to_apply = {k: v["suggested"] for k, v in auto_tune.items()}
+    result = apply_overrides(to_apply)
+
+    return {
+        "status": "applied",
+        "applied": result,
+        "changes": auto_tune,
+        "weights": get_all_weights(),
+    }
+
+
+@app.post("/api/weights/reset")
+def api_reset_weights() -> dict[str, Any]:
+    """Reset all weights to defaults."""
+    reset_to_defaults()
+    return {"status": "reset", "weights": get_all_weights()}
 
 
 # ---------------------------------------------------------------------------
