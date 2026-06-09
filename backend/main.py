@@ -1734,7 +1734,10 @@ def build_refresh_payload(
         recency_weights = [float(event.get("recency_weight", 1.0)) for event in events]
         weighted_total = sum(score * weight for score, weight in zip(score_inputs, recency_weights))
         total_weight = sum(recency_weights) or 1.0
-        impact_score = clamp(weighted_total / total_weight, -1.0, 1.0)
+        raw_impact = weighted_total / total_weight
+        cal_scale = float(get_weight("calibration_scale_factor"))
+        cal_cap = float(get_weight("calibration_score_abs_cap"))
+        impact_score = clamp(raw_impact * cal_scale, -cal_cap, cal_cap)
         strongest_link = max(related_links, key=lambda item: item[1].get("relevance_score", 0.0), default=None)
         knowledge = company_knowledge_for_ticker(ticker)
         stocks.append(
@@ -1822,8 +1825,11 @@ def build_refresh_payload(
             }
         )
     # Compute signal_strength: composite of confidence × corroboration × validation × technical alignment
+    cal_conf_floor = float(get_weight("calibration_confidence_floor"))
     for stock in stocks:
-        conf = float(stock.get("relationship_confidence", 0.0) or 0.0)
+        raw_conf = float(stock.get("relationship_confidence", 0.0) or 0.0)
+        # Boost confidence so that non-zero signals are meaningfully above zero
+        conf = max(raw_conf, cal_conf_floor) if raw_conf > 0.0 else 0.0
         corrobor = min(1.0, float(stock.get("corroboration_count", 0) or 0) / 3.0)  # 3+ sources = 1.0
         val_mult = float(stock.get("validation_multiplier", 1.0) or 1.0)
         # Technical alignment: count how many indicators agree with direction
