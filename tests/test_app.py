@@ -2425,3 +2425,26 @@ def test_import_historical_articles_supports_dry_run_without_db_write():
     assert result["accepted"] == 1
     assert result["inserted"] == 0
     assert result["items"][0]["accepted"] is True
+
+def test_backtest_metrics_include_baseline_weighted_and_origin_breakdowns():
+    from backend.backtest import compute_accuracy_metrics
+
+    metrics = compute_accuracy_metrics(window_days=30, origin="live")
+
+    assert metrics["origin"] == "live"
+    assert "baseline" in metrics
+    assert "neutral_hit_rate" in metrics["baseline"]
+    assert "edge_vs_neutral" in metrics["baseline"]
+    assert "return_weighted" in metrics
+    assert "accuracy" in metrics["return_weighted"]
+    assert "by_origin" in metrics
+
+
+def test_backtest_api_accepts_origin_filter():
+    response = client.get("/api/backtest?origin=live")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["origin"] == "live"
+    assert "baseline" in data
+    assert "return_weighted" in data
+    assert "by_origin" in data

@@ -119,6 +119,8 @@ def init_backtest_db() -> None:
             ("sentiment_momentum", "TEXT"),
             ("sentiment_momentum_factor", "REAL"),
             ("currency_factor", "REAL"),
+            ("prediction_origin", "TEXT DEFAULT 'live'"),
+            ("source_article_id", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
@@ -304,6 +306,8 @@ def record_prediction(
     sentiment_momentum: str | None = None,
     sentiment_momentum_factor: float | None = None,
     currency_factor: float | None = None,
+    prediction_origin: str = "live",
+    source_article_id: str | None = None,
 ) -> bool:
     """Insert a prediction. Returns True if inserted, False if duplicate."""
     conn = _get_conn()
@@ -321,8 +325,8 @@ def record_prediction(
                 atr_value, atr_pct, atr_factor,
                 sector_correlation_count, sector_correlation_factor,
                 foreign_market_factor, sentiment_momentum, sentiment_momentum_factor,
-                currency_factor)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                currency_factor, prediction_origin, source_article_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id, event_headline, published_at, ticker,
                 predicted_direction, round(predicted_score, 4), significance,
@@ -336,7 +340,7 @@ def record_prediction(
                 atr_value, atr_pct, atr_factor,
                 sector_correlation_count, sector_correlation_factor,
                 foreign_market_factor, sentiment_momentum, sentiment_momentum_factor,
-                currency_factor,
+                currency_factor, prediction_origin, source_article_id,
             ),
         )
         conn.commit()
@@ -542,119 +546,136 @@ def _directions_match(predicted: str, actual: str) -> bool:
 
 # ── Accuracy Metrics ──────────────────────────────────────────────
 
-def compute_accuracy_metrics(window_days: int = 30) -> dict[str, Any]:
-    """Compute backtest accuracy metrics for the given time window."""
+def compute_accuracy_metrics(window_days: int = 30, origin: str = "all") -> dict[str, Any]:
+    """Compute backtest accuracy metrics for the given time window.
+
+    origin='all' includes every prediction. origin='live' excludes future
+    historical replay rows, keeping live forward-test quality separate from
+    internet backfills.
+    """
+    init_backtest_db()
+    allowed_origins = {"all", "live", "historical_backfill", "cache_backfill"}
+    if origin not in allowed_origins:
+        origin = "all"
+
     conn = _get_conn()
     conn.row_factory = sqlite3.Row
     try:
         cutoff = (datetime.utcnow() - timedelta(days=window_days)).isoformat()
+        where = "created_at >= ?"
+        base_params: tuple[Any, ...] = (cutoff,)
+        if origin != "all":
+            where += " AND COALESCE(prediction_origin, 'live') = ?"
+            base_params = (cutoff, origin)
 
-        # Overall stats
-        total = conn.execute(
-            "SELECT COUNT(*) as n FROM predictions WHERE created_at >= ?", (cutoff,)
-        ).fetchone()["n"]
+        def count_where(extra: str = "", params: tuple[Any, ...] = ()) -> int:
+            prefix = f"{extra} AND " if extra else ""
+            return conn.execute(
+                f"SELECT COUNT(*) as n FROM predictions WHERE {prefix}{where}",
+                (*params, *base_params),
+            ).fetchone()["n"]
 
-        resolved = conn.execute(
-            "SELECT COUNT(*) as n FROM predictions WHERE outcome_status = 'resolved' AND created_at >= ?",
-            (cutoff,),
-        ).fetchone()["n"]
-
-        with_result = conn.execute(
-            "SELECT COUNT(*) as n FROM predictions WHERE is_correct IS NOT NULL AND created_at >= ?",
-            (cutoff,),
-        ).fetchone()["n"]
-
-        correct = conn.execute(
-            "SELECT COUNT(*) as n FROM predictions WHERE is_correct = 1 AND created_at >= ?",
-            (cutoff,),
-        ).fetchone()["n"]
-
+        total = count_where()
+        resolved = count_where("outcome_status = 'resolved'")
+        with_result = count_where("is_correct IS NOT NULL")
+        correct = count_where("is_correct = 1")
         hit_rate = correct / with_result if with_result > 0 else 0.0
 
-        # By predicted direction
         direction_stats = {}
         for direction in ["positive", "negative", "neutral"]:
-            dir_total = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE predicted_direction = ? AND is_correct IS NOT NULL AND created_at >= ?",
-                (direction, cutoff),
-            ).fetchone()["n"]
-            dir_correct = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE predicted_direction = ? AND is_correct = 1 AND created_at >= ?",
-                (direction, cutoff),
-            ).fetchone()["n"]
+            dir_total = count_where("predicted_direction = ? AND is_correct IS NOT NULL", (direction,))
+            dir_correct = count_where("predicted_direction = ? AND is_correct = 1", (direction,))
             direction_stats[direction] = {
                 "total": dir_total,
                 "correct": dir_correct,
                 "hit_rate": round(dir_correct / dir_total, 3) if dir_total > 0 else 0.0,
             }
 
-        # By significance bucket
         sig_stats = {}
         for label, lo, hi in [("high", 0.1, 999), ("medium", 0.05, 0.1), ("low", 0.015, 0.05)]:
-            bucket_total = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE significance >= ? AND significance < ? AND is_correct IS NOT NULL AND created_at >= ?",
-                (lo, hi, cutoff),
-            ).fetchone()["n"]
-            bucket_correct = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE significance >= ? AND significance < ? AND is_correct = 1 AND created_at >= ?",
-                (lo, hi, cutoff),
-            ).fetchone()["n"]
+            bucket_total = count_where("significance >= ? AND significance < ? AND is_correct IS NOT NULL", (lo, hi))
+            bucket_correct = count_where("significance >= ? AND significance < ? AND is_correct = 1", (lo, hi))
             sig_stats[label] = {
                 "total": bucket_total,
                 "correct": bucket_correct,
                 "hit_rate": round(bucket_correct / bucket_total, 3) if bucket_total > 0 else 0.0,
             }
 
-        # By confidence bucket
         conf_stats = {}
         for label, lo, hi in [("high", 0.7, 999), ("medium", 0.4, 0.7), ("low", 0.0, 0.4)]:
-            bucket_total = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE confidence >= ? AND confidence < ? AND is_correct IS NOT NULL AND created_at >= ?",
-                (lo, hi, cutoff),
-            ).fetchone()["n"]
-            bucket_correct = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE confidence >= ? AND confidence < ? AND is_correct = 1 AND created_at >= ?",
-                (lo, hi, cutoff),
-            ).fetchone()["n"]
+            bucket_total = count_where("confidence >= ? AND confidence < ? AND is_correct IS NOT NULL", (lo, hi))
+            bucket_correct = count_where("confidence >= ? AND confidence < ? AND is_correct = 1", (lo, hi))
             conf_stats[label] = {
                 "total": bucket_total,
                 "correct": bucket_correct,
                 "hit_rate": round(bucket_correct / bucket_total, 3) if bucket_total > 0 else 0.0,
             }
 
-        # By relationship type
         rel_stats = {}
         for rel_type in ["direct", "indirect"]:
-            type_total = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE relationship_type = ? AND is_correct IS NOT NULL AND created_at >= ?",
-                (rel_type, cutoff),
-            ).fetchone()["n"]
-            type_correct = conn.execute(
-                "SELECT COUNT(*) as n FROM predictions WHERE relationship_type = ? AND is_correct = 1 AND created_at >= ?",
-                (rel_type, cutoff),
-            ).fetchone()["n"]
+            type_total = count_where("relationship_type = ? AND is_correct IS NOT NULL", (rel_type,))
+            type_correct = count_where("relationship_type = ? AND is_correct = 1", (rel_type,))
             rel_stats[rel_type] = {
                 "total": type_total,
                 "correct": type_correct,
                 "hit_rate": round(type_correct / type_total, 3) if type_total > 0 else 0.0,
             }
 
-        # Bias: avg predicted score vs avg actual return
-        bias_row = conn.execute(
-            """SELECT AVG(predicted_score) as avg_pred, AVG(actual_return_24h) as avg_actual
-               FROM predictions WHERE is_correct IS NOT NULL AND created_at >= ?""",
+        neutral_correct = count_where("actual_direction = 'neutral' AND is_correct IS NOT NULL")
+        neutral_baseline = neutral_correct / with_result if with_result > 0 else 0.0
+
+        weighted_row = conn.execute(
+            f"""SELECT
+                    SUM(CASE WHEN is_correct = 1 THEN ABS(COALESCE(actual_return_24h, 0)) ELSE 0 END) AS weighted_correct,
+                    SUM(ABS(COALESCE(actual_return_24h, 0))) AS weighted_total,
+                    AVG(CASE WHEN predicted_direction = 'positive' THEN actual_return_24h END) AS avg_positive_return,
+                    AVG(CASE WHEN predicted_direction = 'negative' THEN actual_return_24h END) AS avg_negative_return
+                FROM predictions
+                WHERE is_correct IS NOT NULL AND {where}""",
+            base_params,
+        ).fetchone()
+        weighted_total = float(weighted_row["weighted_total"] or 0.0)
+        weighted_correct = float(weighted_row["weighted_correct"] or 0.0)
+        return_weighted_accuracy = weighted_correct / weighted_total if weighted_total > 0 else 0.0
+
+        origin_rows = conn.execute(
+            """SELECT COALESCE(prediction_origin, 'live') AS origin,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN outcome_status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
+                       SUM(CASE WHEN is_correct IS NOT NULL THEN 1 ELSE 0 END) AS with_result,
+                       SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correct
+                FROM predictions
+                WHERE created_at >= ?
+                GROUP BY COALESCE(prediction_origin, 'live')
+                ORDER BY total DESC""",
             (cutoff,),
+        ).fetchall()
+        by_origin = {}
+        for row in origin_rows:
+            row_with_result = int(row["with_result"] or 0)
+            row_correct = int(row["correct"] or 0)
+            by_origin[row["origin"]] = {
+                "total": int(row["total"] or 0),
+                "resolved": int(row["resolved"] or 0),
+                "with_result": row_with_result,
+                "correct": row_correct,
+                "hit_rate": round(row_correct / row_with_result, 3) if row_with_result else 0.0,
+            }
+
+        bias_row = conn.execute(
+            f"""SELECT AVG(predicted_score) as avg_pred, AVG(actual_return_24h) as avg_actual
+               FROM predictions WHERE is_correct IS NOT NULL AND {where}""",
+            base_params,
         ).fetchone()
         avg_predicted = round(bias_row["avg_pred"] or 0, 4)
         avg_actual = round(bias_row["avg_actual"] or 0, 4)
 
-        # By category (top 5)
         cat_stats = []
         rows = conn.execute(
-            """SELECT categories, COUNT(*) as n, SUM(is_correct) as hits
-               FROM predictions WHERE is_correct IS NOT NULL AND created_at >= ?
+            f"""SELECT categories, COUNT(*) as n, SUM(is_correct) as hits
+               FROM predictions WHERE is_correct IS NOT NULL AND {where}
                GROUP BY categories ORDER BY n DESC LIMIT 10""",
-            (cutoff,),
+            base_params,
         ).fetchall()
         for row in rows:
             cats = json.loads(row["categories"]) if row["categories"] else []
@@ -668,12 +689,25 @@ def compute_accuracy_metrics(window_days: int = 30) -> dict[str, Any]:
 
         return {
             "window_days": window_days,
+            "origin": origin,
             "total_predictions": total,
             "resolved": resolved,
             "pending": total - resolved,
             "with_result": with_result,
             "correct": correct,
             "hit_rate": round(hit_rate, 3),
+            "baseline": {
+                "neutral_hit_rate": round(neutral_baseline, 3),
+                "edge_vs_neutral": round(hit_rate - neutral_baseline, 3),
+            },
+            "return_weighted": {
+                "accuracy": round(return_weighted_accuracy, 3),
+                "weighted_correct_return": round(weighted_correct, 4),
+                "weighted_total_abs_return": round(weighted_total, 4),
+                "avg_return_when_predicted_positive": round(weighted_row["avg_positive_return"] or 0, 4),
+                "avg_return_when_predicted_negative": round(weighted_row["avg_negative_return"] or 0, 4),
+            },
+            "by_origin": by_origin,
             "by_direction": direction_stats,
             "by_significance": sig_stats,
             "by_confidence": conf_stats,

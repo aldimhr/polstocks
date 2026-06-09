@@ -2128,10 +2128,10 @@ def api_nlp_status() -> dict[str, Any]:
 
 
 @app.get("/api/backtest")
-def api_backtest(window_days: int = 30) -> dict[str, Any]:
+def api_backtest(window_days: int = 30, origin: str = "all") -> dict[str, Any]:
     """Return backtest accuracy metrics."""
     from backend.backtest import compute_accuracy_metrics
-    return compute_accuracy_metrics(window_days=window_days)
+    return compute_accuracy_metrics(window_days=window_days, origin=origin)
 
 
 @app.post("/api/backtest/backfill")
