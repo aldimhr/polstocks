@@ -976,12 +976,12 @@ def fix_prediction_data() -> dict[str, int]:
     return stats
 
 
-def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minutes: int = 1440) -> float | None:
+def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minutes: int = 7200) -> float | None:
     """Find the price closest to target_dt in historical data.
     Args:
-        history: list of {"time": ISO_string, "value": float} from Yahoo Finance
+        history: list of {"time": ISO_string_or_unix_ts, "value"/"close": float}
         target_dt: datetime to find price for
-        max_delta_minutes: max acceptable time difference (2h default)
+        max_delta_minutes: max acceptable time difference (5 days default for weekends/holidays)
 
     Returns:
         Closest price within max_delta, or None
@@ -992,16 +992,20 @@ def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minu
     for entry in history:
         try:
             raw_time = entry["time"]
-            entry_dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
-            # Strip timezone for comparison (target_dt is naive/UTC)
-            entry_dt = entry_dt.replace(tzinfo=None)
+            if isinstance(raw_time, (int, float)):
+                # Unix timestamp
+                entry_dt = datetime.utcfromtimestamp(raw_time)
+            else:
+                # ISO string
+                entry_dt = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+                entry_dt = entry_dt.replace(tzinfo=None)
         except (ValueError, KeyError, AttributeError, TypeError):
             continue
 
         delta = abs(entry_dt - target_dt)
         if delta < best_delta:
             best_delta = delta
-            best_price = entry.get("value")
+            best_price = entry.get("value") or entry.get("close")
 
     return best_price if best_price and best_price > 0 else None
 
@@ -1371,6 +1375,55 @@ def analyze_indicator_effectiveness(min_samples: int = 5) -> dict[str, Any]:
             "indicators": indicators,
             "auto_tune": auto_tune,
             "auto_tune_count": len(auto_tune),
+        }
+    finally:
+        conn.close()
+
+
+def list_predictions(
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List predictions with details for the history panel."""
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+
+        where = ""
+        params: list[Any] = []
+        if status:
+            where = "WHERE outcome_status = ?"
+            params.append(status)
+
+        # Get total count
+        cursor.execute(f"SELECT COUNT(*) as cnt FROM predictions {where}", params)
+        total = cursor.fetchone()["cnt"]
+
+        # Get predictions
+        cursor.execute(f"""
+            SELECT
+                id, event_id, event_headline, published_at,
+                ticker, predicted_direction, predicted_score,
+                significance, confidence, relationship_type,
+                price_at_event, price_after_24h,
+                actual_return_24h, actual_direction, is_correct,
+                outcome_status, resolved_at, created_at,
+                rsi_factor, macd_factor, trend_factor, atr_factor,
+                event_cluster_factor, market_context_factor, volume_signal
+            FROM predictions
+            {where}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """, params + [limit, offset])
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "predictions": rows,
         }
     finally:
         conn.close()

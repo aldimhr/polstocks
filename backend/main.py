@@ -4571,11 +4571,12 @@ def build_refresh_payload(
                 adjusted_cluster = clamp(cur_conf * cluster_mult, 0.0, 1.0)
                 relationship["confidence"] = round(adjusted_cluster, 3)
                 relationship["relationship_confidence"] = round(adjusted_cluster, 3)
-                relationship["event_cluster_count"] = event_count
-                relationship["event_cluster_factor"] = round(cluster_mult, 3)
+            relationship["event_cluster_count"] = event_count
+            relationship["event_cluster_factor"] = round(cluster_mult, 3)
 
             # ATR volatility signal — high volatility stocks are more likely to move
             atr_val = atr_cache.get(ticker_for_rsi)
+            atr_mult = 1.0
             if atr_val is not None:
                 current_price = float(relationship.get("price", 0) or 0)
                 if current_price > 0:
@@ -4583,7 +4584,6 @@ def build_refresh_payload(
                     relationship["atr_value"] = round(atr_val, 2)
                     relationship["atr_pct"] = round(atr_pct, 2)
                     if rel_direction in ("positive", "negative"):
-                        atr_mult = 1.0
                         if atr_pct > get_weight("atr_very_high_pct"):
                             atr_mult = get_weight("atr_very_high_mult")
                         elif atr_pct > get_weight("atr_high_pct"):
@@ -4595,10 +4595,12 @@ def build_refresh_payload(
                             adjusted_atr = clamp(cur_conf * atr_mult, 0.0, 1.0)
                             relationship["confidence"] = round(adjusted_atr, 3)
                             relationship["relationship_confidence"] = round(adjusted_atr, 3)
-                            relationship["atr_factor"] = round(atr_mult, 3)
+            relationship["atr_factor"] = round(atr_mult, 3)
 
             # Sector correlation — multiple stocks in same sector agreeing = stronger signal
             rel_sector = str(relationship.get("sector", ""))
+            sector_mult = 1.0
+            same_dir_count = 0
             if rel_sector and rel_direction in ("positive", "negative"):
                 sector_counts = sector_direction_counts.get(rel_sector, {})
                 same_dir_count = sector_counts.get(rel_direction, 0)
@@ -4606,19 +4608,17 @@ def build_refresh_payload(
                     sector_mult = get_weight("sector_4plus_mult")
                 elif same_dir_count >= 2:
                     sector_mult = get_weight("sector_2plus_mult")
-                else:
-                    sector_mult = 1.0
                 if sector_mult != 1.0:
                     cur_conf = float(relationship.get("confidence", 0.0) or 0.0)
                     adjusted_sector = clamp(cur_conf * sector_mult, 0.0, 1.0)
                     relationship["confidence"] = round(adjusted_sector, 3)
                     relationship["relationship_confidence"] = round(adjusted_sector, 3)
-                    relationship["sector_correlation_count"] = same_dir_count
-                    relationship["sector_correlation_factor"] = round(sector_mult, 3)
+            relationship["sector_correlation_count"] = same_dir_count
+            relationship["sector_correlation_factor"] = round(sector_mult, 3)
 
             # Foreign market correlation — global trend alignment
+            foreign_mult = 1.0
             if rel_direction in ("positive", "negative") and foreign_direction != "flat":
-                foreign_mult = 1.0
                 if rel_direction == "positive" and foreign_direction == "up":
                     foreign_mult = get_weight("foreign_aligned_mult")
                 elif rel_direction == "negative" and foreign_direction == "down":
@@ -4632,12 +4632,12 @@ def build_refresh_payload(
                     adjusted_foreign = clamp(cur_conf * foreign_mult, 0.0, 1.0)
                     relationship["confidence"] = round(adjusted_foreign, 3)
                     relationship["relationship_confidence"] = round(adjusted_foreign, 3)
-                    relationship["foreign_market_factor"] = round(foreign_mult, 3)
+            relationship["foreign_market_factor"] = round(foreign_mult, 3)
 
             # Sentiment momentum — sentiment getting stronger/weaker over recent events
             s_momentum = sentiment_momentum.get(ticker_for_rsi, "stable")
+            momentum_mult = 1.0
             if s_momentum != "stable" and rel_direction in ("positive", "negative"):
-                momentum_mult = 1.0
                 if s_momentum == "strengthening" and rel_direction == "positive":
                     momentum_mult = get_weight("momentum_strong_mult")
                 elif s_momentum == "weakening" and rel_direction == "negative":
@@ -4651,10 +4651,11 @@ def build_refresh_payload(
                     adjusted_mom = clamp(cur_conf * momentum_mult, 0.0, 1.0)
                     relationship["confidence"] = round(adjusted_mom, 3)
                     relationship["relationship_confidence"] = round(adjusted_mom, 3)
-                    relationship["sentiment_momentum"] = s_momentum
-                    relationship["sentiment_momentum_factor"] = round(momentum_mult, 3)
+            relationship["sentiment_momentum"] = s_momentum
+            relationship["sentiment_momentum_factor"] = round(momentum_mult, 3)
 
             # Currency impact — USD/IDR affects export/import stocks differently
+            currency_mult = 1.0
             if usd_idr_dir != "flat" and rel_direction in ("positive", "negative"):
                 exposure_factors = relationship.get("exposure_factors", {})
                 export_dep = str(exposure_factors.get("export_import_dependency", "low")).lower()
@@ -4663,7 +4664,6 @@ def build_refresh_payload(
                     rel_sector = str(relationship.get("sector", "")).lower()
                     is_exporter = any(s in rel_sector for s in ("basic materials", "energy", "mining"))
                     is_importer = any(s in rel_sector for s in ("consumer", "food", "retail"))
-                    currency_mult = 1.0
                     if usd_idr_dir == "up":  # IDR weakening
                         if is_exporter and rel_direction == "positive":
                             currency_mult = get_weight("currency_exporter_mult")
@@ -4687,7 +4687,7 @@ def build_refresh_payload(
                         adjusted_curr = clamp(cur_conf * currency_mult, 0.0, 1.0)
                         relationship["confidence"] = round(adjusted_curr, 3)
                         relationship["relationship_confidence"] = round(adjusted_curr, 3)
-                        relationship["currency_factor"] = round(currency_mult, 3)
+            relationship["currency_factor"] = round(currency_mult, 3)
 
             relationship["source_confidence"] = calibrate_source_confidence_from_validation(
                 relationship.get("source_confidence", event.get("source_quality_score", 0.5)),
@@ -5206,6 +5206,17 @@ def api_reset_weights() -> dict[str, Any]:
     """Reset all weights to defaults."""
     reset_to_defaults()
     return {"status": "reset", "weights": get_all_weights()}
+
+
+@app.get("/api/predictions/history")
+def api_prediction_history(
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List prediction history with outcomes."""
+    from backend.backtest import list_predictions
+    return list_predictions(status=status, limit=limit, offset=offset)
 
 
 # ---------------------------------------------------------------------------
