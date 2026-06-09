@@ -1283,6 +1283,76 @@ def build_refresh_payload(
     articles = dedupe_articles(live_articles, normalized_window)
     watchlist = list(dict.fromkeys(requested))
     analyzed_articles = [analyze_article(article, watchlist, normalized_window) for article in articles]
+
+    # ── Novelty detection: dampen repeated/similar events ──
+    # Count category+ticker combinations across the batch
+    cat_ticker_counts: dict[str, int] = {}
+    for article in analyzed_articles:
+        cats = article.get("categories", ["_unknown"])
+        for rel in article.get("stock_relationships", []):
+            tk = rel.get("ticker", "")
+            for cat in cats:
+                key = f"{cat}:{tk}"
+                cat_ticker_counts[key] = cat_ticker_counts.get(key, 0) + 1
+
+    # Track seen counts for sequential novelty dampening
+    _seen_cat_ticker: dict[str, int] = {}
+
+    # ── Sentiment momentum: compare per-ticker sentiment across articles ──
+    ticker_sentiments: dict[str, list[float]] = {}
+    for article in analyzed_articles:
+        s = float(article.get("sentiment_score", 0.0))
+        if s == 0.0:
+            continue
+        for rel in article.get("stock_relationships", []):
+            tk = rel.get("ticker", "")
+            if tk:
+                ticker_sentiments.setdefault(tk, []).append(s)
+
+    ticker_avg_sentiment: dict[str, float] = {
+        tk: sum(vals) / len(vals) for tk, vals in ticker_sentiments.items() if vals
+    }
+
+    # Apply novelty + momentum to each article's stock relationships
+    for article in analyzed_articles:
+        cats = article.get("categories", ["_unknown"])
+        for rel in article.get("stock_relationships", []):
+            tk = rel.get("ticker", "")
+            if not tk:
+                continue
+
+            # Novelty: first event=1.0, 2nd=0.8, 3rd=0.6, 4+=0.4
+            novelty_key = f"{cats[0]}:{tk}" if cats else f"_unknown:{tk}"
+            _seen_cat_ticker[novelty_key] = _seen_cat_ticker.get(novelty_key, 0) + 1
+            count = _seen_cat_ticker[novelty_key]
+            if count <= 1:
+                novelty = 1.0
+            elif count == 2:
+                novelty = 0.8
+            elif count == 3:
+                novelty = 0.6
+            else:
+                novelty = 0.4
+            rel["novelty_factor"] = round(novelty, 2)
+
+            # Momentum: compare this article's sentiment vs ticker average
+            art_sentiment = float(article.get("sentiment_score", 0.0))
+            avg = ticker_avg_sentiment.get(tk, 0.0)
+            if avg != 0.0 and art_sentiment != 0.0:
+                if art_sentiment > avg * 1.2:
+                    momentum = 1.1  # strengthening
+                elif art_sentiment < avg * 0.8:
+                    momentum = 0.9  # weakening
+                else:
+                    momentum = 1.0  # stable
+            else:
+                momentum = 1.0
+            rel["momentum_factor"] = round(momentum, 2)
+
+            # Apply both factors to relevance_score (which feeds into scoring)
+            current_relevance = float(rel.get("relevance_score", 0.0))
+            rel["relevance_score"] = round(current_relevance * novelty * momentum, 3)
+
     analyzed_articles.sort(key=lambda article: (article.get("significance", 0.0), article.get("published_at") or now_wib()), reverse=True)
     meaningful_events = [article for article in analyzed_articles if float(article.get("significance", 0.0)) > 0.015]
     ranked_events = meaningful_events or analyzed_articles
