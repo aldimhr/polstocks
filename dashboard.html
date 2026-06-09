@@ -851,7 +851,7 @@
   .watchlist-chip {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     padding: 5px 9px;
     border-radius: 999px;
     border: 1px solid var(--border);
@@ -859,6 +859,34 @@
     color: var(--text);
     font-family: 'DM Mono', monospace;
     font-size: 11px;
+    transition: all 0.15s;
+  }
+
+  .watchlist-chip.pinned {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .chip-sector {
+    font-size: 9px;
+    color: var(--muted);
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chip-tag {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    font-weight: 500;
+  }
+
+  .portfolio-tag {
+    background: var(--green-dim);
+    color: var(--green);
+    border: 1px solid rgba(77, 219, 142, 0.3);
   }
 
   .watchlist-chip-main {
@@ -2604,10 +2632,59 @@
   function renderWatchlistEditor(tickers) {
     state.watchlist = Array.isArray(tickers) ? [...tickers] : [];
     $('watchlistBadge').textContent = `${state.watchlist.length} tickers`;
-    const root = $('watchlistChips');
-    root.innerHTML = state.watchlist.length
-      ? state.watchlist.map((ticker) => `<span class="watchlist-chip"><button type="button" class="watchlist-chip-main" data-ticker="${escapeHtml(ticker)}">${escapeHtml(ticker)}</button><button type="button" data-remove-ticker="${escapeHtml(ticker)}">×</button></span>`).join('')
-      : '<span class="watchlist-note">No tickers in watchlist.</span>';
+    // Also load all tickers with pin status
+    loadAllTickers();
+  }
+
+  async function loadAllTickers() {
+    try {
+      const resp = await fetch('/api/watchlist/all');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const allTickers = data.tickers || [];
+      const root = $('watchlistChips');
+      if (!root) return;
+
+      root.innerHTML = allTickers.map(t => {
+        const pinIcon = t.in_portfolio ? '💼' : t.pinned ? '📌' : '';
+        const pinClass = t.pinned ? 'pinned' : '';
+        const portfolioTag = t.in_portfolio ? '<span class="chip-tag portfolio-tag">portfolio</span>' : '';
+        const pinBtn = t.pin_source === 'portfolio'
+          ? '' // Can't unpin portfolio tickers
+          : t.pinned
+            ? `<button type="button" data-unpin-ticker="${escapeHtml(t.ticker)}" title="Unpin">✕</button>`
+            : `<button type="button" data-pin-ticker="${escapeHtml(t.ticker)}" title="Pin">📌</button>`;
+
+        return `<span class="watchlist-chip ${pinClass}">
+          <button type="button" class="watchlist-chip-main" data-ticker="${escapeHtml(t.ticker)}">${pinIcon} ${escapeHtml(t.ticker)}</button>
+          <span class="chip-sector">${escapeHtml(t.sector)}</span>
+          ${portfolioTag}
+          ${pinBtn}
+        </span>`;
+      }).join('');
+    } catch (e) {
+      console.warn('loadAllTickers failed:', e);
+    }
+  }
+
+  async function pinTicker(ticker) {
+    try {
+      await fetch(`/api/watchlist/pin/${encodeURIComponent(ticker)}`, { method: 'POST' });
+      showToast(`${ticker} pinned 📌`, 'success', 2000);
+      loadAllTickers();
+    } catch (e) {
+      showToast('Pin failed', 'error');
+    }
+  }
+
+  async function unpinTicker(ticker) {
+    try {
+      await fetch(`/api/watchlist/pin/${encodeURIComponent(ticker)}`, { method: 'DELETE' });
+      showToast(`${ticker} unpinned`, 'info', 2000);
+      loadAllTickers();
+    } catch (e) {
+      showToast('Unpin failed', 'error');
+    }
   }
 
   // ── Prediction History Panel ──
@@ -4294,6 +4371,16 @@
       const tickerButton = event.target.closest('[data-ticker]');
       if (tickerButton) {
         openTickerModal(tickerButton.dataset.ticker || '');
+        return;
+      }
+      const pinButton = event.target.closest('[data-pin-ticker]');
+      if (pinButton) {
+        pinTicker(pinButton.dataset.pinTicker || '');
+        return;
+      }
+      const unpinButton = event.target.closest('[data-unpin-ticker]');
+      if (unpinButton) {
+        unpinTicker(unpinButton.dataset.unpinTicker || '');
         return;
       }
       const removeButton = event.target.closest('[data-remove-ticker]');

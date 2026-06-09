@@ -2133,6 +2133,61 @@ def api_get_watchlist(user_id: int | None = None) -> dict[str, Any]:
     return {"tickers": get_watchlist()}
 
 
+@app.get("/api/watchlist/all")
+def api_get_all_tickers() -> dict[str, Any]:
+    """Return all available tickers with pin/portfolio status."""
+    from backend.signals import get_pinned_tickers, get_portfolio_tickers
+    pinned = get_pinned_tickers()
+    portfolio = get_portfolio_tickers()
+
+    tickers = []
+    for ticker in sorted(STOCK_MASTER.keys()):
+        info = STOCK_MASTER[ticker]
+        is_pinned = ticker in pinned
+        is_portfolio = ticker in portfolio
+        tickers.append({
+            "ticker": ticker,
+            "name": info.get("name", ticker.replace(".JK", "")),
+            "sector": info.get("sector", "?"),
+            "pinned": is_pinned or is_portfolio,  # portfolio tickers auto-pinned
+            "in_portfolio": is_portfolio,
+            "pin_source": "portfolio" if is_portfolio else ("manual" if is_pinned else None),
+        })
+
+    # Sort: pinned first, then alphabetical
+    tickers.sort(key=lambda t: (not t["pinned"], t["ticker"]))
+
+    return {
+        "tickers": tickers,
+        "total": len(tickers),
+        "pinned_count": sum(1 for t in tickers if t["pinned"]),
+    }
+
+
+@app.post("/api/watchlist/pin/{ticker}")
+def api_pin_ticker(ticker: str) -> dict[str, Any]:
+    """Pin a ticker to the top of the watchlist."""
+    from backend.signals import pin_ticker
+    from backend.utils import normalize_ticker
+    ticker = normalize_ticker(ticker)
+    if not ticker:
+        return {"error": "Invalid ticker"}
+    pin_ticker(ticker)
+    return {"ok": True, "ticker": ticker, "pinned": True}
+
+
+@app.delete("/api/watchlist/pin/{ticker}")
+def api_unpin_ticker(ticker: str) -> dict[str, Any]:
+    """Unpin a ticker from the watchlist."""
+    from backend.signals import unpin_ticker
+    from backend.utils import normalize_ticker
+    ticker = normalize_ticker(ticker)
+    if not ticker:
+        return {"error": "Invalid ticker"}
+    unpin_ticker(ticker)
+    return {"ok": True, "ticker": ticker, "pinned": False}
+
+
 @app.get("/api/dashboard")
 def api_dashboard(window: str = DEFAULT_EVENT_WINDOW, user_id: int | None = None) -> dict[str, Any]:
     if user_id is not None:

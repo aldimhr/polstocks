@@ -92,6 +92,11 @@ def init_signal_tables() -> None:
                 ON portfolio(status);
             CREATE INDEX IF NOT EXISTS idx_portfolio_ticker
                 ON portfolio(ticker);
+
+            CREATE TABLE IF NOT EXISTS pinned_tickers (
+                ticker TEXT PRIMARY KEY,
+                pinned_at TEXT DEFAULT (datetime('now'))
+            );
         """)
         conn.commit()
     finally:
@@ -303,5 +308,55 @@ def resolve_signals(
 
         conn.commit()
         return resolved
+    finally:
+        conn.close()
+
+
+def get_pinned_tickers() -> set[str]:
+    """Return set of manually pinned tickers."""
+    conn = _get_conn()
+    try:
+        init_signal_tables()
+        rows = conn.execute("SELECT ticker FROM pinned_tickers").fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
+def pin_ticker(ticker: str) -> bool:
+    """Pin a ticker. Returns True if newly pinned."""
+    conn = _get_conn()
+    try:
+        init_signal_tables()
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO pinned_tickers (ticker) VALUES (?)", (ticker,)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def unpin_ticker(ticker: str) -> bool:
+    """Unpin a ticker. Returns True if was pinned."""
+    conn = _get_conn()
+    try:
+        init_signal_tables()
+        cur = conn.execute("DELETE FROM pinned_tickers WHERE ticker = ?", (ticker,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_portfolio_tickers() -> set[str]:
+    """Return set of tickers with open portfolio positions."""
+    conn = _get_conn()
+    try:
+        init_signal_tables()
+        rows = conn.execute(
+            "SELECT DISTINCT ticker FROM portfolio WHERE status = 'open'"
+        ).fetchall()
+        return {r[0] for r in rows}
     finally:
         conn.close()
