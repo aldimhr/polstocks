@@ -2058,8 +2058,9 @@
       btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
     });
 
-    // Show/hide all elements with data-tab attribute
+    // Show/hide all elements with data-tab attribute (except tab buttons)
     document.querySelectorAll('[data-tab]').forEach(el => {
+      if (el.classList.contains('tab-btn') || el.classList.contains('tab-nav')) return;
       const elTab = el.getAttribute('data-tab');
       if (elTab === tabName) {
         el.classList.remove('tab-hidden');
@@ -2084,8 +2085,9 @@
     const validTabs = ['overview', 'events', 'watchlist', 'portfolio', 'history'];
     const activeTab = validTabs.includes(hash) ? hash : 'overview';
 
-    // Initially hide all non-active tab elements
+    // Initially hide all non-active tab elements (except tab buttons)
     document.querySelectorAll('[data-tab]').forEach(el => {
+      if (el.classList.contains('tab-btn') || el.classList.contains('tab-nav')) return;
       if (el.getAttribute('data-tab') !== activeTab) {
         el.classList.add('tab-hidden');
       }
