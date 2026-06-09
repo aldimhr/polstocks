@@ -1017,12 +1017,12 @@ def _find_closest_price(history: list[dict], target_dt: datetime, max_delta_minu
 
 # Current scoring weights (from scoring.py / events.py)
 CURRENT_WEIGHTS = {
-    "indirect_relationship_multiplier": {"current": 0.82, "location": "scoring.py:411", "description": "Multiplier for indirect stock relationships"},
+    "indirect_relationship_multiplier": {"current": 0.70, "location": "weights.py", "description": "Multiplier for indirect stock relationships"},
     "direct_relationship_multiplier": {"current": 1.0, "location": "scoring.py:411", "description": "Multiplier for direct stock relationships"},
-    "directional_sentiment_floor": {"current": 0.45, "location": "scoring.py:421", "description": "Min absolute sentiment for positive/negative direction"},
+    "directional_sentiment_floor": {"current": 0.55, "location": "weights.py", "description": "Min absolute sentiment for positive/negative direction"},
     "mixed_direction_factor": {"current": 0.35, "location": "scoring.py:423", "description": "Sentiment factor for mixed direction"},
     "significance_base": {"current": 0.35, "location": "scoring.py:393", "description": "Base value in significance formula"},
-    "significance_multiplier": {"current": 0.45, "location": "scoring.py:393", "description": "Final multiplier in significance formula"},
+    "significance_multiplier": {"current": 0.55, "location": "weights.py", "description": "Final multiplier in significance formula"},
     "source_quality_blend": {"current": 0.45, "location": "scoring.py:393", "description": "Source quality weight in significance"},
     "confidence_base": {"current": 0.1, "location": "scoring.py:346", "description": "Base confidence value"},
     "sentiment_confidence_weight": {"current": 0.16, "location": "scoring.py:354", "description": "Weight of sentiment confidence in total confidence"},

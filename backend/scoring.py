@@ -10,6 +10,7 @@ from backend.config import (
     POLICY_THEMES,
     DEFAULT_EVENT_WINDOW,
 )
+from backend.weights import get_weight
 from backend.sources import (
     analyze_sentiment, classify_categories, detect_event_stage,
     detect_negation_or_reversal, detect_policy_themes, extract_entities,
@@ -383,7 +384,15 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
         "confidence": round(confidence, 3),
         "recency_weight": round(recency_weight, 3),
         "window": normalize_event_window(window),
-        "significance": round((0.35 + abs(sentiment_score) + avg_relevance / 5.0) * float(relevance.get("relevance_score", 0.0)) * confidence * recency_weight * (0.55 + 0.45 * float(article_context.get("source_quality_score", 0.5))) * 0.45, 3),
+        "significance": round(
+            (get_weight("significance_base") + abs(sentiment_score) + avg_relevance / 5.0)
+            * float(relevance.get("relevance_score", 0.0))
+            * confidence
+            * recency_weight
+            * (0.55 + 0.45 * float(article_context.get("source_quality_score", 0.5)))
+            * get_weight("significance_multiplier"),
+            3,
+        ),
     }
 
 
@@ -401,7 +410,10 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
     )
     source_confidence = float(relationship.get("source_confidence", article.get("source_quality_score", 0.5)))
     evidence_strength = float(relationship.get("evidence_strength", confidence))
-    relationship_multiplier = {"direct": 1.0, "indirect": 0.82}.get(relationship.get("relationship_type"), 0.5)
+    relationship_multiplier = {
+        "direct": 1.0,
+        "indirect": float(get_weight("indirect_relationship_multiplier")),
+    }.get(relationship.get("relationship_type"), 0.5)
     confidence_multiplier = clamp(0.45 + 0.55 * max(0.0, source_confidence), 0.25, 1.0)
     evidence_multiplier = clamp(0.5 + 0.5 * max(0.0, evidence_strength), 0.25, 1.0)
     from backend.validation import validation_outcome_multiplier
@@ -410,10 +422,11 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
         float(relationship.get("validation_score", article.get("validation_score", 0.0)) or 0.0),
     )
     direction = str(relationship.get("impact_direction", "neutral"))
+    directional_floor = float(get_weight("directional_sentiment_floor"))
     if direction == "positive":
-        directional_sentiment = max(abs(sentiment_score), 0.45)
+        directional_sentiment = max(abs(sentiment_score), directional_floor)
     elif direction == "negative":
-        directional_sentiment = -max(abs(sentiment_score), 0.45)
+        directional_sentiment = -max(abs(sentiment_score), directional_floor)
     elif direction == "mixed":
         directional_sentiment = 0.35 * sentiment_score
     else:

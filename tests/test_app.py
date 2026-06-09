@@ -2305,4 +2305,47 @@ def test_validation_warnings_field_in_reasoning_summary():
     assert "validation_warnings" in result
     assert isinstance(result["validation_warnings"], list)
 
+def test_backtest_calibration_defaults_match_live_suggestions():
+    from backend.weights import get_weight
 
+    assert get_weight("directional_sentiment_floor") == 0.55
+    assert get_weight("indirect_relationship_multiplier") == 0.70
+    assert get_weight("significance_multiplier") == 0.55
+
+
+def test_compute_ticker_score_uses_calibrated_directional_floor():
+    from backend.scoring import compute_ticker_score
+
+    article = {
+        "sentiment_score": 0.1,
+        "stock_relationships": [{
+            "ticker": "ANTM.JK",
+            "relevance_score": 5.0,
+            "relationship_confidence": 1.0,
+            "source_confidence": 1.0,
+            "evidence_strength": 1.0,
+            "relationship_type": "direct",
+            "impact_direction": "negative",
+        }],
+    }
+
+    assert compute_ticker_score(article, "ANTM.JK") == -0.55
+
+
+def test_compute_ticker_score_uses_calibrated_indirect_multiplier():
+    from backend.scoring import compute_ticker_score
+
+    article = {
+        "sentiment_score": 0.1,
+        "stock_relationships": [{
+            "ticker": "ANTM.JK",
+            "relevance_score": 5.0,
+            "relationship_confidence": 1.0,
+            "source_confidence": 1.0,
+            "evidence_strength": 1.0,
+            "relationship_type": "indirect",
+            "impact_direction": "positive",
+        }],
+    }
+
+    assert compute_ticker_score(article, "ANTM.JK") == 0.385

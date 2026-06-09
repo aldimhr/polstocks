@@ -75,9 +75,9 @@ DEFAULTS = {
 
     # Significance
     "significance_base": 0.35,
-    "significance_multiplier": 0.45,
-    "directional_sentiment_floor": 0.45,
-    "indirect_relationship_multiplier": 0.82,
+    "significance_multiplier": 0.55,
+    "directional_sentiment_floor": 0.55,
+    "indirect_relationship_multiplier": 0.70,
 }
 
 _lock = threading.Lock()
