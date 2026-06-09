@@ -64,6 +64,149 @@
     padding: 0 24px 48px;
   }
 
+  /* ── Tab Navigation ── */
+  .tab-nav {
+    display: flex;
+    gap: 2px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: var(--muted);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .tab-btn:hover {
+    color: var(--text);
+    background: var(--surface2);
+  }
+
+  .tab-btn.active {
+    color: var(--bg);
+    background: var(--accent);
+    font-weight: 600;
+  }
+
+  .tab-btn .tab-icon {
+    display: block;
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+
+  .tab-content {
+    display: none;
+  }
+
+  .tab-content.active {
+    display: block;
+  }
+
+  /* Sections that belong to specific tabs */
+  [data-tab] {
+    display: none;
+  }
+
+  body[data-tab="overview"] [data-tab="overview"],
+  body[data-tab="events"] [data-tab="events"],
+  body[data-tab="watchlist"] [data-tab="watchlist"],
+  body[data-tab="portfolio"] [data-tab="portfolio"],
+  body[data-tab="history"] [data-tab="history"] {
+    display: block;
+  }
+
+  /* Grids inside tabs need proper display */
+  .main-grid,
+  .bottom-grid {
+    display: grid;
+  }
+
+  /* When a card in a grid is hidden, let others fill the space */
+  .main-grid > [data-tab],
+  .bottom-grid > [data-tab] {
+    transition: opacity 0.2s ease;
+  }
+
+  /* Override display:none for grid children that should be visible */
+  body[data-tab="overview"] .main-grid > [data-tab="overview"],
+  body[data-tab="events"] .main-grid > [data-tab="events"],
+  body[data-tab="watchlist"] .main-grid > [data-tab="watchlist"],
+  body[data-tab="portfolio"] .main-grid > [data-tab="portfolio"],
+  body[data-tab="history"] .main-grid > [data-tab="history"],
+  body[data-tab="overview"] .bottom-grid > [data-tab="overview"],
+  body[data-tab="events"] .bottom-grid > [data-tab="events"],
+  body[data-tab="watchlist"] .bottom-grid > [data-tab="watchlist"],
+  body[data-tab="portfolio"] .bottom-grid > [data-tab="portfolio"],
+  body[data-tab="history"] .bottom-grid > [data-tab="history"] {
+    display: block;
+  }
+
+  /* Overview summary cards */
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .overview-stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .overview-stat-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+
+  .overview-stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .overview-stat-sub {
+    font-size: 12px;
+    color: var(--muted2);
+    margin-top: 4px;
+  }
+
+  .overview-mini-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+
+  .overview-mini-card .card-header {
+    padding: 0 0 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+
   /* ── Header ── */
   header {
     display: flex;
@@ -1589,7 +1732,7 @@
   .chip-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 </style>
 </head>
-<body>
+<body data-tab="overview">
 <div class="layout">
 
   <!-- Header -->
@@ -1621,8 +1764,28 @@
     </div>
   </header>
 
+  <!-- Tab Navigation -->
+  <nav class="tab-nav" id="tabNav">
+    <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">
+      <span class="tab-icon">📊</span>Overview
+    </button>
+    <button class="tab-btn" data-tab="events" onclick="switchTab('events')">
+      <span class="tab-icon">📰</span>Events
+    </button>
+    <button class="tab-btn" data-tab="watchlist" onclick="switchTab('watchlist')">
+      <span class="tab-icon">📋</span>Watchlist
+    </button>
+    <button class="tab-btn" data-tab="portfolio" onclick="switchTab('portfolio')">
+      <span class="tab-icon">💼</span>Portfolio
+    </button>
+    <button class="tab-btn" data-tab="history" onclick="switchTab('history')">
+      <span class="tab-icon">📜</span>History
+    </button>
+  </nav>
+
+  <!-- ════════ OVERVIEW TAB ════════ -->
   <!-- Metrics -->
-  <div class="metrics">
+  <div class="metrics" data-tab="overview">
     <div class="metric">
       <div class="metric-label">Events detected</div>
       <div class="metric-value" id="m-events">—</div>
@@ -1649,11 +1812,35 @@
     </div>
   </div>
 
+  <!-- Overview: Portfolio Quick Summary + Top Movers -->
+  <div class="overview-grid" data-tab="overview">
+    <div class="overview-stat">
+      <div class="overview-stat-label">💼 Portfolio Value</div>
+      <div class="overview-stat-value" id="ov-portfolio-value">—</div>
+      <div class="overview-stat-sub" id="ov-portfolio-pnl">No positions yet</div>
+    </div>
+    <div class="overview-stat">
+      <div class="overview-stat-label">📈 Today's P&L</div>
+      <div class="overview-stat-value" id="ov-today-pnl">—</div>
+      <div class="overview-stat-sub" id="ov-today-pnl-sub">Unrealized</div>
+    </div>
+    <div class="overview-stat">
+      <div class="overview-stat-label">🏆 All-Time P&L</div>
+      <div class="overview-stat-value" id="ov-alltime-pnl">—</div>
+      <div class="overview-stat-sub" id="ov-alltime-pnl-sub">Realized + Unrealized</div>
+    </div>
+    <div class="overview-stat">
+      <div class="overview-stat-label">🎯 Win Rate</div>
+      <div class="overview-stat-value" id="ov-winrate">—</div>
+      <div class="overview-stat-sub" id="ov-winrate-sub">0 trades</div>
+    </div>
+  </div>
+
   <!-- Main grid -->
   <div class="main-grid">
 
     <!-- Watchlist -->
-    <div class="card">
+    <div class="card" data-tab="watchlist">
       <div class="card-header">
         <span class="card-title">Watchlist · Political Impact</span>
         <span class="card-badge" id="watchlistBadge">0 tickers</span>
@@ -1691,7 +1878,7 @@
     </div>
 
     <!-- Event feed -->
-    <div class="card">
+    <div class="card" data-tab="events">
       <div class="card-header">
         <span class="card-title">Event Politik</span>
         <span class="card-badge" id="eventBadge">0 events</span>
@@ -1733,7 +1920,7 @@
   <div class="bottom-grid">
 
     <!-- IHSG mini chart -->
-    <div class="card chart-card">
+    <div class="card chart-card" data-tab="overview">
       <div class="card-header">
         <span class="card-title">IHSG — Intraday</span>
         <span class="card-badge">IDX Composite</span>
@@ -1748,7 +1935,7 @@
     </div>
 
     <!-- Global Markets -->
-    <div class="card" id="globalMarketsCard" style="display:none">
+    <div class="card" id="globalMarketsCard" style="display:none" data-tab="overview">
       <div class="card-header">
         <span class="card-title">🌍 Global Markets</span>
         <span class="card-badge">S&P 500 · Nikkei · USD/IDR</span>
@@ -1757,7 +1944,7 @@
     </div>
 
     <!-- Prediction History -->
-    <div class="card" id="predictionHistoryCard">
+    <div class="card" id="predictionHistoryCard" data-tab="history">
       <div class="card-header">
         <span class="card-title">📜 Prediction History</span>
         <span class="card-badge" id="historyBadge">Loading...</span>
@@ -1773,7 +1960,7 @@
     </div>
 
     <!-- Sector heatmap -->
-    <div class="card sector-card">
+    <div class="card sector-card" data-tab="overview">
       <div class="card-header">
         <span class="card-title">Risiko Politik per Sektor</span>
         <span class="card-badge">11 IDX sectors</span>
@@ -1791,7 +1978,7 @@
 
 
   <!-- Source health panel -->
-  <div class="card source-health-card" style="margin-top: 16px;">
+  <div class="card source-health-card" style="margin-top: 16px;" data-tab="events">
     <div class="card-header">
       <span class="card-title">Source Health</span>
       <span class="card-badge" id="sourceBadge">0 sources</span>
@@ -1802,7 +1989,7 @@
   </div>
 
   <!-- Trade Signals -->
-  <div class="card" style="margin-top: 16px;">
+  <div class="card" style="margin-top: 16px;" data-tab="portfolio">
     <div class="card-header">
       <span class="card-title">📊 Trade Signals</span>
       <span class="card-badge" id="signalBadge">—</span>
@@ -1813,7 +2000,7 @@
   </div>
 
   <!-- Portfolio -->
-  <div class="card" style="margin-top: 16px;">
+  <div class="card" style="margin-top: 16px;" data-tab="portfolio">
     <div class="card-header">
       <span class="card-title">💼 Portfolio</span>
       <span class="card-badge" id="portfolioBadge">—</span>
@@ -1893,7 +2080,43 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
+
+  // ── Tab switching ──
+  function switchTab(tabName) {
+    state.activeTab = tabName;
+    document.body.setAttribute('data-tab', tabName);
+
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
+    });
+
+    // Update tab-content wrappers (if any)
+    document.querySelectorAll('.tab-content').forEach(el => {
+      el.classList.toggle('active', el.id === `tab-${tabName}`);
+    });
+
+    // Handle grid visibility — hide empty grids
+    document.querySelectorAll('.main-grid, .bottom-grid').forEach(grid => {
+      const visibleCards = grid.querySelectorAll(`[data-tab="${tabName}"]`);
+      grid.style.display = visibleCards.length > 0 ? '' : 'none';
+    });
+
+    // Persist tab in URL hash
+    history.replaceState(null, '', `#${tabName}`);
+  }
+
+  // Restore tab from URL hash
+  (function() {
+    const hash = location.hash.replace('#', '');
+    const validTabs = ['overview', 'events', 'watchlist', 'portfolio', 'history'];
+    if (validTabs.includes(hash)) {
+      switchTab(hash);
+    } else {
+      document.body.setAttribute('data-tab', 'overview');
+    }
+  })();
   let tickerChart = null;
   let candleSeries = null;
   let volumeSeriesObj = null;
@@ -3927,44 +4150,106 @@
 
   async function loadPortfolio() {
     try {
-      const data = await apiJson(withUserParam('/api/portfolio'));
-      const positions = data?.positions || [];
-      const summary = data?.summary || {};
-      const badge = $('portfolioBadge');
-      if (badge) badge.textContent = `${summary.open_count || 0} open · P&L: ${summary.total_pnl?.toLocaleString() || '0'}`;
+      // Load live portfolio with P&L
+      const live = await apiJson(withUserParam('/api/portfolio/live'));
+      const positions = live?.positions || [];
+      const summary = live?.summary || {};
 
+      const badge = $('portfolioBadge');
+      if (badge) badge.textContent = `${summary.open_count || 0} open · All-Time: ${(summary.all_time_pnl || 0).toLocaleString()}`;
+
+      // Update overview stats
+      const ovValue = $('ov-portfolio-value');
+      const ovPnl = $('ov-portfolio-pnl');
+      const ovToday = $('ov-today-pnl');
+      const ovTodaySub = $('ov-today-pnl-sub');
+      const ovAlltime = $('ov-alltime-pnl');
+      const ovAlltimeSub = $('ov-alltime-pnl-sub');
+      const ovWinrate = $('ov-winrate');
+      const ovWinrateSub = $('ov-winrate-sub');
+
+      if (ovValue) {
+        const currentVal = summary.total_current_value || 0;
+        const invested = summary.total_invested || 0;
+        ovValue.textContent = currentVal > 0 ? `IDR ${currentVal.toLocaleString()}` : '—';
+        ovValue.style.color = currentVal >= invested ? 'var(--green)' : 'var(--red)';
+      }
+      if (ovPnl) {
+        const openCount = summary.open_count || 0;
+        ovPnl.textContent = openCount > 0 ? `${openCount} positions · Invested: IDR ${(summary.total_invested || 0).toLocaleString()}` : 'No open positions';
+      }
+      if (ovToday) {
+        const unrealized = summary.total_unrealized_pnl || 0;
+        const pct = summary.total_unrealized_pct || 0;
+        ovToday.textContent = summary.open_count > 0 ? `IDR ${unrealized.toLocaleString()}` : '—';
+        ovToday.style.color = unrealized >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+      if (ovTodaySub) {
+        ovTodaySub.textContent = summary.open_count > 0 ? `${(summary.total_unrealized_pct || 0) >= 0 ? '+' : ''}${(summary.total_unrealized_pct || 0).toFixed(1)}% unrealized` : 'No open positions';
+      }
+      if (ovAlltime) {
+        const allPnl = summary.all_time_pnl || 0;
+        ovAlltime.textContent = (summary.closed_trades || 0) > 0 || summary.open_count > 0 ? `IDR ${allPnl.toLocaleString()}` : '—';
+        ovAlltime.style.color = allPnl >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+      if (ovAlltimeSub) {
+        const realized = summary.realized_pnl || 0;
+        ovAlltimeSub.textContent = `Realized: IDR ${realized.toLocaleString()} + Unrealized`;
+      }
+      if (ovWinrate) {
+        const wr = summary.win_rate;
+        ovWinrate.textContent = wr != null ? `${(wr * 100).toFixed(1)}%` : '—';
+        ovWinrate.style.color = wr != null && wr >= 0.5 ? 'var(--green)' : wr != null ? 'var(--red)' : 'var(--text)';
+      }
+      if (ovWinrateSub) {
+        ovWinrateSub.textContent = `${summary.closed_trades || 0} closed trades`;
+      }
+
+      // Portfolio card in portfolio tab
       const summaryEl = $('portfolioSummary');
       if (summaryEl) {
-        const sectors = Object.entries(summary.sector_breakdown || {}).map(([k, v]) => `${k}: ${v}`).join(', ') || 'none';
+        const unrealized = summary.total_unrealized_pnl || 0;
+        const unrealizedPct = summary.total_unrealized_pct || 0;
         summaryEl.innerHTML = `
           <div class="portfolio-metrics">
             <div class="portfolio-metric"><span class="pm-label">Open</span><span class="pm-value">${summary.open_count || 0}</span></div>
-            <div class="portfolio-metric"><span class="pm-label">Exposure</span><span class="pm-value">${(summary.total_exposure || 0).toLocaleString()}</span></div>
+            <div class="portfolio-metric"><span class="pm-label">Invested</span><span class="pm-value">IDR ${(summary.total_invested || 0).toLocaleString()}</span></div>
+            <div class="portfolio-metric"><span class="pm-label">Current</span><span class="pm-value">IDR ${(summary.total_current_value || 0).toLocaleString()}</span></div>
+            <div class="portfolio-metric"><span class="pm-label">Unrealized</span><span class="pm-value ${unrealized >= 0 ? 'pnl-pos' : 'pnl-neg'}">IDR ${unrealized.toLocaleString()} (${unrealizedPct >= 0 ? '+' : ''}${unrealizedPct.toFixed(1)}%)</span></div>
+            <div class="portfolio-metric"><span class="pm-label">All-Time</span><span class="pm-value ${(summary.all_time_pnl || 0) >= 0 ? 'pnl-pos' : 'pnl-neg'}">IDR ${(summary.all_time_pnl || 0).toLocaleString()}</span></div>
             <div class="portfolio-metric"><span class="pm-label">Win Rate</span><span class="pm-value">${summary.win_rate != null ? (summary.win_rate * 100).toFixed(1) + '%' : '—'}</span></div>
-            <div class="portfolio-metric"><span class="pm-label">Total P&L</span><span class="pm-value ${(summary.total_pnl || 0) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${(summary.total_pnl || 0).toLocaleString()}</span></div>
           </div>
-          <div class="portfolio-sectors">Sectors: ${sectors}</div>
         `;
       }
 
       const posEl = $('portfolioPositions');
       if (!posEl) return;
       if (!positions.length) {
-        posEl.innerHTML = '<div class="footer-note">No positions tracked. Add via POST /api/portfolio/position</div>';
+        posEl.innerHTML = '<div class="footer-note">No positions tracked. Use /buy in the bot to add one.</div>';
         return;
       }
 
       posEl.innerHTML = positions.map(p => {
         const dir = p.direction === 'long' ? '📈' : '📉';
-        const status = p.status === 'open' ? '🟢' : '⚪';
-        const pnlClass = (p.pnl || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+        const lots = (p.lots || (p.shares || 0) / 100);
+        const invested = p.invested || (p.entry_price || 0) * (p.shares || 0);
+        const currentPrice = p.current_price;
+        const unrealized = p.unrealized_pnl;
+        const pct = p.unrealized_pct;
+
+        let plLine = '';
+        if (currentPrice && unrealized != null) {
+          const pIcon = unrealized >= 0 ? '🟢' : '🔴';
+          plLine = `<span class="${unrealized >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pIcon} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% (IDR ${unrealized.toLocaleString()})</span>`;
+        }
+
         return `<div class="portfolio-item">
-          <span>${status} ${dir} <strong>${p.ticker}</strong></span>
-          <span>${p.direction} × ${p.shares}</span>
-          <span>Entry: ${(p.entry_price || 0).toLocaleString()}</span>
-          ${p.exit_price ? `<span>Exit: ${p.exit_price.toLocaleString()}</span>` : ''}
-          ${p.pnl != null ? `<span class="${pnlClass}">P&L: ${p.pnl.toLocaleString()} (${p.pnl_pct?.toFixed(1)}%)</span>` : ''}
-          ${p.sector ? `<span class="portfolio-sector">${p.sector}</span>` : ''}
+          <span>${dir} <strong>${p.ticker}</strong> — ${lots} lot</span>
+          <span>Entry: ${(p.entry_price || 0).toLocaleString()}${currentPrice ? ` → Now: ${currentPrice.toLocaleString()}` : ''}</span>
+          <span>Invested: IDR ${invested.toLocaleString()}</span>
+          ${plLine}
+          ${p.stop_loss ? `<span>SL: ${p.stop_loss.toLocaleString()}</span>` : ''}
+          ${p.take_profit ? `<span>TP: ${p.take_profit.toLocaleString()}</span>` : ''}
         </div>`;
       }).join('');
     } catch (e) {
@@ -3983,9 +4268,11 @@
       if (event.key === 'Escape' && !$('settingsBackdrop').hidden) { closeSettingsModal(); return; }
       if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
       if (event.key === 'r' || event.key === 'R') { triggerRefresh(); return; }
-      if (event.key === '1') { $('windowSelect').value = '24h'; handleWindowChange('24h'); return; }
-      if (event.key === '2') { $('windowSelect').value = '7d'; handleWindowChange('7d'); return; }
-      if (event.key === '3') { $('windowSelect').value = '30d'; handleWindowChange('30d'); return; }
+      if (event.key === '1') { switchTab('overview'); return; }
+      if (event.key === '2') { switchTab('events'); return; }
+      if (event.key === '3') { switchTab('watchlist'); return; }
+      if (event.key === '4') { switchTab('portfolio'); return; }
+      if (event.key === '5') { switchTab('history'); return; }
     });
 
     // Visibility change — pause auto-refresh when tab hidden
