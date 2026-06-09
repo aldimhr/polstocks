@@ -78,7 +78,31 @@ DEFAULTS = {
     "significance_multiplier": 0.55,
     "directional_sentiment_floor": 0.55,
     "indirect_relationship_multiplier": 0.70,
+
+    # Confidence calibration: raw scores are ~0.012 but actual returns ~7.43%
+    # Scale factor bridges the gap between NLP-derived magnitude and market reality.
+    "calibration_scale_factor": 15.0,
+    "calibration_score_abs_cap": 10.0,
+    "calibration_confidence_floor": 0.15,
 }
+
+# ── Per-category weight multipliers (backtest-driven) ──
+# High hit-rate categories get boosted, low ones dampened.
+CATEGORY_WEIGHT_MULTIPLIERS: dict[str, float] = {
+    "TRADE_POLICY": 1.15,
+    "ENERGY_POLICY": 1.15,
+    "REGULATION_NEW": 1.10,
+    "PARLIAMENT_SESSION": 0.85,
+    "MONETARY_POLICY": 0.90,
+    "_DEFAULT": 1.0,
+}
+
+
+def get_category_multiplier(category: str) -> float:
+    """Return the weight multiplier for a given event category."""
+    return CATEGORY_WEIGHT_MULTIPLIERS.get(
+        category, CATEGORY_WEIGHT_MULTIPLIERS["_DEFAULT"]
+    )
 
 _lock = threading.Lock()
 _overrides: dict | None = None

@@ -10,7 +10,7 @@ from backend.config import (
     POLICY_THEMES,
     DEFAULT_EVENT_WINDOW,
 )
-from backend.weights import get_weight
+from backend.weights import get_weight, get_category_multiplier
 from backend.sources import (
     analyze_sentiment, classify_categories, detect_event_stage,
     detect_negation_or_reversal, detect_policy_themes, extract_entities,
@@ -364,6 +364,8 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
     _, recency_weight = recency_weight_for_article(article, window)
     avg_relevance = sum(link["relevance_score"] for link in stock_relationships) / len(stock_relationships) if stock_relationships else 0.0
 
+    # Apply per-category multiplier (use max across matched categories)
+    cat_mult = max((get_category_multiplier(c) for c in (categories or ["_DEFAULT"])), default=1.0)
     return {
         **article_context,
         "sentiment": sentiment,
@@ -396,7 +398,8 @@ def analyze_article(article: dict[str, Any], watchlist: list[str], window: str =
             * confidence
             * recency_weight
             * (0.55 + 0.45 * float(article_context.get("source_quality_score", 0.5)))
-            * get_weight("significance_multiplier"),
+            * get_weight("significance_multiplier")
+            * cat_mult,
             3,
         ),
     }
@@ -437,7 +440,10 @@ def compute_ticker_score(article: dict[str, Any], ticker: str) -> float:
         directional_sentiment = 0.35 * sentiment_score
     else:
         directional_sentiment = 0.0
-    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * confidence_multiplier * evidence_multiplier * validation_multiplier
+    # Apply per-category multiplier
+    article_cats = article.get("categories", [])
+    cat_mult = max((get_category_multiplier(c) for c in (article_cats or ["_DEFAULT"])), default=1.0)
+    raw = directional_sentiment * relevance_factor * confidence * relationship_multiplier * confidence_multiplier * evidence_multiplier * validation_multiplier * cat_mult
     return clamp(raw, -1.0, 1.0)
 
 
