@@ -76,6 +76,26 @@ def init_backtest_db() -> None:
                 ON predictions(ticker);
             CREATE INDEX IF NOT EXISTS idx_predictions_published
                 ON predictions(published_at);
+
+            CREATE TABLE IF NOT EXISTS historical_events (
+                article_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                url TEXT,
+                headline TEXT NOT NULL,
+                summary TEXT,
+                published_at TEXT NOT NULL,
+                timestamp_confidence REAL NOT NULL,
+                provenance_json TEXT NOT NULL,
+                import_status TEXT NOT NULL DEFAULT 'accepted',
+                rejection_reason TEXT,
+                raw_json TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_historical_events_published
+                ON historical_events(published_at);
+            CREATE INDEX IF NOT EXISTS idx_historical_events_source
+                ON historical_events(source);
         """)
         # Add new columns for robustness signals (safe if already exist)
         for col, typ in [
@@ -107,6 +127,145 @@ def init_backtest_db() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+
+# ── Historical Backfill Import Safeguards ──────────────────────────
+
+def _parse_historical_timestamp(value: str | None) -> tuple[datetime | None, float, str]:
+    if not value or not str(value).strip():
+        return None, 0.0, "missing_timestamp"
+
+    raw = str(value).strip()
+    if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+        try:
+            return datetime.fromisoformat(raw), 0.4, "date_only"
+        except ValueError:
+            return None, 0.0, "invalid_timestamp"
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None, 0.0, "invalid_timestamp"
+
+    has_timezone = parsed.tzinfo is not None
+    confidence = 1.0 if has_timezone else 0.75
+    reason = "exact_with_timezone" if has_timezone else "exact_without_timezone"
+    return parsed, confidence, reason
+
+
+def _historical_article_id(source: str, url: str, headline: str) -> str:
+    identity = url.strip().lower() or f"{source.strip().lower()}::{headline.strip().lower()}"
+    return "hist_" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+
+
+def normalize_historical_article(article: dict[str, Any], *, min_timestamp_confidence: float = 0.8) -> dict[str, Any]:
+    """Normalize one historical article and reject weak timestamps.
+
+    This is intentionally conservative: v1 imports historical internet data into
+    a staging table only when provenance and timestamps are strong enough to
+    avoid misleading backtest accuracy.
+    """
+    source = str(article.get("source") or article.get("source_name") or "").strip()
+    headline = str(article.get("headline") or article.get("title") or "").strip()
+    url = str(article.get("url") or "").strip()
+    summary = str(article.get("summary") or article.get("body") or "").strip()
+
+    published_at, timestamp_confidence, timestamp_reason = _parse_historical_timestamp(
+        article.get("published_at") or article.get("published") or article.get("date")
+    )
+
+    provenance = dict(article.get("provenance") or {})
+    provenance.update({
+        "source": source,
+        "url": url,
+        "timestamp_reason": timestamp_reason,
+        "historical_backfill_version": 1,
+    })
+
+    rejection_reason = ""
+    if not source:
+        rejection_reason = "missing_source"
+    elif not headline:
+        rejection_reason = "missing_headline"
+    elif not published_at or timestamp_confidence < min_timestamp_confidence:
+        rejection_reason = "low_timestamp_confidence"
+
+    accepted = not rejection_reason
+    article_id = _historical_article_id(source, url, headline)
+    return {
+        "accepted": accepted,
+        "article_id": article_id,
+        "source": source,
+        "url": url,
+        "headline": headline,
+        "summary": summary,
+        "published_at": published_at.isoformat() if published_at else "",
+        "timestamp_confidence": round(timestamp_confidence, 3),
+        "provenance": provenance,
+        "rejection_reason": rejection_reason,
+        "raw": article,
+    }
+
+
+def import_historical_articles(
+    articles: list[dict[str, Any]],
+    *,
+    dry_run: bool = True,
+    min_timestamp_confidence: float = 0.8,
+) -> dict[str, Any]:
+    """Validate/import historical articles into the staging table.
+
+    Dry-run is the default so broad internet backfills can be audited before any
+    database write. Accepted rows are not replayed into predictions here; replay
+    is a separate step after timestamp/provenance review.
+    """
+    normalized = [
+        normalize_historical_article(item, min_timestamp_confidence=min_timestamp_confidence)
+        for item in articles
+    ]
+    accepted_items = [item for item in normalized if item["accepted"]]
+    rejected_items = [item for item in normalized if not item["accepted"]]
+    inserted = 0
+    duplicates = 0
+
+    if not dry_run and accepted_items:
+        init_backtest_db()
+        conn = _get_conn()
+        try:
+            for item in accepted_items:
+                before = conn.total_changes
+                conn.execute(
+                    """INSERT OR IGNORE INTO historical_events
+                       (article_id, source, url, headline, summary, published_at,
+                        timestamp_confidence, provenance_json, import_status,
+                        rejection_reason, raw_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        item["article_id"], item["source"], item["url"],
+                        item["headline"], item["summary"], item["published_at"],
+                        item["timestamp_confidence"], json.dumps(item["provenance"], ensure_ascii=False),
+                        "accepted", "", json.dumps(item["raw"], ensure_ascii=False),
+                    ),
+                )
+                if conn.total_changes > before:
+                    inserted += 1
+                else:
+                    duplicates += 1
+            conn.commit()
+        finally:
+            conn.close()
+
+    return {
+        "dry_run": dry_run,
+        "total": len(articles),
+        "accepted": len(accepted_items),
+        "rejected": len(rejected_items),
+        "inserted": inserted,
+        "duplicates": duplicates,
+        "items": normalized,
+    }
 
 
 # ── Record Predictions ────────────────────────────────────────────

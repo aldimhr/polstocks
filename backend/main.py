@@ -629,6 +629,12 @@ class WatchlistRequest(BaseModel):
     tickers: list[str]
 
 
+class HistoricalBackfillRequest(BaseModel):
+    articles: list[dict[str, Any]] = Field(default_factory=list)
+    dry_run: bool = True
+    min_timestamp_confidence: float = 0.8
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -2133,6 +2139,21 @@ def api_backtest_backfill() -> dict[str, Any]:
     """Backfill predictions from cached events + Yahoo Finance history."""
     from backend.backtest import backfill_from_cache
     return backfill_from_cache()
+
+
+@app.post("/api/backtest/historical-import")
+def api_historical_backfill_import(body: HistoricalBackfillRequest) -> dict[str, Any]:
+    """Validate/import historical internet articles into a staging table.
+
+    Dry-run defaults to true. This endpoint does not replay items into live
+    prediction metrics; it stages only timestamp/provenance-safe records.
+    """
+    from backend.backtest import import_historical_articles
+    return import_historical_articles(
+        body.articles,
+        dry_run=body.dry_run,
+        min_timestamp_confidence=body.min_timestamp_confidence,
+    )
 
 
 @app.post("/api/backtest/resolve")

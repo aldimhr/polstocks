@@ -2376,3 +2376,52 @@ def test_suggestions_do_not_repeat_already_applied_weight(monkeypatch):
         for item in result["suggestions"]
     )
     assert result["current_weights"]["directional_sentiment_floor"]["current"] == 0.55
+
+def test_historical_article_normalization_accepts_high_confidence_timestamp():
+    from backend.backtest import normalize_historical_article
+
+    result = normalize_historical_article({
+        "source": "Antara",
+        "url": "https://www.antaranews.com/ekonomi/2026/01/15/kebijakan-energi",
+        "headline": "Pemerintah tetapkan kebijakan energi baru",
+        "summary": "Kebijakan energi baru diumumkan pemerintah.",
+        "published_at": "2026-01-15T10:30:00+07:00",
+        "provenance": {"fetcher": "test"},
+    })
+
+    assert result["accepted"] is True
+    assert result["timestamp_confidence"] >= 0.9
+    assert result["article_id"].startswith("hist_")
+    assert result["provenance"]["source"] == "Antara"
+
+
+def test_historical_article_normalization_rejects_weak_timestamp():
+    from backend.backtest import normalize_historical_article
+
+    result = normalize_historical_article({
+        "source": "Blog",
+        "url": "https://example.com/no-date",
+        "headline": "Kabar lama tanpa tanggal jelas",
+        "published_at": "2026-01-15",
+    })
+
+    assert result["accepted"] is False
+    assert result["rejection_reason"] == "low_timestamp_confidence"
+
+
+def test_import_historical_articles_supports_dry_run_without_db_write():
+    from backend.backtest import import_historical_articles
+
+    articles = [{
+        "source": "Antara",
+        "url": "https://www.antaranews.com/ekonomi/2026/02/01/dry-run",
+        "headline": "Dry run historical article",
+        "published_at": "2026-02-01T09:00:00+07:00",
+    }]
+
+    result = import_historical_articles(articles, dry_run=True)
+
+    assert result["dry_run"] is True
+    assert result["accepted"] == 1
+    assert result["inserted"] == 0
+    assert result["items"][0]["accepted"] is True
