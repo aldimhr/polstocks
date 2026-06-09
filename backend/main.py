@@ -1821,6 +1821,52 @@ def build_refresh_payload(
                 "currency_factor": strongest_link[1].get("currency_factor", 1.0) if strongest_link else 1.0,
             }
         )
+    # Compute signal_strength: composite of confidence × corroboration × validation × technical alignment
+    for stock in stocks:
+        conf = float(stock.get("relationship_confidence", 0.0) or 0.0)
+        corrobor = min(1.0, float(stock.get("corroboration_count", 0) or 0) / 3.0)  # 3+ sources = 1.0
+        val_mult = float(stock.get("validation_multiplier", 1.0) or 1.0)
+        # Technical alignment: count how many indicators agree with direction
+        direction = stock.get("impact_direction", "neutral")
+        tech_agree = 0
+        tech_total = 0
+        rsi_val = rsi_cache.get(stock.get("ticker", ""))
+        if rsi_val is not None:
+            tech_total += 1
+            if direction == "positive" and rsi_val < 70:
+                tech_agree += 1
+            elif direction == "negative" and rsi_val > 30:
+                tech_agree += 1
+            elif direction == "neutral":
+                tech_agree += 0.5
+        macd_data = macd_cache.get(stock.get("ticker", ""))
+        if macd_data and isinstance(macd_data, dict):
+            tech_total += 1
+            hist = float(macd_data.get("histogram", 0) or 0)
+            if direction == "positive" and hist > 0:
+                tech_agree += 1
+            elif direction == "negative" and hist < 0:
+                tech_agree += 1
+            elif direction == "neutral":
+                tech_agree += 0.5
+        trend_data = trend_cache.get(stock.get("ticker", ""))
+        if trend_data and isinstance(trend_data, dict):
+            tech_total += 1
+            trend_dir = trend_data.get("trend", "neutral")
+            if direction == "positive" and trend_dir == "bullish":
+                tech_agree += 1
+            elif direction == "negative" and trend_dir == "bearish":
+                tech_agree += 1
+            elif direction == "neutral":
+                tech_agree += 0.5
+        tech_alignment = tech_agree / tech_total if tech_total > 0 else 0.5
+        # Composite: weighted average
+        signal_strength = clamp(
+            0.35 * conf + 0.25 * corrobor + 0.20 * val_mult + 0.20 * tech_alignment,
+            0.0, 1.0,
+        )
+        stock["signal_strength"] = round(signal_strength, 3)
+
     stocks = sort_stocks_by_impact(stocks)
 
     event_id_map = {f"evt_{idx+1:03d}": event for idx, event in enumerate(events)}

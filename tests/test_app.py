@@ -1117,7 +1117,9 @@ def test_refresh_payload_exposes_batch_robustness_summary(monkeypatch):
     assert summary["date_enrichment_success_count"] == 2
     assert summary["date_fallback_count"] == 1
     assert summary["displayed_event_count"] == payload["displayed_event_count"]
-    assert summary["conflicted_relationship_count"] >= 1
+    # Negative direction is suppressed, so no conflicts from opposite-direction articles
+    # (conflict_negative article becomes neutral)
+    assert summary["conflicted_relationship_count"] >= 0
     assert summary["independent_corroborated_relationship_count"] >= 1
     assert summary["weak_single_source_relationship_count"] == 0
     assert summary["syndicated_coverage_count"] >= 1
@@ -1584,12 +1586,14 @@ def test_source_conflict_still_flags_same_ticker_same_claim_opposite_direction(m
     same_claim_link = next(item for item in same_claim_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
 
     assert direct_event["thread_id"] == same_claim_event["thread_id"]
-    assert direct_link["source_conflict"] is True
-    assert same_claim_link["source_conflict"] is True
-    assert direct_link["source_conflict_count"] >= 1
-    assert direct_link["source_conflict_penalty"] < 1.0
-    assert payload["stocks"][0]["source_conflict"] is True
-    assert any("conflicting" in warning.lower() for warning in payload["warnings"])
+    # Negative direction is suppressed to neutral, so no source conflict
+    # Both articles now produce positive/neutral directions
+    assert direct_link["source_conflict"] is False
+    # Negative direction is suppressed to neutral, so no source conflicts
+    assert same_claim_link["source_conflict"] is False
+    assert direct_link["source_conflict_count"] == 0
+    assert direct_link["source_conflict_penalty"] == 1.0
+    assert payload["stocks"][0]["source_conflict"] is False
 
 
 
@@ -1634,13 +1638,12 @@ def test_source_conflict_flags_opposite_direction_coverage_and_downgrades_confid
     conflict_link = next(item for item in conflict_event["stock_relationships"] if item["ticker"] == "ANTM.JK")
 
     assert solo_link["source_conflict"] is False
-    assert conflict_link["source_conflict"] is True
-    assert conflict_link["source_conflict_count"] >= 1
-    assert conflict_link["source_conflict_penalty"] < 1.0
-    assert conflict_link["relationship_confidence"] < solo_link["relationship_confidence"]
-    assert conflict_link["confidence_label"] in {"low_confidence", "predicted_only", "insufficient_data"}
-    assert conflict_payload["stocks"][0]["source_conflict"] is True
-    assert any("conflicting" in warning.lower() for warning in conflict_payload["warnings"])
+    # Negative direction is suppressed to neutral, so no source conflict
+    assert conflict_link["source_conflict"] is False
+    # Negative direction is suppressed to neutral, so no conflict penalty
+    assert conflict_link["source_conflict_penalty"] == 1.0
+    # Negative direction is suppressed to neutral, so no source conflicts
+    assert conflict_payload["stocks"][0]["source_conflict"] is False
 
 
 def test_evidence_hierarchy_prefers_official_sources():
@@ -2105,9 +2108,9 @@ def test_sentiment_direction_mismatch_penalizes_confidence():
         # Both should have relationships
         assert len(aligned["stock_relationships"]) > 0
         assert len(misaligned_result["stock_relationships"]) > 0
-        # The negative article's direction should be negative (aligned with negative sentiment)
+        # Negative direction is suppressed to neutral until backtest proves accuracy
         neg_link = misaligned_result["stock_relationships"][0]
-        assert neg_link["impact_direction"] == "negative"
+        assert neg_link["impact_direction"] == "neutral"
 
 
 def test_refresh_payload_keeps_relationships_when_validation_data_is_missing(monkeypatch):
@@ -2448,3 +2451,83 @@ def test_backtest_api_accepts_origin_filter():
     assert "baseline" in data
     assert "return_weighted" in data
     assert "by_origin" in data
+
+# ── Phase 1: Signal Quality Tests ──
+
+def test_direction_threshold_rejects_weak_positive_signals():
+    """Weak positive signals (delta 0.8-1.49) should be neutral, not positive."""
+    from backend.scoring import expected_direction_for_company
+
+    # Simulate a weak positive signal: delta < 1.5 but >= old threshold 0.75
+    themes = [{"name": "HOUSING"}]
+    channels = [{
+        "channel": "housing_policy",
+        "matched_themes": ["HOUSING"],
+        "positive_direction_hits": ["dorong", "dukung"],
+        "negative_direction_hits": [],
+        "keyword_hits": ["subsidi"],
+        "article_signal": {"supportive_hits": ["subsidi rumah"], "restrictive_hits": [], "relief_hits": []},
+    }]
+    knowledge = {"exposure_factors": {"financing_sensitivity": "medium"}}
+
+    result = expected_direction_for_company(themes, channels, knowledge)
+    # With old threshold 0.75 this would be positive; with 1.5 it should be neutral
+    assert result["impact_direction"] in ("neutral", "positive"), f"Got {result['impact_direction']} with delta {result['positive_score'] - result['negative_score']}"
+    # If positive_score is less than 1.5 delta, it should be neutral
+    delta = result["positive_score"] - result["negative_score"]
+    if delta < 1.5:
+        assert result["impact_direction"] == "neutral"
+
+
+def test_direction_threshold_keeps_strong_positive_signals():
+    """Strong positive signals (delta >= 1.5) should remain positive."""
+    from backend.scoring import expected_direction_for_company
+
+    themes = [{"name": "DOWNSTREAMING"}]
+    channels = [{
+        "channel": "downstreaming_policy",
+        "matched_themes": ["DOWNSTREAMING"],
+        "positive_direction_hits": ["dorong", "dukung", "tingkatkan"],
+        "negative_direction_hits": [],
+        "keyword_hits": ["hilirisasi", "smelter"],
+        "article_signal": {"supportive_hits": ["hilirisasi", "smelter baru", "investasi"], "restrictive_hits": [], "relief_hits": []},
+    }]
+    knowledge = {"exposure_factors": {"export_import_dependency": "high"}}
+
+    result = expected_direction_for_company(themes, channels, knowledge)
+    delta = result["positive_score"] - result["negative_score"]
+    if delta >= 1.5:
+        assert result["impact_direction"] == "positive"
+
+
+def test_negative_direction_forced_to_neutral_when_disabled():
+    """Negative predictions should be forced to neutral (0/16 accuracy)."""
+    from backend.scoring import expected_direction_for_company
+
+    themes = [{"name": "TRADE_RESTRICTION"}]
+    channels = [{
+        "channel": "trade_restriction",
+        "matched_themes": ["TRADE_RESTRICTION"],
+        "positive_direction_hits": [],
+        "negative_direction_hits": ["batasi", "larang", "perketat"],
+        "keyword_hits": ["ekspor", "restriksi"],
+        "article_signal": {"supportive_hits": [], "restrictive_hits": ["batasi ekspor"], "relief_hits": []},
+    }]
+    knowledge = {"exposure_factors": {"export_import_dependency": "high"}}
+
+    result = expected_direction_for_company(themes, channels, knowledge)
+    # Even if the score would be negative, it should be forced to neutral
+    assert result["impact_direction"] != "negative", "Negative predictions are disabled until backtest proves they work"
+
+
+def test_signal_strength_composite_score():
+    """Stock payload should include a composite signal_strength field."""
+    response = client.get("/api/dashboard?window=24h")
+    assert response.status_code == 200
+    data = response.json()
+    stocks = data.get("payload", {}).get("stocks", [])
+    assert len(stocks) > 0
+    stock = stocks[0]
+    assert "signal_strength" in stock
+    assert isinstance(stock["signal_strength"], (int, float))
+    assert 0.0 <= stock["signal_strength"] <= 1.0

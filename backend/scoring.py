@@ -262,6 +262,12 @@ def expected_direction_for_company(themes: list[dict[str, Any]], matched_channel
     else:
         impact_direction = "neutral"
 
+    # Force negative to neutral: backtest shows 0/16 accuracy for negative predictions.
+    # Re-enable when historical backfill proves negative signals work.
+    if impact_direction == "negative":
+        impact_direction = "neutral"
+        rationale_parts.append("negative direction suppressed: insufficient backtest accuracy")
+
     if not rationale_parts:
         rationale_parts.append("direction inferred from matched policy themes and company exposures")
     return {
