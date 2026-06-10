@@ -3572,3 +3572,213 @@ class TestDailySummary:
         assert "30d" in data["horizons"]
         assert "accuracy" in data
         assert "total_signals" in data
+
+
+# ── D3: Enriched /healthz diagnostics ────────────────────────────────
+
+class TestHealthzDiagnostics:
+    """D3: /healthz returns enriched operational diagnostics."""
+
+    def test_healthz_includes_db_path(self):
+        """healthz must return db_path, migrations_dir, and ok=True."""
+        resp = client.get("/healthz")
+        body = resp.json()
+        assert body["ok"] is True
+        assert "db_path" in body
+        assert body["db_path"].endswith(".db")
+
+    def test_healthz_includes_migrations_dir(self):
+        resp = client.get("/healthz")
+        body = resp.json()
+        assert "migrations_dir" in body
+        assert "migrations" in body["migrations_dir"]
+
+    def test_healthz_includes_migrations_applied_count(self):
+        resp = client.get("/healthz")
+        body = resp.json()
+        assert "migrations_applied_count" in body
+        # Either an int or None (if DB unreachable) — both are acceptable
+        if body["migrations_applied_count"] is not None:
+            assert isinstance(body["migrations_applied_count"], int)
+            assert body["migrations_applied_count"] >= 0
+
+    def test_healthz_includes_last_refresh_success_at(self):
+        resp = client.get("/healthz")
+        body = resp.json()
+        assert "last_refresh_success_at" in body
+        # Initially None before any refresh
+        # (could be a string if another test ran first)
+
+    def test_healthz_preserves_ok_contract(self):
+        """Existing contract: ok=True and time field must always be present."""
+        resp = client.get("/healthz")
+        body = resp.json()
+        assert "ok" in body
+        assert body["ok"] is True
+        assert "time" in body
+
+    def test_healthz_head_still_works(self):
+        resp = client.head("/healthz")
+        assert resp.status_code == 200
+
+
+# ── D4: Telegram alerting on repeated refresh failures ───────────────
+
+class TestRefreshFailureAlerting:
+    """D4: Consecutive refresh failures trigger Telegram alert at threshold."""
+
+    def _reset_failure_state(self):
+        """Reset the module-level failure counter."""
+        appmod._consecutive_refresh_failures = 0
+        appmod._last_refresh_success_at = None
+
+    def test_failure_counter_increments_on_failure(self):
+        """Each call to _record_refresh_failure increments the counter."""
+        self._reset_failure_state()
+        appmod._record_refresh_failure()
+        assert appmod._consecutive_refresh_failures == 1
+        appmod._record_refresh_failure()
+        assert appmod._consecutive_refresh_failures == 2
+
+    def test_failure_counter_resets_on_success(self):
+        """_record_refresh_success resets the failure counter to 0."""
+        self._reset_failure_state()
+        appmod._consecutive_refresh_failures = 2
+        appmod._record_refresh_success()
+        assert appmod._consecutive_refresh_failures == 0
+
+    def test_success_sets_last_refresh_timestamp(self):
+        """_record_refresh_success sets last_refresh_success_at."""
+        self._reset_failure_state()
+        assert appmod._last_refresh_success_at is None
+        appmod._record_refresh_success()
+        assert appmod._last_refresh_success_at is not None
+        assert isinstance(appmod._last_refresh_success_at, str)
+
+    def test_three_consecutive_failures_trigger_alert(self, monkeypatch):
+        """After _REFRESH_FAILURE_THRESHOLD failures, Telegram alert is sent."""
+        self._reset_failure_state()
+
+        alert_calls: list[int] = []
+
+        def capture_alert(count: int) -> None:
+            alert_calls.append(count)
+
+        monkeypatch.setattr(appmod, "_send_refresh_failure_alert", capture_alert)
+
+        threshold = appmod._REFRESH_FAILURE_THRESHOLD
+        for _ in range(threshold):
+            appmod._record_refresh_failure()
+
+        assert appmod._consecutive_refresh_failures == threshold
+        assert len(alert_calls) == 1
+        assert alert_calls[0] == threshold
+
+    def test_alert_not_sent_below_threshold(self, monkeypatch):
+        """Alert should NOT be sent when failures < threshold."""
+        self._reset_failure_state()
+
+        alert_calls: list[int] = []
+
+        def capture_alert(count: int) -> None:
+            alert_calls.append(count)
+
+        monkeypatch.setattr(appmod, "_send_refresh_failure_alert", capture_alert)
+
+        # Only 2 failures (below threshold of 3)
+        for _ in range(2):
+            appmod._record_refresh_failure()
+
+        assert appmod._consecutive_refresh_failures == 2
+        assert len(alert_calls) == 0
+
+    def test_alert_sent_only_once_at_threshold_not_on_subsequent_failures(self, monkeypatch):
+        """Alert fires at threshold crossing, not on every failure after."""
+        self._reset_failure_state()
+
+        alert_calls: list[int] = []
+
+        def capture_alert(count: int) -> None:
+            alert_calls.append(count)
+
+        monkeypatch.setattr(appmod, "_send_refresh_failure_alert", capture_alert)
+
+        # 5 failures: alert should fire exactly once (at failure #3)
+        for _ in range(5):
+            appmod._record_refresh_failure()
+
+        assert appmod._consecutive_refresh_failures == 5
+        assert len(alert_calls) == 1
+        assert alert_calls[0] == 3  # fired when count hit exactly 3
+
+    def test_success_after_failures_resets_and_allows_future_alert(self, monkeypatch):
+        """After reset, threshold alerting works again from scratch."""
+        self._reset_failure_state()
+
+        alert_calls: list[int] = []
+
+        def capture_alert(count: int) -> None:
+            alert_calls.append(count)
+
+        monkeypatch.setattr(appmod, "_send_refresh_failure_alert", capture_alert)
+
+        # 3 failures → first alert
+        for _ in range(3):
+            appmod._record_refresh_failure()
+        assert len(alert_calls) == 1
+
+        # Success resets
+        appmod._record_refresh_success()
+        assert appmod._consecutive_refresh_failures == 0
+
+        # 3 more failures → second alert
+        for _ in range(3):
+            appmod._record_refresh_failure()
+        assert len(alert_calls) == 2
+
+    def test_api_refresh_tracks_failures_endpoint_integration(self, monkeypatch):
+        """Integration: POST /api/refresh increments counter on failure."""
+        self._reset_failure_state()
+
+        def boom(*a, **k):
+            raise RuntimeError("simulated failure")
+
+        monkeypatch.setattr(appmod, "build_refresh_payload", boom)
+        monkeypatch.setattr(appmod, "_send_refresh_failure_alert", lambda c: None)
+
+        # The endpoint raises RuntimeError via TestClient; counter should still be updated
+        try:
+            client.post("/api/refresh", json={})
+        except RuntimeError:
+            pass
+        assert appmod._consecutive_refresh_failures >= 1
+
+    def test_api_refresh_tracks_success_endpoint_integration(self, monkeypatch):
+        """Integration: POST /api/refresh resets counter on success."""
+        self._reset_failure_state()
+        appmod._consecutive_refresh_failures = 2
+
+        _patch_fetch_news_bundle(monkeypatch, lambda *a, **k: ([], []))
+        _patch_fetch_stock_quotes(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_fetch_market_index(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_validation_series(monkeypatch, lambda *a, **k: ({}, []))
+
+        resp = client.post("/api/refresh", json={})
+        assert resp.status_code == 200
+        assert appmod._consecutive_refresh_failures == 0
+
+    def test_send_refresh_failure_alert_builds_message(self, monkeypatch):
+        """_send_refresh_failure_alert formats and sends the alert message."""
+        sent_messages: list[str] = []
+
+        def fake_send_telegram_alert(msg: str) -> bool:
+            sent_messages.append(msg)
+            return True
+
+        import backend.alerts as alerts_mod
+        monkeypatch.setattr(alerts_mod, "send_telegram_alert", fake_send_telegram_alert)
+
+        appmod._send_refresh_failure_alert(5)
+        assert len(sent_messages) == 1
+        assert "5" in sent_messages[0]
+        assert "Refresh Failure" in sent_messages[0]

@@ -24,8 +24,10 @@ import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
+import logging as _logging
 from pathlib import Path
 from typing import Any, Callable
+_logger = _logging.getLogger(__name__)
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
@@ -684,6 +686,54 @@ def _check_refresh_rate_limit(request: Request):
                 headers={"Retry-After": str(_REFRESH_RATE_WINDOW)},
             )
         _refresh_rate_store[client_ip].append(now)
+
+
+# ── Refresh failure tracking & alerting (D4) ────────────────────
+_REFRESH_FAILURE_THRESHOLD = 3   # consecutive failures before alerting
+_consecutive_refresh_failures: int = 0
+_refresh_failure_lock = threading.Lock()
+_last_refresh_success_at: str | None = None  # ISO timestamp of last success
+
+
+def _record_refresh_success() -> None:
+    """Record a successful refresh — reset failure counter, update timestamp."""
+    global _last_refresh_success_at, _consecutive_refresh_failures
+    with _refresh_failure_lock:
+        _consecutive_refresh_failures = 0
+        _last_refresh_success_at = now_iso()
+
+
+def _record_refresh_failure() -> None:
+    """Record a failed refresh — increment counter and alert if threshold crossed."""
+    global _consecutive_refresh_failures
+    send_alert = False
+    with _refresh_failure_lock:
+        _consecutive_refresh_failures += 1
+        if _consecutive_refresh_failures == _REFRESH_FAILURE_THRESHOLD:
+            send_alert = True
+    if send_alert:
+        _send_refresh_failure_alert(_consecutive_refresh_failures)
+
+
+def _send_refresh_failure_alert(count: int) -> None:
+    """Send Telegram alert about repeated refresh failures."""
+    try:
+        from backend.alerts import send_telegram_alert
+        msg = (
+            f"🔴 *PolStock Refresh Failure Alert*\n"
+            f"Consecutive refresh failures: {count}\n"
+            f"Threshold: {_REFRESH_FAILURE_THRESHOLD}\n"
+            f"Time: {now_iso()}\n"
+            f"Please investigate the backend service."
+        )
+        sent = send_telegram_alert(msg)
+        if not sent:
+            _logger.warning("Refresh failure alert could not be sent (check Telegram config)")
+    except Exception as exc:
+        _logger.error(f"Failed to send refresh failure alert: {exc}")
+
+
+MIGRATIONS_DIR = str(PROJECT_ROOT / "migrations")
 
 
 class RefreshRequest(BaseModel):
@@ -2436,7 +2486,28 @@ def index_head() -> Response:
 
 @app.get("/healthz")
 def healthz() -> dict[str, Any]:
-    return {"ok": True, "time": now_iso()}
+    result: dict[str, Any] = {
+        "ok": True,
+        "time": now_iso(),
+        "db_path": str(BACKEND_DB_PATH),
+        "migrations_dir": MIGRATIONS_DIR,
+        "last_refresh_success_at": _last_refresh_success_at,
+    }
+    # Cheap migrations count (single COUNT query on _migrations table)
+    try:
+        conn = sqlite3.connect(str(BACKEND_DB_PATH), timeout=5)
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM _migrations"
+            ).fetchone()
+            result["migrations_applied_count"] = row[0] if row else 0
+        except Exception:
+            result["migrations_applied_count"] = None
+        finally:
+            conn.close()
+    except Exception:
+        result["migrations_applied_count"] = None
+    return result
 
 
 @app.head("/healthz")
@@ -2966,8 +3037,13 @@ def api_portfolio_close(position_id: int, payload: dict[str, Any], _auth: None =
 
 @app.post("/api/refresh")
 def api_refresh(payload: RefreshRequest, _auth: None = Depends(_check_api_key), _rl: None = Depends(_check_refresh_rate_limit)) -> JSONResponse:
-    result = build_refresh_payload(payload.tickers, force=payload.force, window=payload.window)
-    return JSONResponse(result)
+    try:
+        result = build_refresh_payload(payload.tickers, force=payload.force, window=payload.window)
+        _record_refresh_success()
+        return JSONResponse(result)
+    except Exception as exc:
+        _record_refresh_failure()
+        raise
 
 
 @app.get("/api/nlp_status")
