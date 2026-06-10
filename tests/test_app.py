@@ -806,6 +806,11 @@ def test_dashboard_contains_runtime_hooks():
         'Contested thread',
         'Source issue',
         'Date fallback',
+        'overflow-x: hidden;',
+        'grid-template-columns: minmax(0, 1fr) minmax(0, 360px);',
+        '.event-search-bar { flex-direction: column; align-items: stretch; }',
+        '.filter-chips { width: 100%; overflow-x: auto; flex-wrap: nowrap;',
+        '.history-headline { flex: 1 1 100%; max-width: 100%; white-space: normal; }',
     ]:
         assert snippet in dashboard_html
 

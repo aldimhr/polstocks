@@ -34,6 +34,13 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -60,8 +67,23 @@
     position: relative;
     z-index: 1;
     max-width: 1280px;
+    width: 100%;
+    min-width: 0;
     margin: 0 auto;
     padding: 0 24px 48px;
+  }
+
+  .card,
+  .metric,
+  .overview-stat,
+  .source-health-card,
+  .stock-row,
+  .event-item,
+  .signal-item,
+  .portfolio-item,
+  .trade-history-item {
+    min-width: 0;
+    max-width: 100%;
   }
 
   /* ── Tab Navigation ── */
@@ -187,6 +209,7 @@
     display: flex;
     align-items: baseline;
     gap: 10px;
+    min-width: 0;
   }
 
   .logo-mark {
@@ -208,6 +231,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
+    min-width: 0;
   }
 
   .status-dot {
@@ -364,7 +388,7 @@
   /* ── Main grid ── */
   .main-grid {
     display: grid;
-    grid-template-columns: 1fr 360px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
     gap: 16px;
     margin-bottom: 16px;
   }
@@ -542,6 +566,7 @@
     display: flex;
     gap: 8px;
     overflow-x: auto;
+    max-width: 100%;
     padding: 0 0 10px;
     margin: -2px 0 4px;
     scrollbar-width: none;
@@ -1616,10 +1641,14 @@
     align-items: center;
     gap: 8px;
     margin-bottom: 14px;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
   }
 
   .event-search-input {
     flex: 1;
+    min-width: min(220px, 100%);
     padding: 8px 12px;
     border-radius: 8px;
     border: 1px solid var(--border);
@@ -1639,6 +1668,8 @@
     gap: 6px;
     flex-wrap: wrap;
     align-items: center;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .filter-chip {
@@ -1695,6 +1726,7 @@
     display: flex;
     gap: 5px;
     margin-bottom: 10px;
+    max-width: 100%;
   }
 
   .sort-btn {
@@ -1728,16 +1760,16 @@
   .signal-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
   .signal-item.signal-buy { border-left: 3px solid var(--green); }
   .signal-item.signal-sell { border-left: 3px solid var(--red); }
-  .signal-top { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .signal-top { display: flex; align-items: center; gap: 10px; font-size: 14px; min-width: 0; flex-wrap: wrap; }
   .signal-action { font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
   .signal-buy .signal-action { background: rgba(0,200,83,0.15); color: var(--green); }
   .signal-sell .signal-action { background: rgba(255,82,82,0.15); color: var(--red); }
-  .signal-outcome { font-size: 12px; color: var(--muted); margin-left: auto; }
+  .signal-outcome { font-size: 12px; color: var(--muted); margin-left: auto; min-width: 0; }
   .signal-stars { color: #ffc107; font-size: 13px; letter-spacing: 1px; }
   .signal-mid { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 6px; }
   .signal-bottom { display: flex; gap: 10px; font-size: 11px; color: var(--muted2); margin-top: 4px; }
   .signal-time { white-space: nowrap; }
-  .signal-headline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+  .signal-headline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(400px, 100%); min-width: 0; }
 
   .portfolio-summary { margin-top: 8px; }
   .portfolio-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
@@ -1960,16 +1992,42 @@
 
   @media (max-width: 560px) {
     .layout { padding: 0 14px 28px; }
+    .logo { flex-wrap: wrap; row-gap: 2px; }
+    .logo-sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .metrics { grid-template-columns: 1fr; }
     .stock-list-toolbar { align-items: stretch; }
     .stock-search-shell { flex-basis: 100%; }
-    .stock-list-toolbar .sort-bar { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+    .stock-list-toolbar .sort-bar { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; scrollbar-width: none; }
+    .stock-list-toolbar .sort-bar::-webkit-scrollbar { display: none; }
     .stock-list-toolbar .sort-btn { flex: 1 0 auto; }
     .stock-row { grid-template-columns: minmax(0, 1fr) auto; padding: 11px 10px; }
     .stock-row-ticker { font-size: 14px; }
-    .stock-row-name { max-width: 190px; }
+    .stock-row-name { max-width: min(190px, 100%); }
     .stock-row-price { font-size: 13px; }
     .header-right .status-dot { display: none; }
+    .header-right { gap: 8px; }
+    .header-right > * { flex: 1 1 100%; min-width: 0; }
+    .header-right label.watchlist-note { width: 100%; }
+    #windowSelect { flex: 1; min-width: 0 !important; }
+    #windowBadge { text-align: center; }
+    .settings-btn-settings { flex: 0 0 42px; }
+    .btn-update { flex: 1 1 calc(100% - 50px); }
+    .event-search-bar { flex-direction: column; align-items: stretch; }
+    .event-search-input { width: 100%; flex: 0 0 auto; }
+    .filter-chips { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; scrollbar-width: none; }
+    .filter-chips::-webkit-scrollbar { display: none; }
+    .filter-count { margin-left: 0; }
+    .signal-top { align-items: flex-start; }
+    .signal-outcome { margin-left: 0; width: 100%; }
+    .signal-bottom { flex-wrap: wrap; }
+    .trade-history-head { flex-direction: column; align-items: flex-start; }
+    .trade-history-item { grid-template-columns: auto minmax(0, 1fr); }
+    .trade-history-pnl { grid-column: 2; text-align: left; white-space: normal; }
+    .history-row { flex-wrap: wrap; align-items: flex-start; }
+    .history-headline { flex: 1 1 100%; max-width: 100%; white-space: normal; }
+    .history-return,
+    .history-confidence,
+    .history-time { min-width: auto; text-align: left; }
     .watchlist-form {
       flex-direction: column;
     }
