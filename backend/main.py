@@ -204,6 +204,23 @@ def init_backend_db() -> None:
     finally:
         conn.close()
 
+def run_startup_migrations() -> None:
+    """Apply pending startup migrations against the durable backend DB."""
+    from migrations.runner import run_migrations
+
+    migrations_dir = str(PROJECT_ROOT / "migrations")
+    try:
+        applied = run_migrations(str(BACKEND_DB_PATH), migrations_dir)
+        if applied:
+            import logging
+            logging.getLogger(__name__).info(
+                f"Applied {len(applied)} migration(s): {applied}"
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Migration runner failed: {e}")
+
+
 def load_source_outcome_history() -> dict[str, Any]:
     """Load source outcome history from SQLite (falls back to JSON file on first run)."""
     conn = _backend_conn()
@@ -3269,6 +3286,7 @@ def reset_runtime_state() -> None:
 @app.on_event("startup")
 def _prewarm_cache() -> None:
     """Initialize backend DB, load cached data, and warm the cache in background."""
+    run_startup_migrations()
     init_backend_db()
     # Initialize backtest tables and start outcome resolver
     try:
