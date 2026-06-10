@@ -2011,6 +2011,8 @@ def build_refresh_payload(
         trade = stock.get("trade_signal") or {}
         if trade.get("action") not in ("BUY", "SELL"):
             continue
+        # Read new trading_signal fields if available
+        ts = stock.get("trading_signal") or {}
         sig_record = {
             "ticker": stock.get("ticker", ""),
             "action": trade["action"],
@@ -2023,6 +2025,13 @@ def build_refresh_payload(
             "reasons": trade.get("reasons", []),
             "event_headline": stock.get("headline", ""),
             "event_source": stock.get("source", ""),
+            # Phase 2: new fields from trading_signal
+            "time_horizon": ts.get("time_horizon"),
+            "signal_tier": ts.get("signal_tier"),
+            "signal_type": ts.get("signal_type"),
+            "event_score": ts.get("event_score"),
+            "tech_score": ts.get("tech_score"),
+            "tech_confirmation_count": ts.get("tech_confirmation_count"),
         }
         _actionable_signals.append(sig_record)
     if _actionable_signals:
@@ -2039,6 +2048,12 @@ def build_refresh_payload(
                     event_headline=_sig["event_headline"],
                     event_source=_sig["event_source"],
                     signal_source="auto",
+                    time_horizon=_sig.get("time_horizon"),
+                    signal_tier=_sig.get("signal_tier"),
+                    signal_type=_sig.get("signal_type"),
+                    event_score=_sig.get("event_score"),
+                    tech_score=_sig.get("tech_score"),
+                    tech_confirmation_count=_sig.get("tech_confirmation_count"),
                 )
         except Exception:
             pass  # non-critical

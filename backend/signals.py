@@ -99,6 +99,22 @@ def init_signal_tables() -> None:
             );
         """)
         conn.commit()
+        # Phase 2: Add horizon/tier/type columns (safe if already exist)
+        for col, typ in [
+            ("time_horizon", "TEXT DEFAULT '7d'"),
+            ("signal_tier", "TEXT DEFAULT 'D'"),
+            ("signal_type", "TEXT DEFAULT 'event'"),
+            ("event_score", "REAL DEFAULT 0"),
+            ("tech_score", "REAL DEFAULT 0"),
+            ("tech_confirmation_count", "INTEGER DEFAULT 0"),
+            ("calibration_multiplier", "REAL DEFAULT 1.0"),
+            ("invalidation_reason", "TEXT"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE signal_history ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        conn.commit()
     finally:
         conn.close()
 
@@ -116,6 +132,15 @@ def log_signal(
     event_headline: str | None = None,
     event_source: str | None = None,
     signal_source: str = "auto",
+    # Phase 2: horizon/tier/type fields
+    time_horizon: str | None = None,
+    signal_tier: str | None = None,
+    signal_type: str | None = None,
+    event_score: float | None = None,
+    tech_score: float | None = None,
+    tech_confirmation_count: int | None = None,
+    calibration_multiplier: float | None = None,
+    invalidation_reason: str | None = None,
 ) -> dict[str, Any] | None:
     """Log a trade signal to signal_history. Returns the logged record or None if deduped.
 
@@ -141,10 +166,16 @@ def log_signal(
         cur = conn.execute(
             """INSERT INTO signal_history
                (ticker, action, signal_strength, price_at_signal, stop_loss, take_profit,
-                risk_reward, timeframe, reasons_json, event_headline, event_source, signal_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                risk_reward, timeframe, reasons_json, event_headline, event_source, signal_source,
+                time_horizon, signal_tier, signal_type,
+                event_score, tech_score, tech_confirmation_count,
+                calibration_multiplier, invalidation_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (ticker, action, signal_strength, price_at_signal, stop_loss, take_profit,
-             risk_reward, timeframe, reasons_json, event_headline, event_source, signal_source),
+             risk_reward, timeframe, reasons_json, event_headline, event_source, signal_source,
+             time_horizon or '7d', signal_tier or 'D', signal_type or 'event',
+             event_score or 0, tech_score or 0, tech_confirmation_count or 0,
+             calibration_multiplier or 1.0, invalidation_reason),
         )
         conn.commit()
         signal_id = cur.lastrowid
@@ -163,6 +194,12 @@ def log_signal(
             "event_headline": event_headline,
             "event_source": event_source,
             "signal_source": signal_source,
+            "time_horizon": time_horizon or '7d',
+            "signal_tier": signal_tier or 'D',
+            "signal_type": signal_type or 'event',
+            "event_score": event_score or 0,
+            "tech_score": tech_score or 0,
+            "tech_confirmation_count": tech_confirmation_count or 0,
             "outcome": "pending",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
