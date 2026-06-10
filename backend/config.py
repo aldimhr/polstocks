@@ -30,7 +30,7 @@ STOCK_HISTORY_WINDOWS = {
     "30d": {"range": "6mo", "interval": "1d", "label": "last 30 days"},
     "3mo": {"range": "6mo", "interval": "1d", "label": "last 3 months"},
 }
-SOURCE_TIMEOUT_SECONDS = 5
+SOURCE_TIMEOUT_SECONDS = 15
 WIB = timezone(timedelta(hours=7))
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Hermes Political-Stock Mapper; +https://hermes-agent.nousresearch.com)"

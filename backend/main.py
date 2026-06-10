@@ -1391,26 +1391,30 @@ def build_refresh_payload(
     trend_cache: dict[str, dict[str, Any] | None] = {}
     atr_cache: dict[str, float | None] = {}
     def _fetch_indicators(ticker: str) -> tuple[str, float | None, dict | None, dict | None, float | None]:
-        try:
-            hist = fetch_ticker_history(ticker, "6mo")
-            closes = hist.get("series", [])
-            prices = [float(p) for p in closes if p is not None]
-            rsi = compute_rsi(prices)
-            macd = compute_macd(prices) if len(prices) >= 35 else None
-            trend = compute_trend(prices) if len(prices) >= 50 else None
-            # ATR from OHLC data
-            ohlc = hist.get("ohlc_series", [])
-            if len(ohlc) >= 15:
-                highs = [float(d["high"]) for d in ohlc]
-                lows = [float(d["low"]) for d in ohlc]
-                cls = [float(d["close"]) for d in ohlc]
-                atr = compute_atr(highs, lows, cls)
-            else:
-                atr = None
-            return ticker, rsi, macd, trend, atr
-        except Exception:
-            return ticker, None, None, None, None
-    with ThreadPoolExecutor(max_workers=min(len(watchlist), 5)) as pool:
+        for _attempt in range(2):
+            try:
+                hist = fetch_ticker_history(ticker, "3mo")
+                closes = hist.get("series", [])
+                prices = [float(p) for p in closes if p is not None]
+                if len(prices) < 15:
+                    continue  # retry if insufficient data
+                rsi = compute_rsi(prices)
+                macd = compute_macd(prices) if len(prices) >= 35 else None
+                trend = compute_trend(prices) if len(prices) >= 50 else None
+                # ATR from OHLC data
+                ohlc = hist.get("ohlc_series", [])
+                if len(ohlc) >= 15:
+                    highs = [float(d["high"]) for d in ohlc]
+                    lows = [float(d["low"]) for d in ohlc]
+                    cls = [float(d["close"]) for d in ohlc]
+                    atr = compute_atr(highs, lows, cls)
+                else:
+                    atr = None
+                return ticker, rsi, macd, trend, atr
+            except Exception:
+                continue
+        return ticker, None, None, None, None
+    with ThreadPoolExecutor(max_workers=min(len(watchlist), 3)) as pool:
         for ticker, rsi, macd, trend, atr in pool.map(lambda t: _fetch_indicators(t), watchlist):
             rsi_cache[ticker] = rsi
             macd_cache[ticker] = macd
@@ -1956,6 +1960,32 @@ def build_refresh_payload(
         volume_series_raw = (ticker_hist or {}).get("volume_series", [])
         closes = [float(e.get("close", 0) or e.get("value", 0) or 0) for e in ohlc_series if e.get("close") or e.get("value")]
         volumes = [float(v.get("volume", 0) or v.get("value", 0) or 0) for v in volume_series_raw if v.get("volume") or v.get("value")]
+
+        # Compute RSI, MACD, trend, ATR from the same 3mo data
+        series_prices = [float(p) for p in (ticker_hist or {}).get("series", []) if p is not None]
+        if series_prices and len(series_prices) >= 15:
+            rsi_cache[ticker] = compute_rsi(series_prices)
+        if series_prices and len(series_prices) >= 35:
+            macd_cache[ticker] = compute_macd(series_prices)
+        if series_prices and len(series_prices) >= 50:
+            trend_cache[ticker] = compute_trend(series_prices)
+        if len(ohlc_series) >= 15:
+            highs_atr = [float(d["high"]) for d in ohlc_series]
+            lows_atr = [float(d["low"]) for d in ohlc_series]
+            closes_atr = [float(d["close"]) for d in ohlc_series]
+            atr_cache[ticker] = compute_atr(highs_atr, lows_atr, closes_atr)
+
+        # Update stock dict with freshly computed indicators
+        stock["rsi_value"] = rsi_cache.get(ticker)
+        stock["atr_value"] = atr_cache.get(ticker)
+        _macd = macd_cache.get(ticker)
+        if isinstance(_macd, dict):
+            stock["macd"] = _macd
+            stock["macd_histogram"] = _macd.get("histogram")
+        _trend = trend_cache.get(ticker)
+        if isinstance(_trend, dict):
+            stock["trend"] = _trend
+            stock["trend_factor"] = _trend.get("trend_strength", 1.0)
 
         # Bollinger Bands
         bb = compute_bollinger_bands(closes, period=20, std_dev=2.0)
