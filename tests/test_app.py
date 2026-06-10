@@ -3423,3 +3423,20 @@ class TestCalibrationReport:
         assert "hit_rate" in ov
         assert "baseline" in ov
         assert "edge" in ov
+
+
+class TestDailySummary:
+    def test_daily_summary_shape(self, monkeypatch):
+        _patch_fetch_news_bundle(monkeypatch, lambda *a, **k: ([], []))
+        _patch_fetch_stock_quotes(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_fetch_market_index(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_validation_series(monkeypatch, lambda *a, **k: ({}, []))
+        resp = client.get("/api/signals/daily-summary?limit=3")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "horizons" in data
+        assert "1d" in data["horizons"]
+        assert "7d" in data["horizons"]
+        assert "30d" in data["horizons"]
+        assert "accuracy" in data
+        assert "total_signals" in data

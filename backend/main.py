@@ -2783,6 +2783,69 @@ def api_calibration_report(window_days: int = 30, origin: str = "live", min_samp
     }
 
 
+@app.get("/api/signals/daily-summary")
+def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, Any]:
+    """Return top actionable signals grouped by time horizon (1d/7d/30d)."""
+    from backend.trading_signals import rank_trade_signals
+    from backend.backtest import compute_accuracy_metrics
+
+    watchlist = get_watchlist()
+    payload = build_refresh_payload(watchlist, force=False, window="1d")
+    stocks = payload.get("stocks", [])
+
+    # Extract signals from stocks
+    all_signals = []
+    for stock in stocks:
+        ts = stock.get("trading_signal") or {}
+        action = ts.get("action", "IGNORE")
+        if action == "IGNORE":
+            continue
+        if not include_watch and action == "WATCH":
+            continue
+        all_signals.append({
+            "ticker": stock.get("ticker", ""),
+            "name": stock.get("name", ""),
+            "price": stock.get("price"),
+            "action": action,
+            "time_horizon": ts.get("time_horizon", "7d"),
+            "signal_tier": ts.get("signal_tier", "D"),
+            "signal_strength": ts.get("signal_strength", 0),
+            "event_score": ts.get("event_score", 0),
+            "tech_score": ts.get("tech_score", 0),
+            "tech_confirmation_count": ts.get("tech_confirmation_count", 0),
+            "entry_price": ts.get("entry_price"),
+            "stop_loss": ts.get("stop_loss"),
+            "take_profit": ts.get("take_profit"),
+            "reasons": ts.get("reasons", []),
+            "invalidation": ts.get("invalidation", ""),
+        })
+
+    # Group by horizon
+    by_horizon: dict[str, list] = {"1d": [], "7d": [], "30d": []}
+    for sig in all_signals:
+        horizon = sig.get("time_horizon", "7d")
+        if horizon in by_horizon:
+            by_horizon[horizon].append(sig)
+
+    # Sort each horizon group and take top N
+    for horizon in by_horizon:
+        by_horizon[horizon] = rank_trade_signals(by_horizon[horizon])[:limit]
+
+    # Calibration context
+    metrics = compute_accuracy_metrics(window_days=30, origin="live")
+
+    return {
+        "horizons": by_horizon,
+        "total_signals": len(all_signals),
+        "accuracy": {
+            "hit_rate": metrics.get("hit_rate", 0),
+            "baseline": metrics.get("baseline", {}).get("neutral_hit_rate", 0),
+            "edge": metrics.get("baseline", {}).get("edge_vs_neutral", 0),
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
 @app.post("/api/backtest/backfill")
 def api_backtest_backfill() -> dict[str, Any]:
     """Backfill predictions from cached events + Yahoo Finance history."""
