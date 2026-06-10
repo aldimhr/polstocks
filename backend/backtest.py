@@ -681,6 +681,34 @@ def compute_accuracy_metrics(window_days: int = 30, origin: str = "all") -> dict
                 "hit_rate": round(row_correct / row_with_result, 3) if row_with_result else 0.0,
             }
 
+        # Signal type breakdown (new Phase 2 column)
+        sig_type_stats = {}
+        try:
+            for stype in ["event", "technical", "composite"]:
+                st_total = count_where("COALESCE(signal_type, 'event') = ? AND is_correct IS NOT NULL", (stype,))
+                st_correct = count_where("COALESCE(signal_type, 'event') = ? AND is_correct = 1", (stype,))
+                sig_type_stats[stype] = {
+                    "total": st_total,
+                    "correct": st_correct,
+                    "hit_rate": round(st_correct / st_total, 3) if st_total > 0 else 0.0,
+                }
+        except Exception:
+            pass  # signal_type column may not exist yet
+
+        # Horizon breakdown
+        horizon_stats = {}
+        try:
+            for horizon in ["1d", "7d", "30d"]:
+                h_total = count_where("COALESCE(time_horizon, '7d') = ? AND is_correct IS NOT NULL", (horizon,))
+                h_correct = count_where("COALESCE(time_horizon, '7d') = ? AND is_correct = 1", (horizon,))
+                horizon_stats[horizon] = {
+                    "total": h_total,
+                    "correct": h_correct,
+                    "hit_rate": round(h_correct / h_total, 3) if h_total > 0 else 0.0,
+                }
+        except Exception:
+            pass
+
         bias_row = conn.execute(
             f"""SELECT AVG(predicted_score) as avg_pred, AVG(actual_return_24h) as avg_actual
                FROM predictions WHERE is_correct IS NOT NULL AND {where}""",
@@ -727,6 +755,8 @@ def compute_accuracy_metrics(window_days: int = 30, origin: str = "all") -> dict
                 "avg_return_when_predicted_negative": round(weighted_row["avg_negative_return"] or 0, 4),
             },
             "by_origin": by_origin,
+            "by_signal_type": sig_type_stats,
+            "by_time_horizon": horizon_stats,
             "by_direction": direction_stats,
             "by_significance": sig_stats,
             "by_confidence": conf_stats,

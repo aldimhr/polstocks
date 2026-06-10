@@ -3336,3 +3336,22 @@ class TestResolveSignalsHorizon:
         conn.execute("DELETE FROM signal_history WHERE ticker = 'RESOLV.JK'")
         conn.commit()
         conn.close()
+
+
+class TestAPIFiltersPhase2:
+    def test_signals_history_accepts_horizon_filter(self):
+        resp = client.get("/api/signals/history?time_horizon=1d")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "signals" in data
+
+    def test_signals_history_accepts_tier_filter(self):
+        resp = client.get("/api/signals/history?signal_tier=B")
+        assert resp.status_code == 200
+
+    def test_backtest_has_signal_type_breakdown(self):
+        resp = client.get("/api/backtest?window_days=30")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "by_signal_type" in data
+        assert "by_time_horizon" in data

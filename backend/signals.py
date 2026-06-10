@@ -221,6 +221,9 @@ def get_signal_history(
     action: str | None = None,
     ticker: str | None = None,
     outcome: str | None = None,
+    time_horizon: str | None = None,
+    signal_tier: str | None = None,
+    signal_type: str | None = None,
 ) -> list[dict[str, Any]]:
     """Query signal history with optional filters."""
     conn = _get_conn()
@@ -236,6 +239,15 @@ def get_signal_history(
         if outcome:
             query += " AND outcome = ?"
             params.append(outcome)
+        if time_horizon:
+            query += " AND time_horizon = ?"
+            params.append(time_horizon)
+        if signal_tier:
+            query += " AND signal_tier = ?"
+            params.append(signal_tier)
+        if signal_type:
+            query += " AND signal_type = ?"
+            params.append(signal_type)
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 

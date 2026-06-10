@@ -2418,11 +2418,17 @@ def api_signal_history(
     action: str | None = None,
     ticker: str | None = None,
     outcome: str | None = None,
+    time_horizon: str | None = None,
+    signal_tier: str | None = None,
+    signal_type: str | None = None,
 ) -> dict[str, Any]:
     """Query signal history with optional filters."""
     from backend.signals import get_signal_history, get_signal_stats, init_signal_tables
     init_signal_tables()
-    signals = get_signal_history(limit=limit, action=action, ticker=ticker, outcome=outcome)
+    signals = get_signal_history(
+        limit=limit, action=action, ticker=ticker, outcome=outcome,
+        time_horizon=time_horizon, signal_tier=signal_tier, signal_type=signal_type,
+    )
     stats = get_signal_stats()
     return {"signals": signals, "stats": stats}
 
