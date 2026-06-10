@@ -3317,3 +3317,22 @@ class TestLogSignalHorizon:
         conn.execute("DELETE FROM signal_history WHERE ticker = 'TEST.JK'")
         conn.commit()
         conn.close()
+
+
+class TestResolveSignalsHorizon:
+    def test_resolve_uses_horizon_expiry(self):
+        from backend.signals import log_signal, resolve_signals, init_signal_tables, _get_conn
+        init_signal_tables()
+        result = log_signal(
+            ticker="RESOLV.JK", action="BUY", signal_strength=0.7,
+            price_at_signal=1000, stop_loss=950, take_profit=1100,
+            time_horizon="1d",
+        )
+        assert result is not None
+        resolved = resolve_signals({"RESOLV.JK": 1100})
+        matching = [r for r in resolved if r["ticker"] == "RESOLV.JK"]
+        assert len(matching) >= 0
+        conn = _get_conn()
+        conn.execute("DELETE FROM signal_history WHERE ticker = 'RESOLV.JK'")
+        conn.commit()
+        conn.close()

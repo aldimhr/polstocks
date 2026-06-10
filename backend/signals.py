@@ -21,6 +21,13 @@ RESOLVE_AFTER_HOURS_24H = 24
 RESOLVE_AFTER_HOURS_72H = 72
 EXPIRE_AFTER_DAYS = 7
 
+# Horizon-aware expiry
+EXPIRE_AFTER_DAYS_BY_HORIZON = {
+    "1d": 2,
+    "7d": 10,
+    "30d": 35,
+}
+
 BACKEND_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "polstock_backend.db"
 
 
@@ -109,6 +116,8 @@ def init_signal_tables() -> None:
             ("tech_confirmation_count", "INTEGER DEFAULT 0"),
             ("calibration_multiplier", "REAL DEFAULT 1.0"),
             ("invalidation_reason", "TEXT"),
+            ("return_at_horizon", "REAL"),
+            ("resolved_at_horizon", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE signal_history ADD COLUMN {col} {typ}")
@@ -291,15 +300,13 @@ def resolve_signals(
     resolved: list[dict[str, Any]] = []
     try:
         from datetime import datetime, timedelta
-        expire_cutoff_dt = datetime.utcnow() - timedelta(days=EXPIRE_AFTER_DAYS)
-        expire_cutoff = expire_cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
         rows = conn.execute(
-            "SELECT id, ticker, action, price_at_signal, stop_loss, take_profit, created_at "
+            "SELECT id, ticker, action, price_at_signal, stop_loss, take_profit, created_at, time_horizon "
             "FROM signal_history WHERE outcome = 'pending' ORDER BY created_at DESC"
         ).fetchall()
 
         for row in rows:
-            sig_id, ticker, action, price_at, sl, tp, created = row
+            sig_id, ticker, action, price_at, sl, tp, created, time_horizon = row
             current = current_prices.get(ticker)
             if current is None:
                 continue
@@ -318,6 +325,9 @@ def resolve_signals(
                     outcome = "loss"
 
             # Check expiry
+            horizon_days = EXPIRE_AFTER_DAYS_BY_HORIZON.get(time_horizon or "7d", EXPIRE_AFTER_DAYS)
+            expire_cutoff_dt = datetime.utcnow() - timedelta(days=horizon_days)
+            expire_cutoff = expire_cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
             if outcome is None and created and created < expire_cutoff:
                 outcome = "expired"
 
@@ -335,6 +345,19 @@ def resolve_signals(
                         "UPDATE signal_history SET price_after_72h = ?, actual_return_72h = ? WHERE id = ? AND price_after_72h IS NULL",
                         (current, round((current - price_at) / price_at * 100, 3) if price_at else None, sig_id),
                     )
+
+                # Horizon resolution price
+                if time_horizon and created:
+                    horizon_hours = {"1d": 24, "7d": 168, "30d": 720}.get(time_horizon, 168)
+                    if age_hours >= horizon_hours:
+                        horizon_return = round((current - price_at) / price_at * 100, 3) if price_at else None
+                        try:
+                            conn.execute(
+                                "UPDATE signal_history SET return_at_horizon = ?, resolved_at_horizon = datetime('now') WHERE id = ? AND return_at_horizon IS NULL",
+                                (horizon_return, sig_id),
+                            )
+                        except sqlite3.OperationalError:
+                            pass
 
             if outcome:
                 conn.execute(
