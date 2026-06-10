@@ -3355,3 +3355,35 @@ class TestAPIFiltersPhase2:
         data = resp.json()
         assert "by_signal_type" in data
         assert "by_time_horizon" in data
+
+
+class TestCalibration:
+    def test_compute_source_accuracy_returns_dict(self):
+        from backend.backtest import compute_source_accuracy
+        result = compute_source_accuracy(window_days=30, min_samples=1)
+        assert isinstance(result, dict)
+        # Should have at least one entry if there are live predictions
+        for source_id, stats in result.items():
+            assert "total" in stats
+            assert "correct" in stats
+            assert "hit_rate" in stats
+            assert "calibration_multiplier" in stats
+            assert 0.5 <= stats["calibration_multiplier"] <= 1.5
+
+    def test_compute_category_calibration_returns_dict(self):
+        from backend.backtest import compute_category_calibration
+        result = compute_category_calibration(window_days=30, min_samples=1)
+        assert isinstance(result, dict)
+        for cat, stats in result.items():
+            assert "total" in stats
+            assert "hit_rate" in stats
+            assert "calibration_multiplier" in stats
+            assert 0.5 <= stats["calibration_multiplier"] <= 1.5
+
+    def test_source_accuracy_table_exists(self):
+        from backend.backtest import init_backtest_db, _get_conn
+        init_backtest_db()
+        conn = _get_conn()
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='source_accuracy'").fetchall()
+        conn.close()
+        assert len(rows) == 1

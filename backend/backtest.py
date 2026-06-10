@@ -137,6 +137,17 @@ def init_backtest_db() -> None:
             except sqlite3.OperationalError:
                 pass  # column already exists
         conn.commit()
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS source_accuracy (
+                source_id TEXT PRIMARY KEY,
+                total_predictions INTEGER DEFAULT 0,
+                correct_predictions INTEGER DEFAULT 0,
+                hit_rate REAL DEFAULT 0.5,
+                calibration_multiplier REAL DEFAULT 1.0,
+                last_updated TEXT
+            );
+        """)
+        conn.commit()
     finally:
         conn.close()
 
@@ -769,6 +780,114 @@ def compute_accuracy_metrics(window_days: int = 30, origin: str = "all") -> dict
             "by_category": cat_stats[:5],
             "statistical_significance": with_result >= 30,
         }
+    finally:
+        conn.close()
+
+
+def compute_source_accuracy(window_days: int = 30, min_samples: int = 5) -> dict[str, dict[str, Any]]:
+    """Compute per-source prediction accuracy from live predictions only.
+
+    Returns dict: source_type -> {total, correct, hit_rate, calibration_multiplier}
+    Only includes sources with >= min_samples predictions.
+    """
+    init_backtest_db()
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        cutoff = (datetime.utcnow() - timedelta(days=window_days)).isoformat()
+        rows = conn.execute(
+            """SELECT COALESCE(source_type, 'unknown') AS source_type,
+                      COUNT(*) AS total,
+                      SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correct
+               FROM predictions
+               WHERE created_at >= ?
+                 AND COALESCE(prediction_origin, 'live') = 'live'
+                 AND is_correct IS NOT NULL
+               GROUP BY COALESCE(source_type, 'unknown')
+               HAVING COUNT(*) >= ?
+               ORDER BY total DESC""",
+            (cutoff, min_samples),
+        ).fetchall()
+
+        # Overall live hit rate for calibration baseline
+        overall_row = conn.execute(
+            """SELECT COUNT(*) AS total, SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correct
+               FROM predictions
+               WHERE created_at >= ?
+                 AND COALESCE(prediction_origin, 'live') = 'live'
+                 AND is_correct IS NOT NULL""",
+            (cutoff,),
+        ).fetchone()
+        overall_hit_rate = (overall_row["correct"] or 0) / overall_row["total"] if overall_row["total"] else 0.5
+
+        result = {}
+        for row in rows:
+            total = int(row["total"])
+            correct = int(row["correct"] or 0)
+            hit_rate = correct / total if total > 0 else 0.5
+            # Calibration: how much better/worse than overall, clamped
+            calibration = max(0.5, min(1.5, hit_rate / overall_hit_rate)) if overall_hit_rate > 0 else 1.0
+            result[row["source_type"]] = {
+                "total": total,
+                "correct": correct,
+                "hit_rate": round(hit_rate, 3),
+                "calibration_multiplier": round(calibration, 3),
+            }
+        return result
+    finally:
+        conn.close()
+
+
+def compute_category_calibration(window_days: int = 30, min_samples: int = 5) -> dict[str, dict[str, Any]]:
+    """Compute per-category calibration multipliers from live predictions.
+
+    Returns dict: category -> {total, correct, hit_rate, calibration_multiplier}
+    Only includes categories with >= min_samples predictions.
+    """
+    init_backtest_db()
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        cutoff = (datetime.utcnow() - timedelta(days=window_days)).isoformat()
+        rows = conn.execute(
+            """SELECT categories, COUNT(*) AS total,
+                      SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correct
+               FROM predictions
+               WHERE created_at >= ?
+                 AND COALESCE(prediction_origin, 'live') = 'live'
+                 AND is_correct IS NOT NULL
+               GROUP BY categories
+               HAVING COUNT(*) >= ?
+               ORDER BY total DESC""",
+            (cutoff, min_samples),
+        ).fetchall()
+
+        overall_row = conn.execute(
+            """SELECT COUNT(*) AS total, SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correct
+               FROM predictions
+               WHERE created_at >= ?
+                 AND COALESCE(prediction_origin, 'live') = 'live'
+                 AND is_correct IS NOT NULL""",
+            (cutoff,),
+        ).fetchone()
+        overall_hit_rate = (overall_row["correct"] or 0) / overall_row["total"] if overall_row["total"] else 0.5
+
+        result = {}
+        for row in rows:
+            cats = json.loads(row["categories"]) if row["categories"] else []
+            total = int(row["total"])
+            correct = int(row["correct"] or 0)
+            hit_rate = correct / total if total > 0 else 0.5
+            calibration = max(0.5, min(1.5, hit_rate / overall_hit_rate)) if overall_hit_rate > 0 else 1.0
+            for cat in cats:
+                if cat not in result:  # deduplicate if category appears in multiple rows
+                    result[cat] = {
+                        "total": total,
+                        "correct": correct,
+                        "hit_rate": round(hit_rate, 3),
+                        "calibration_multiplier": round(calibration, 3),
+                    }
+        return result
     finally:
         conn.close()
 
