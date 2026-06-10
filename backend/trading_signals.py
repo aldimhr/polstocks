@@ -32,11 +32,14 @@ def compute_event_score(stock: dict[str, Any]) -> dict[str, Any]:
 
     direction = str(stock.get("impact_direction", "neutral") or "neutral")
 
+    # Use higher floors so moderate factors produce actionable scores.
+    # Blend: event quality (impact × confidence × source) with corroboration boost.
+    event_quality = normalized_impact * max(confidence, 0.3) * max(source_conf, 0.3)
+    corroboration_boost = 0.5 + 0.5 * corroboration  # range: 0.5-1.0
+
     score = _clamp(
-        normalized_impact
-        * max(confidence, 0.1)
-        * max(source_conf, 0.1)
-        * max(corroboration, 0.1)
+        event_quality
+        * corroboration_boost
         * recency
         * conflict_penalty
     )
@@ -58,11 +61,11 @@ def compute_event_score(stock: dict[str, Any]) -> dict[str, Any]:
 def compute_technical_confirmation(stock: dict[str, Any]) -> dict[str, Any]:
     """Count how many core technical indicators agree with the stock's direction.
 
-    Core indicators:
-    1. RSI: BUY if < 40, SELL if > 60
+    Core indicators (directional alignment, not extreme levels):
+    1. RSI: BUY if < 55, SELL if > 45
     2. MACD histogram: BUY if > 0, SELL if < 0
-    3. Bollinger %B: BUY if < 0.2, SELL if > 0.8
-    4. Volume spike: confirm if is_spike AND direction aligns
+    3. Bollinger %B: BUY if < 0.3, SELL if > 0.7
+    4. Volume spike: confirm if is_spike
 
     Returns dict: confirm_count, total, score (0-1), details.
     """
@@ -74,14 +77,14 @@ def compute_technical_confirmation(stock: dict[str, Any]) -> dict[str, Any]:
     confirmations: list[str] = []
     total = 0
 
-    # 1. RSI
+    # 1. RSI — directional alignment (not extreme oversold/overbought)
     rsi = stock.get("rsi_value")
     if rsi is not None:
         total += 1
-        if is_buy and rsi < 40:
-            confirmations.append("RSI oversold")
-        elif not is_buy and rsi > 60:
-            confirmations.append("RSI overbought")
+        if is_buy and rsi < 55:
+            confirmations.append("RSI directional buy")
+        elif not is_buy and rsi > 45:
+            confirmations.append("RSI directional sell")
 
     # 2. MACD histogram
     macd = stock.get("macd")
@@ -97,14 +100,14 @@ def compute_technical_confirmation(stock: dict[str, Any]) -> dict[str, Any]:
         elif not is_buy and hist < 0:
             confirmations.append("MACD histogram negative")
 
-    # 3. Bollinger %B
+    # 3. Bollinger %B — wider band for directional confirmation
     bb = stock.get("bollinger")
     if isinstance(bb, dict) and bb.get("percent_b") is not None:
         total += 1
         pct_b = bb["percent_b"]
-        if is_buy and pct_b < 0.2:
+        if is_buy and pct_b < 0.3:
             confirmations.append("Bollinger %B near lower band")
-        elif not is_buy and pct_b > 0.8:
+        elif not is_buy and pct_b > 0.7:
             confirmations.append("Bollinger %B near upper band")
 
     # 4. Volume spike
@@ -155,6 +158,57 @@ def infer_time_horizon(
     return "7d"
 
 
+def detect_technical_setup(stock: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect standalone technical setups that don't need event catalyst.
+
+    Returns a dict with action, reasons, and score if a setup is found.
+    Returns None if no setup detected.
+    """
+    rsi = stock.get("rsi_value")
+    bb = stock.get("bollinger") or {}
+    bb_pct_b = bb.get("percent_b")
+    macd = stock.get("macd") or {}
+    hist = macd.get("histogram") if isinstance(macd, dict) else None
+    vol = stock.get("volume_spike") or {}
+    is_spike = vol.get("is_spike", False)
+    spike_ratio = vol.get("spike_ratio", 0)
+
+    reasons: list[str] = []
+    score = 0.0
+
+    # Oversold bounce candidate
+    if rsi is not None and rsi < 35:
+        reasons.append(f"RSI {rsi:.0f} oversold — bounce candidate")
+        score += 0.3
+    if bb_pct_b is not None and bb_pct_b < 0.2:
+        reasons.append("Near lower Bollinger Band — potential bounce")
+        score += 0.2
+
+    # Momentum breakout candidate
+    if rsi is not None and rsi > 60:
+        reasons.append(f"RSI {rsi:.0f} bullish momentum")
+        score += 0.2
+    if hist is not None and hist > 0:
+        reasons.append("MACD histogram positive — upward momentum")
+        score += 0.15
+    if is_spike:
+        reasons.append(f"Volume spike {spike_ratio:.1f}x — institutional interest")
+        score += 0.25
+
+    # Bollinger near upper band
+    if bb_pct_b is not None and bb_pct_b > 0.8:
+        reasons.append("Near upper Bollinger Band — potential breakout or reversal")
+        score += 0.15
+
+    if score >= 0.2 and reasons:
+        return {
+            "action": "WATCH",
+            "score": min(score, 1.0),
+            "reasons": reasons,
+        }
+    return None
+
+
 def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
     """Full signal classification: action, horizon, tier, entry/SL/TP, reasons.
 
@@ -188,25 +242,35 @@ def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
     has_conflict = bool(stock.get("source_conflict", False))
 
     if direction not in ("positive", "negative"):
-        action = "WATCH" if ev_score > 0.1 else "IGNORE"
-        reasons.append(f"Direction is {direction} — no directional conviction")
-    elif signal_strength < 0.20:
+        # No event direction — check standalone technical setups
+        tech_setup = detect_technical_setup(stock)
+        if tech_setup:
+            action = "WATCH"
+            signal_strength = max(signal_strength, tech_setup["score"])
+            reasons = tech_setup["reasons"]
+        elif ev_score > 0.1:
+            action = "WATCH"
+            reasons.append(f"Direction is {direction} — no directional conviction")
+        else:
+            action = "IGNORE"
+            reasons.append(f"Direction is {direction}, no event or technical setup")
+    elif signal_strength < 0.30:
         action = "IGNORE"
-        reasons.append(f"Signal strength {signal_strength:.2f} below 0.20 minimum")
-    elif signal_strength < 0.45:
+        reasons.append(f"Signal strength {signal_strength:.2f} below 0.30 minimum")
+    elif signal_strength < 0.35:
         action = "WATCH"
-        reasons.append(f"Signal strength {signal_strength:.2f} below 0.45 action threshold")
+        reasons.append(f"Signal strength {signal_strength:.2f} below 0.35 action threshold")
     else:
         if direction == "positive":
             if confirm_count < 2:
                 action = "WATCH"
-                reasons.append(f"Only {confirm_count}/4 tech confirmations, need 2+ for BUY")
+                reasons.append(f"Only {confirm_count}/{tech_total} tech confirmations, need 2+ for BUY")
             else:
                 action = "BUY"
         else:  # negative
             if confirm_count < 3:
                 action = "WATCH"
-                reasons.append(f"Only {confirm_count}/4 tech confirmations, need 3+ for SELL (strict mode)")
+                reasons.append(f"Only {confirm_count}/{tech_total} tech confirmations, need 3+ for SELL (strict mode)")
             else:
                 action = "SELL"
 
@@ -219,7 +283,7 @@ def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
         signal_tier = "A"
     elif action == "BUY" and signal_strength >= 0.60 and confirm_count >= 2 and not has_conflict:
         signal_tier = "B"
-    elif action in ("BUY", "SELL") and signal_strength >= 0.45:
+    elif action in ("BUY", "SELL") and signal_strength >= 0.35:
         signal_tier = "C"
     elif action == "WATCH":
         signal_tier = "C"
@@ -236,8 +300,13 @@ def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
         take_profit = round(price - 3.0 * atr, 2)
 
     # Step 8: Reasons enrichment
-    if confirm_count > 0:
+    if confirm_count > 0 and not reasons:
         reasons.extend(tech["details"])
+    elif confirm_count > 0:
+        # Add tech details that aren't already in reasons
+        for detail in tech["details"]:
+            if detail not in reasons:
+                reasons.append(detail)
     if has_conflict:
         reasons.append("Source conflict detected — reduced confidence")
 
@@ -248,11 +317,19 @@ def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
     elif action == "SELL":
         invalidation = f"Close above {stop_loss} or direction reversal"
 
+    # Determine signal type
+    if ev_score > 0 and tech_score > 0:
+        signal_type = "composite"
+    elif ev_score > 0:
+        signal_type = "event"
+    else:
+        signal_type = "technical"
+
     return {
         "action": action,
         "time_horizon": time_horizon,
         "signal_tier": signal_tier,
-        "signal_type": "composite" if ev_score > 0 and tech_score > 0 else ("event" if ev_score > 0 else "technical"),
+        "signal_type": signal_type,
         "signal_strength": signal_strength,
         "event_score": ev_score,
         "tech_score": tech_score,
@@ -301,10 +378,23 @@ def get_calibration_multiplier(stock: dict[str, Any]) -> float:
     if source_type and source_type in source_cal:
         multiplier *= source_cal[source_type]["calibration_multiplier"]
 
-    # Category calibration — check if stock has event category info
-    # The stock dict doesn't directly carry categories, but we can check
-    # matched_policy_channels or event_cluster_count as a proxy
-    # For now, skip category calibration on individual stocks
-    # (it's applied at the event level in compute_accuracy_metrics)
+    # Category calibration — use matched_policy_channels and policy_channel
+    if cat_cal:
+        categories_to_check: set[str] = set()
+        # From policy_channel field
+        pc = stock.get("policy_channel", "")
+        if pc:
+            categories_to_check.add(str(pc).upper())
+        # From matched_policy_channels list
+        for ch in stock.get("matched_policy_channels", []):
+            if isinstance(ch, dict):
+                categories_to_check.add(str(ch.get("channel", "")).upper())
+        # Apply best category multiplier
+        cat_multipliers = []
+        for cat in categories_to_check:
+            if cat in cat_cal:
+                cat_multipliers.append(cat_cal[cat]["calibration_multiplier"])
+        if cat_multipliers:
+            multiplier *= max(cat_multipliers)
 
     return _clamp(multiplier, 0.5, 1.5)

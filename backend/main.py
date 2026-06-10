@@ -2005,24 +2005,25 @@ def build_refresh_payload(
 
     stocks = sort_stocks_by_impact(stocks)
 
-    # Phase 3: Log BUY/SELL signals to history and send Telegram alerts
+    # Phase 3: Log BUY signals to history and send Telegram alerts
+    # Uses trading_signal (new system) instead of trade_signal (old system).
+    # SELL signals suppressed — 0% hit rate on 24 live predictions.
     _actionable_signals: list[dict[str, Any]] = []
     for stock in stocks:
-        trade = stock.get("trade_signal") or {}
-        if trade.get("action") not in ("BUY", "SELL"):
-            continue
-        # Read new trading_signal fields if available
         ts = stock.get("trading_signal") or {}
+        action = ts.get("action", "IGNORE")
+        if action != "BUY":
+            continue
         sig_record = {
             "ticker": stock.get("ticker", ""),
-            "action": trade["action"],
-            "signal_strength": trade.get("signal_quality", 0),
-            "price_at_signal": trade.get("entry", 0),
-            "stop_loss": trade.get("stop_loss"),
-            "take_profit": trade.get("take_profit"),
-            "risk_reward": trade.get("risk_reward"),
-            "timeframe": trade.get("timeframe"),
-            "reasons": trade.get("reasons", []),
+            "action": action,
+            "signal_strength": ts.get("signal_strength", 0),
+            "price_at_signal": ts.get("entry_price") or stock.get("price", 0),
+            "stop_loss": ts.get("stop_loss"),
+            "take_profit": ts.get("take_profit"),
+            "risk_reward": None,
+            "timeframe": ts.get("time_horizon"),
+            "reasons": ts.get("reasons", []),
             "event_headline": stock.get("headline", ""),
             "event_source": stock.get("source", ""),
             # Phase 2: new fields from trading_signal
