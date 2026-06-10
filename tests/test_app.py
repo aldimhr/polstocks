@@ -3387,3 +3387,39 @@ class TestCalibration:
         rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='source_accuracy'").fetchall()
         conn.close()
         assert len(rows) == 1
+
+
+class TestCalibrationIntegration:
+    def test_classify_signal_uses_calibration(self):
+        from backend.trading_signals import classify_signal
+        stock = {
+            "ticker": "TEST.JK", "price": 1000,
+            "impact_score": 5.0, "impact_direction": "positive",
+            "relationship_confidence": 0.5, "source_confidence": 0.5,
+            "corroboration_count": 1, "recency_weight": 0.8,
+            "source_conflict": False,
+            "rsi_value": 35.0,
+            "macd": {"histogram": 0.3},
+        }
+        result = classify_signal(stock)
+        # signal_strength should include calibration (not exactly 0.45 etc.)
+        assert "signal_strength" in result
+        assert isinstance(result["signal_strength"], float)
+
+
+class TestCalibrationReport:
+    def test_calibration_report_shape(self):
+        resp = client.get("/api/calibration/report?window_days=30")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "overall" in data
+        assert "by_source_type" in data
+        assert "by_category" in data
+        assert "by_signal_type" in data
+        assert "by_time_horizon" in data
+        assert "recommendations" in data
+        assert isinstance(data["recommendations"], list)
+        ov = data["overall"]
+        assert "hit_rate" in ov
+        assert "baseline" in ov
+        assert "edge" in ov

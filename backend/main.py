@@ -2741,6 +2741,48 @@ def api_backtest(window_days: int = 30, origin: str = "all") -> dict[str, Any]:
     return compute_accuracy_metrics(window_days=window_days, origin=origin)
 
 
+@app.get("/api/calibration/report")
+def api_calibration_report(window_days: int = 30, origin: str = "live", min_samples: int = 5) -> dict[str, Any]:
+    """Return calibration health report: source accuracy, category calibration, recommendations."""
+    from backend.backtest import (
+        compute_accuracy_metrics, compute_source_accuracy, compute_category_calibration,
+    )
+    metrics = compute_accuracy_metrics(window_days=window_days, origin=origin)
+    source_acc = compute_source_accuracy(window_days=window_days, min_samples=min_samples)
+    cat_cal = compute_category_calibration(window_days=window_days, min_samples=min_samples)
+
+    # Recommendations
+    recs = []
+    live_edge = metrics.get("baseline", {}).get("edge_vs_neutral", 0)
+    if live_edge < 0:
+        recs.append(f"Strict mode ON: live edge is {live_edge:.1%} vs neutral baseline")
+    neg_stats = metrics.get("by_direction", {}).get("negative", {})
+    if neg_stats.get("total", 0) > 0 and neg_stats.get("hit_rate", 0) == 0:
+        recs.append("SELL signals suppressed: 0% accuracy on negative predictions")
+    for src, stats in source_acc.items():
+        if stats["hit_rate"] < 0.3 and stats["total"] >= 10:
+            recs.append(f"Source '{src}' underperforming: {stats['hit_rate']:.0%} hit rate ({stats['total']} samples)")
+    for cat, stats in cat_cal.items():
+        if stats["calibration_multiplier"] < 0.7:
+            recs.append(f"Category '{cat}' dampened: {stats['calibration_multiplier']:.2f}x multiplier")
+        elif stats["calibration_multiplier"] > 1.3:
+            recs.append(f"Category '{cat}' boosted: {stats['calibration_multiplier']:.2f}x multiplier")
+
+    return {
+        "overall": {
+            "hit_rate": metrics.get("hit_rate", 0),
+            "baseline": metrics.get("baseline", {}).get("neutral_hit_rate", 0),
+            "edge": live_edge,
+            "total": metrics.get("total_predictions", 0),
+        },
+        "by_source_type": source_acc,
+        "by_category": cat_cal,
+        "by_signal_type": metrics.get("by_signal_type", {}),
+        "by_time_horizon": metrics.get("by_time_horizon", {}),
+        "recommendations": recs,
+    }
+
+
 @app.post("/api/backtest/backfill")
 def api_backtest_backfill() -> dict[str, Any]:
     """Backfill predictions from cached events + Yahoo Finance history."""
