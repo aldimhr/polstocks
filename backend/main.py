@@ -1986,6 +1986,18 @@ def build_refresh_payload(
         )
         stock["trade_signal"] = trade
 
+    # Tag each stock with pinned/portfolio status
+    from backend.signals import get_pinned_tickers, get_portfolio_tickers
+    _pinned = get_pinned_tickers()
+    _portfolio = get_portfolio_tickers()
+    for stock in stocks:
+        t = stock.get("ticker", "")
+        is_pinned = t in _pinned
+        is_portfolio = t in _portfolio
+        stock["pinned"] = is_pinned or is_portfolio
+        stock["in_portfolio"] = is_portfolio
+        stock["pin_source"] = "portfolio" if is_portfolio else ("manual" if is_pinned else None)
+
     stocks = sort_stocks_by_impact(stocks)
 
     # Phase 3: Log BUY/SELL signals to history and send Telegram alerts

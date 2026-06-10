@@ -3568,20 +3568,38 @@
 
   function sortStocksList(stocks, key) {
     const arr = [...stocks];
+    // Pinned tickers always sort first, regardless of sort key
+    const pinSort = (a, b) => {
+      const pa = a.pinned ? 0 : 1;
+      const pb = b.pinned ? 0 : 1;
+      return pa - pb;
+    };
     switch (key) {
       case 'change':
         return arr.sort((a, b) => {
+          const pin = pinSort(a, b);
+          if (pin !== 0) return pin;
           const ca = Number(a.change_pct) || 0;
           const cb = Number(b.change_pct) || 0;
           return Math.abs(cb) - Math.abs(ca);
         });
       case 'price':
-        return arr.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+        return arr.sort((a, b) => {
+          const pin = pinSort(a, b);
+          if (pin !== 0) return pin;
+          return (Number(b.price) || 0) - (Number(a.price) || 0);
+        });
       case 'ticker':
-        return arr.sort((a, b) => (a.ticker || '').localeCompare(b.ticker || ''));
+        return arr.sort((a, b) => {
+          const pin = pinSort(a, b);
+          if (pin !== 0) return pin;
+          return (a.ticker || '').localeCompare(b.ticker || '');
+        });
       case 'impact':
       default:
         return arr.sort((a, b) => {
+          const pin = pinSort(a, b);
+          if (pin !== 0) return pin;
           const ia = Math.abs(Number(a.impact_score) || 0);
           const ib = Math.abs(Number(b.impact_score) || 0);
           const ra = Number(a.relationship_count || a.relationship_type ? 1 : 0);
@@ -3654,9 +3672,10 @@
         if (Number.isFinite(Number(stock.validation_confidence_delta)) && Number(stock.validation_confidence_delta) !== 0) validationParts.push(`Δconf ${Number(stock.validation_confidence_delta) > 0 ? '+' : ''}${Number(stock.validation_confidence_delta).toFixed(2)}`);
       }
       const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
+      const pinIcon = stock.in_portfolio ? '💼 ' : stock.pinned ? '📌 ' : '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
-          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
+          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${pinIcon}${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
           <td class="price-cell" data-label="Price (IDR)">${formatPrice(stock.price)}</td>
           <td class="change-cell ${changeClass}" data-label="Today">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell" data-label="Impact score"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>

@@ -575,8 +575,10 @@ def sort_stocks_by_impact(stocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         relationship_count = int(stock.get("relationship_count", 0) or 0)
         impact_score = float(stock.get("impact_score", 0.0) or 0.0)
         impacted = relationship_count > 0 or abs(impact_score) > 0.0001
+        pinned = bool(stock.get("pinned", False))
         ranked.append(
             (
+                0 if pinned else 1,          # pinned tickers always first
                 0 if impacted else 1,
                 -abs(impact_score),
                 -float(relationship_count),
