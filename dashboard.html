@@ -1049,6 +1049,22 @@
     border: 1px solid var(--border);
   }
 
+  .ticker-stat.clickable {
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.12s;
+  }
+
+  .ticker-stat.clickable:hover,
+  .ticker-stat.clickable:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .ticker-stat.clickable:active {
+    transform: scale(0.98);
+  }
+
   .ticker-stat .label {
     display: block;
     font-size: 9px;
@@ -2909,6 +2925,16 @@
         • <strong>< 0.4x normal</strong> = Very low — event may be noise<br><br>
         High volume after a news event means the market is actually reacting. Low volume means nobody cares.`
     },
+    'Bollinger': {
+      icon: '〰️',
+      title: 'Bollinger Bands — Price Position & Squeeze',
+      body: `Shows where the current price sits inside its recent volatility range.<br><br>
+        • <strong>Lower band</strong> = Price is near the bottom of its normal range; often watched for bounce setups<br>
+        • <strong>Middle band</strong> = 20-day average; neutral/reference zone<br>
+        • <strong>Upper band</strong> = Price is near the top of its normal range; often watched for overheating or breakout strength<br><br>
+        The percentage shows <strong>%B</strong>: 0% means near the lower band, 50% means around the middle, and 100% means near the upper band.<br><br>
+        A <strong>squeeze</strong> means the bands are very tight — volatility is compressed. When a political/news catalyst appears during a squeeze, PolStock treats it as a possible short-term breakout setup, usually more relevant for the <strong>1d</strong> horizon.`
+    },
     'Direction': {
       icon: '🎯',
       title: 'Impact Direction',
@@ -3317,12 +3343,17 @@
       const vsClass = vsData.is_spike ? 'up' : 'flat';
       stats.push({ label: `Volume · ${vsData.is_spike ? 'Spike!' : 'Normal'}`, value: `${Number(vsData.spike_ratio).toFixed(1)}x avg`, cls: vsClass, infoKey: 'Volume' });
     }
-    $('tickerModalStats').innerHTML = stats.map((item) => `
-      <div class="ticker-stat">
-        <span class="label${item.infoKey ? ' indicator-info' : ''}"${item.infoKey ? ` onclick="showIndicatorInfo('${item.infoKey}')"` : ''}>${escapeHtml(item.label)}</span>
+    $('tickerModalStats').innerHTML = stats.map((item) => {
+      const infoAttr = item.infoKey
+        ? ` role="button" tabindex="0" onclick="showIndicatorInfo('${item.infoKey}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showIndicatorInfo('${item.infoKey}')}" aria-label="Explain ${escapeHtml(item.label)}"`
+        : '';
+      return `
+      <div class="ticker-stat${item.infoKey ? ' clickable' : ''}"${infoAttr}>
+        <span class="label${item.infoKey ? ' indicator-info' : ''}">${escapeHtml(item.label)}</span>
         <span class="value ${item.cls}">${escapeHtml(item.value)}</span>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     // ── Signal Detail Section ──
     // Look up signal data from dashboard state (merged from daily-summary)
