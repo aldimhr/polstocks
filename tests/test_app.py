@@ -3466,6 +3466,97 @@ class TestCalibrationReport:
         assert "edge" in ov
 
 
+class TestRecordPredictionsNeutralFilter:
+    """B1: neutral impact_direction entries must not produce predictions."""
+
+    def test_neutral_relationship_produces_no_prediction(self):
+        """Events with only neutral stock_relationships should record zero predictions."""
+        from backend.backtest import record_predictions_from_events, init_backtest_db, _get_conn
+
+        init_backtest_db()
+        events = [
+            {
+                "id": "b1_neutral_test_001",
+                "headline": "Test neutral filter",
+                "published_at": "2026-06-10T10:00:00",
+                "significance": 0.5,
+                "source_type": "test",
+                "event_stage": "test",
+                "categories": ["test"],
+                "stock_relationships": [
+                    {
+                        "ticker": "NEUT.JK",
+                        "impact_direction": "neutral",
+                        "relationship_confidence": 0.8,
+                        "relevance_score": 4.0,
+                    },
+                ],
+            }
+        ]
+        count = record_predictions_from_events(events)
+        assert count == 0, "neutral relationships must be skipped"
+        # Double-check: nothing written to DB for this event
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT id FROM predictions WHERE event_id = 'b1_neutral_test_001'"
+        ).fetchall()
+        conn.close()
+        assert len(rows) == 0
+
+    def test_positive_and_negative_still_recorded(self):
+        """Positive/negative relationships must still be recorded normally."""
+        from backend.backtest import record_predictions_from_events, init_backtest_db, _get_conn
+
+        init_backtest_db()
+        events = [
+            {
+                "id": "b1_mixed_test_002",
+                "headline": "Test mixed directions",
+                "published_at": "2026-06-10T11:00:00",
+                "significance": 0.7,
+                "source_type": "test",
+                "event_stage": "test",
+                "categories": ["test"],
+                "stock_relationships": [
+                    {
+                        "ticker": "POS.JK",
+                        "impact_direction": "positive",
+                        "relationship_confidence": 0.9,
+                        "relevance_score": 4.5,
+                    },
+                    {
+                        "ticker": "NEG.JK",
+                        "impact_direction": "negative",
+                        "relationship_confidence": 0.6,
+                        "relevance_score": 3.0,
+                    },
+                    {
+                        "ticker": "NEU.JK",
+                        "impact_direction": "neutral",
+                        "relationship_confidence": 0.5,
+                        "relevance_score": 2.0,
+                    },
+                ],
+            }
+        ]
+        count = record_predictions_from_events(events)
+        assert count == 2, "only positive/negative should be recorded"
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT ticker FROM predictions WHERE event_id = 'b1_mixed_test_002'"
+        ).fetchall()
+        conn.close()
+        tickers = {r[0] for r in rows}
+        assert "POS.JK" in tickers
+        assert "NEG.JK" in tickers
+        assert "NEU.JK" not in tickers
+        # Cleanup
+        conn = _get_conn()
+        conn.execute("DELETE FROM predictions WHERE event_id IN ('b1_neutral_test_001', 'b1_mixed_test_002')")
+        conn.commit()
+        conn.close()
+
+
 class TestDailySummary:
     def test_daily_summary_shape(self, monkeypatch):
         _patch_fetch_news_bundle(monkeypatch, lambda *a, **k: ([], []))
