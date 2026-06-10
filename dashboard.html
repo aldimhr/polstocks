@@ -538,6 +538,44 @@
     font-family: 'DM Mono', monospace;
   }
 
+  .stock-industry-filter {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 0 0 10px;
+    margin: -2px 0 4px;
+    scrollbar-width: none;
+  }
+
+  .stock-industry-filter::-webkit-scrollbar { display: none; }
+
+  .stock-industry-chip {
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+
+  .stock-industry-chip.active {
+    border-color: rgba(212,240,96,0.55);
+    background: rgba(212,240,96,0.10);
+    color: var(--accent);
+  }
+
+  .stock-industry-chip:hover,
+  .stock-industry-chip:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+
   .stock-list {
     display: flex;
     flex-direction: column;
@@ -2146,6 +2184,9 @@
           <button class="sort-btn" data-sort="ticker" onclick="sortStocks('ticker')">A-Z</button>
         </div>
       </div>
+      <div class="stock-industry-filter" id="stockIndustryFilter" aria-label="Filter stocks by industry">
+        <button type="button" class="stock-industry-chip active" data-industry="all" onclick="setStockIndustryFilter('all')">All industries</button>
+      </div>
       <div class="stock-list-meta" id="stockListMeta">Loading live stock data…</div>
       <div class="stock-list" id="stockBody">
         <div style="padding:18px 0; color:var(--muted);">Loading live stock data…</div>
@@ -2376,7 +2417,7 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', stockSearchQuery: '', stockShowAll: false, tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', stockSearchQuery: '', stockIndustryFilter: 'all', stockShowAll: false, tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
 
   // ── Tab switching ──
   function switchTab(tabName) {
@@ -2584,6 +2625,14 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function escapeJs(text) {
+    return String(text)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r');
   }
 
   function safeArticleUrl(url) {
@@ -3955,6 +4004,14 @@
     }
   }
 
+  function setStockIndustryFilter(value) {
+    state.stockIndustryFilter = value || 'all';
+    state.stockShowAll = false;
+    if (state.payload?.stocks) {
+      renderStocks(sortStocksList(state.payload.stocks, state.sortBy));
+    }
+  }
+
   function setStockShowAll(value) {
     state.stockShowAll = Boolean(value);
     if (state.payload?.stocks) {
@@ -4006,14 +4063,59 @@
     }
   }
 
+  function industryLabelForStock(stock) {
+    return stock?.sector || stock?.industry || 'Other / Unclassified';
+  }
+
+  function industryKey(label) {
+    return String(label || 'Other / Unclassified').trim().toLowerCase();
+  }
+
+  function getIndustryOptions(stocks) {
+    const counts = new Map();
+    const labels = new Map();
+    for (const stock of (Array.isArray(stocks) ? stocks : [])) {
+      const label = industryLabelForStock(stock);
+      const key = industryKey(label);
+      counts.set(key, (counts.get(key) || 0) + 1);
+      if (!labels.has(key)) labels.set(key, label);
+    }
+    return Array.from(counts.entries())
+      .map(([key, count]) => ({ key, label: labels.get(key), count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }
+
+  function renderStockIndustryFilter(stocks) {
+    const wrap = $('stockIndustryFilter');
+    if (!wrap) return;
+    const options = getIndustryOptions(stocks);
+    if (!options.some((option) => option.key === state.stockIndustryFilter)) {
+      state.stockIndustryFilter = 'all';
+    }
+    const chips = [
+      `<button type="button" class="stock-industry-chip ${state.stockIndustryFilter === 'all' ? 'active' : ''}" data-industry="all" onclick="setStockIndustryFilter('all')">All industries <span>(${options.reduce((sum, option) => sum + option.count, 0)})</span></button>`,
+      ...options.map((option) => `
+        <button type="button" class="stock-industry-chip ${state.stockIndustryFilter === option.key ? 'active' : ''}" data-industry="${escapeHtml(option.key)}" onclick="setStockIndustryFilter('${escapeJs(option.key)}')">
+          ${escapeHtml(option.label)} <span>(${option.count})</span>
+        </button>
+      `)
+    ];
+    wrap.innerHTML = chips.join('');
+  }
+
   function filterStocksList(stocks) {
-    const rows = Array.isArray(stocks) ? stocks : [];
+    let rows = Array.isArray(stocks) ? stocks : [];
+    const activeIndustry = String(state.stockIndustryFilter || 'all');
+    if (activeIndustry !== 'all') {
+      rows = rows.filter((stock) => industryKey(industryLabelForStock(stock)) === activeIndustry);
+    }
     const q = String(state.stockSearchQuery || '').trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((stock) => [
       stock.ticker,
       stock.name,
       stock.sector,
+      stock.industry,
       stock.relationship_type,
       stock.impact_direction,
       stock.validation_status,
@@ -4033,7 +4135,7 @@
   function groupStocksByIndustry(rows) {
     const groups = new Map();
     for (const stock of rows) {
-      const key = stock.sector || stock.industry || 'Other / Unclassified';
+      const key = industryLabelForStock(stock);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(stock);
     }
@@ -4126,21 +4228,26 @@
   function renderStocks(stocks) {
     const body = $('stockBody');
     const sourceRows = Array.isArray(stocks) ? stocks : [];
+    renderStockIndustryFilter(sourceRows);
     const rows = filterStocksList(sourceRows);
     const previewCount = Math.min(rows.length, STOCK_LIST_PREVIEW_LIMIT);
     const meta = $('stockListMeta');
     if (meta) {
       const q = String(state.stockSearchQuery || '').trim();
+      const activeIndustry = String(state.stockIndustryFilter || 'all');
+      const industryOption = getIndustryOptions(sourceRows).find((option) => option.key === activeIndustry);
+      const industryText = industryOption ? ` · ${industryOption.label}` : '';
       const scope = rows.length > STOCK_LIST_PREVIEW_LIMIT
         ? (state.stockShowAll ? `showing all ${rows.length}` : `showing top ${previewCount} of ${rows.length}`)
         : `showing ${rows.length}`;
       meta.textContent = q
-        ? `${rows.length} of ${sourceRows.length} stocks match “${q}” · ${scope} · grouped by industry`
-        : `${sourceRows.length} stocks · ${scope} · sorted by ${state.sortBy === 'impact' ? 'short-term signal' : state.sortBy} · grouped by industry`;
+        ? `${rows.length} of ${sourceRows.length} stocks match “${q}”${industryText} · ${scope} · grouped by industry`
+        : `${sourceRows.length} stocks${industryText} · ${scope} · sorted by ${state.sortBy === 'impact' ? 'short-term signal' : state.sortBy} · grouped by industry`;
     }
     if (!rows.length) {
       const isSearching = Boolean(String(state.stockSearchQuery || '').trim());
-      body.innerHTML = `<div class="empty-state"><div class="empty-state-icon">\u{1F4CA}</div><div class="empty-state-title">${isSearching ? 'No stocks match your search' : 'No stock signals found'}</div><div class="empty-state-hint">${isSearching ? 'Try ticker, company name, sector, or clear the search box.' : 'No political signals matched your watchlist in this window. Try a longer window (7d, 30d) or add more tickers. This is normal during quiet policy periods.'}</div></div>`;
+      const isIndustryFiltered = String(state.stockIndustryFilter || 'all') !== 'all';
+      body.innerHTML = `<div class="empty-state"><div class="empty-state-icon">\u{1F4CA}</div><div class="empty-state-title">${isSearching || isIndustryFiltered ? 'No stocks match your filters' : 'No stock signals found'}</div><div class="empty-state-hint">${isSearching || isIndustryFiltered ? 'Try another industry, ticker, company name, sector, or clear the search box.' : 'No political signals matched your watchlist in this window. Try a longer window (7d, 30d) or add more tickers. This is normal during quiet policy periods.'}</div></div>`;
       return;
     }
     body.innerHTML = renderGroupedStocks(rows, rows.length);
