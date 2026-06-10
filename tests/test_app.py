@@ -763,7 +763,7 @@ def test_dashboard_contains_runtime_hooks():
         'stock-industry-header',
         'stockShowMoreBtn',
         'stock-show-more-btn',
-        'STOCK_LIST_PREVIEW_LIMIT',
+        'const STOCK_LIST_PREVIEW_LIMIT = 10;',
         'stockShowAll',
         'setStockShowAll(',
         'groupStocksByIndustry(',

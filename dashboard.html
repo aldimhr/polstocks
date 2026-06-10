@@ -3931,8 +3931,11 @@
     }).join('');
   }
 
+  const STOCK_LIST_PREVIEW_LIMIT = 10;
+
   function sortStocks(key) {
     state.sortBy = key;
+    state.stockShowAll = false;
     // Update active button
     document.querySelectorAll('.sort-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.sort === key);
@@ -3946,6 +3949,14 @@
 
   function setStockSearch(value) {
     state.stockSearchQuery = String(value || '').trim().toLowerCase();
+    state.stockShowAll = false;
+    if (state.payload?.stocks) {
+      renderStocks(sortStocksList(state.payload.stocks, state.sortBy));
+    }
+  }
+
+  function setStockShowAll(value) {
+    state.stockShowAll = Boolean(value);
     if (state.payload?.stocks) {
       renderStocks(sortStocksList(state.payload.stocks, state.sortBy));
     }
