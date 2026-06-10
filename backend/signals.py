@@ -104,6 +104,24 @@ def init_signal_tables() -> None:
                 ticker TEXT PRIMARY KEY,
                 pinned_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS daily_signal_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                action TEXT NOT NULL,
+                time_horizon TEXT NOT NULL,
+                signal_tier TEXT NOT NULL,
+                entry_price REAL,
+                stop_loss REAL,
+                take_profit REAL,
+                signal_strength REAL,
+                reason_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date
+                ON daily_signal_snapshots(snapshot_date);
         """)
         conn.commit()
         # Phase 2: Add horizon/tier/type columns (safe if already exist)

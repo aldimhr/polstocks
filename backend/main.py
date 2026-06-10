@@ -2877,6 +2877,48 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
     }
 
 
+@app.get("/api/signals/ticker/{ticker}")
+def api_signal_ticker(ticker: str, window: str = "7d") -> dict[str, Any]:
+    """Return detailed signal explanation for one ticker."""
+    from backend.signals import init_signal_tables
+    init_signal_tables()
+
+    ticker = ticker.upper()
+    payload = build_refresh_payload([ticker], force=False, window=window)
+    stocks = payload.get("stocks", [])
+
+    # Find the matching stock
+    stock_data = None
+    for s in stocks:
+        if s.get("ticker", "").upper() == ticker:
+            stock_data = s
+            break
+
+    if not stock_data:
+        return {"error": f"Ticker {ticker} not found", "ticker": ticker}
+
+    trading_signal = stock_data.get("trading_signal") or {}
+
+    # Extract event context
+    events = stock_data.get("events", [])
+    top_event = events[0] if events else {}
+    event_context = {
+        "headline": top_event.get("headline", ""),
+        "source": top_event.get("source", ""),
+        "categories": top_event.get("categories", []),
+        "sentiment": top_event.get("sentiment", ""),
+        "event_score": top_event.get("event_score", 0),
+    }
+
+    return {
+        "ticker": ticker,
+        "name": stock_data.get("name", ""),
+        "price": stock_data.get("price"),
+        "trading_signal": trading_signal,
+        "event_context": event_context,
+    }
+
+
 @app.post("/api/backtest/backfill")
 def api_backtest_backfill() -> dict[str, Any]:
     """Backfill predictions from cached events + Yahoo Finance history."""
