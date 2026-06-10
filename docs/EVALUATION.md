@@ -1,282 +1,566 @@
-# PolStock Evaluation — Post-SPEC Implementation Review
+# PolStocks — Robustness Plan
 
-**Date:** 2026-06-10
-**Evaluator:** Hermes (automated)
-**Scope:** Evaluate all 6 phases of the SPEC against current implementation, with focus on short-term signal readiness.
-**Live Data Source:** `http://localhost:8001` (production service)
+> Deep analysis of [aldimhr/polstocks](https://github.com/aldimhr/polstocks) with a prioritized roadmap to make it production-grade.
 
 ---
 
-## 1. Executive Summary
+## Table of Contents
 
-The SPEC describes 6 phases (0–5) of refocusing PolStock from a generic political dashboard to a **short-term trading signal assistant**. Phases 0–5 have all been **structurally implemented** — the code, endpoints, DB migrations, bot commands, and dashboard UI exist. However, **the system is not producing actionable signals**. The core signal decision layer works in isolation but the end-to-end pipeline from live data → classified signal → user-facing output is broken in practice.
-
-**Bottom line:** The infrastructure is solid. The signal quality and pipeline connectivity need work before this is useful for trading.
-
----
-
-## 2. Phase-by-Phase Status
-
-### Phase 0 — Spec and Safety Baseline ✅ Done
-- `SPEC.md` is comprehensive (1111 lines, 19 sections).
-- Existing tests in `tests/test_app.py` (3442 lines).
-- No behavioral regressions observed.
-
-### Phase 1 — Trading Signal Decision Layer ✅ Implemented, ⚠️ Effectiveness Low
-**What exists:**
-- `backend/trading_signals.py` (310 lines) — pure functions: `compute_event_score`, `compute_technical_confirmation`, `infer_time_horizon`, `classify_signal`, `rank_trade_signals`, `get_calibration_multiplier`.
-- Wired into `build_refresh_payload()` at main.py:2001-2004 — every stock gets a `trading_signal` object.
-- Dashboard integration tests pass (test at line 3245).
-
-**Problems:**
-- **All signals default to `time_horizon: "7d"`** — the `infer_time_horizon` function requires `event_stage == "breaking"` or very high scores (≥0.5) + 3/4 tech confirmations for `1d`, and `event_stage == "established"` for `30d`. In practice, almost nothing qualifies.
-- **All signals are Tier D** — Tier A requires `signal_strength ≥ 0.70 + 3 confirmations + no conflict`; Tier B requires `≥ 0.60 + 2 confirmations`. Current event scores rarely exceed 0.3, so everything falls to D.
-- **Technical confirmation is too strict** — requires specific oversold/overbought thresholds (RSI < 40 for BUY, > 60 for SELL) that rarely trigger on normal market conditions.
-- **Zero live signals at evaluation time** — `daily-summary` returns empty for all 3 horizons.
-
-### Phase 2 — Horizon-Aware Persistence ✅ Done
-**What exists:**
-- `signal_history` table: columns `time_horizon`, `signal_tier`, `signal_type`, `event_score`, `tech_score`, `tech_confirmation_count`, `calibration_multiplier`, `invalidation_reason` all added via safe ALTER TABLE.
-- `predictions` table: columns `time_horizon`, `signal_tier`, `signal_type`, `event_score`, `tech_score`, `tech_confirmation_count`, `return_7d`, `return_30d`, `outcome_7d`, `outcome_30d` all added.
-- `log_signal()` updated to store all new fields.
-- `record_prediction()` updated to store all new fields.
-- `/api/signals/history` supports `time_horizon`, `signal_tier`, `signal_type` filters.
-- `/api/backtest` has `by_time_horizon` breakdown.
-
-**Problems:**
-- **All live predictions default to `7d` horizon** — 237 predictions at 7d, 0 at 1d, 0 at 30d. The horizon is not being meaningfully assigned.
-- **No predictions have tier data** — `by_signal_tier` is empty in backtest output. The tier is being stored in `signal_history` but not being propagated into the predictions recording pipeline properly.
-
-### Phase 3 — Backtest Calibration ✅ Implemented, ⚠️ Data Quality Concerns
-**What exists:**
-- `source_accuracy` table created in `backtest.py:140-148`.
-- `compute_source_accuracy()` — live predictions only, per source_type.
-- `compute_category_calibration()` — live predictions only, per category.
-- `/api/calibration/report` — returns overall metrics, by_source_type, by_category, recommendations.
-- Multipliers clamped to [0.5, 1.5] in `get_calibration_multiplier()`.
-
-**Live calibration data (2026-06-10):**
-- **Overall:** 44.7% hit rate vs 54% baseline → edge -9.3% (strict mode justified)
-- **By source_type:**
-  - media: 58.4% hit rate (161 predictions) → multiplier 1.305 ✅
-  - government: 12.2% hit rate (49 predictions) → multiplier 0.5 🔴
-  - regulator: 22.2% hit rate (27 predictions) → multiplier 0.5 🔴
-- **By category:**
-  - TRADE_POLICY: 75.8% (33) → 1.5 ✅
-  - ENERGY_POLICY: 75.8% (33) → 1.5 ✅
-  - REGULATION_NEW: 57.1% (28) → 1.278 ✅
-  - PARLIAMENT_SESSION: 31.8% (22) → weak
-
-**Problems:**
-- **Government/regulator sources are actively harmful** — 12.2% and 22.2% hit rates mean the system is *anti-predictive* on official sources. The calibration multiplier caps at 0.5 but the event pipeline still gives government sources high weight.
-- **Category calibration is not wired into the scoring pipeline** — `get_calibration_multiplier()` only applies source_type calibration, skips category. Comment at line 307 says "For now, skip category calibration on individual stocks."
-- **Negative predictions completely broken** — 0.0% hit rate on 24 negative live predictions. SELL signals are actively wrong.
-
-### Phase 4 — Daily Summary and Telegram UX ✅ Implemented, ⚠️ Producing Empty Output
-**What exists:**
-- `/api/signals/daily-summary` endpoint (main.py:2786) — groups signals by 1d/7d/30d.
-- Bot `/signals` command (handlers.py:609) — groups by horizon with stats.
-- Bot `/daily` command (handlers.py:668) — daily summary with accuracy footer.
-- Bot `/why TICKER` command (handlers.py:726) — explains signal for a ticker.
-
-**Problems:**
-- **`/daily` always returns "No signals"** — the endpoint works but the signal classification produces no BUY/SELL/WATCH actions.
-- **No morning cron job** — the SPEC calls for a 08:30 WIB daily push. Not implemented.
-- **`/api/signals/ticker/{ticker}` endpoint missing** — SPEC section 11.2 specifies this; the bot's `/why` command calls the dashboard API instead of a dedicated endpoint.
-- **`daily_signal_snapshots` table not created** — SPEC section 10.4 specifies this for fair evaluation. Not implemented.
-
-### Phase 5 — Dashboard Refocus ✅ Done
-**What exists:**
-- "🎯 Actionable Signals" card at top of Overview tab (dashboard.html:1847-1851).
-- Trading signal chips (action, horizon, tier) on watchlist table (dashboard.html:3691-3697).
-- `loadActionableSignals()` function calls `/api/signals/daily-summary` (dashboard.html:3919).
-- `loadCalibrationBanner()` shows accuracy warning when live < baseline.
-- Signal detail in history panel shows time_horizon, signal_tier, signal_type (dashboard.html:4342-4347).
-
-**Problems:**
-- **Actionable signals section always shows empty** — same root cause as Phase 4.
-- **Watchlist table shows no signal chips** — because all signals are IGNORE.
+1. [Current State Snapshot](#1-current-state-snapshot)
+2. [What's Already Solid](#2-whats-already-solid)
+3. [Critical Gaps](#3-critical-gaps)
+4. [Signal Quality — Root Cause Analysis](#4-signal-quality--root-cause-analysis)
+5. [Infrastructure Gaps](#5-infrastructure-gaps)
+6. [Phased Roadmap](#6-phased-roadmap)
+7. [Quick Wins (Do These Today)](#7-quick-wins-do-these-today)
 
 ---
 
-## 3. Critical Findings
+## 1. Current State Snapshot
 
-### 3.1 The Signal Pipeline is Disconnected at the Data Level
+| Metric | Value | Status |
+|---|---|---|
+| Signal accuracy (total) | 34.7% | 🔴 worse than random |
+| Signal accuracy (live) | 45.1% | 🔴 below 54.5% neutral baseline |
+| Edge vs neutral baseline | -9.4% | 🔴 negative |
+| BUY signals/day | 0 | 🔴 fully blocked |
+| SELL accuracy | 0% | 🔴 do not use |
+| Neutral predictions | 87% of total | 🟡 polluting backtest |
+| High-confidence hit rate | 26.7% | 🔴 worse than low-confidence |
+| Persistent storage | None | 🔴 all data lost on restart |
+| Architecture quality | Modular FastAPI | ✅ solid |
+| ML NLP stack | IndoBERT + RoBERTa | ✅ ready |
+| Technical indicators | RSI, MACD, BB, ATR, S/R | ✅ implemented |
 
-The system follows this flow:
-```
-News Sources → NLP → Events → Scoring → Stock Payload → classify_signal() → Dashboard/Bot
+---
+
+## 2. What's Already Solid
+
+### Well-structured modular backend
+Clean separation across `events.py`, `scoring.py`, `sources.py`, `nlp.py`, `signals.py`, and `stocks.py`. Each module has a clear responsibility and can be extended without breaking adjacent code.
+
+### Strong evidence hierarchy design
+Source dedup, freshness decay, corroboration scoring, and the company-specific knowledge layer (`company_knowledge.json`) are conceptually correct and rare in projects of this scale. The two-path linking rule (direct mention or matched policy channel) prevents false positives well.
+
+### Honest self-assessment in SPEC.md
+The SPEC documents real backtest numbers including the -9.4% edge, broken SELL signals, and 87% neutral prediction problem. This is exactly the right foundation to build calibration improvements on — the problem is already correctly diagnosed.
+
+### ML NLP stack is ready
+Indonesian RoBERTa sentiment + IndoBERT NER already integrated, with keyword fallback and feature-flag control via `POLSTOCK_ENABLE_ML_NLP`. Background warmup on startup avoids cold-start latency.
+
+### Technical indicators fully implemented
+RSI, MACD, Bollinger Bands, ATR, support/resistance, and volume spike detection all exist in `backend/stocks.py`. The plumbing is there — the signal decision layer just isn't wired to it correctly yet.
+
+### Phase-by-phase planning discipline
+The existence of `SPEC.md`, `ARCHITECTURE.md`, `EVALUATION.md`, and `PHASE6_PLAN.md` shows strong planning hygiene. The team knows where they are and where they're going.
+
+---
+
+## 3. Critical Gaps
+
+### 3.1 Storage & Persistence 🔴
+
+**Problem: All prediction and calibration data is lost on restart.**
+
+The README says "no database" and watchlist.json is the only durable state. Even if SQLite is being used internally, if it's in-memory or in a temp path it resets on every deploy. Building a calibration history that improves signal quality over weeks requires predictions to survive restarts.
+
+**Problem: No migration strategy.**
+
+SPEC.md defines many `ALTER TABLE` statements inline but there's no migration runner. Schema drift between dev and prod is inevitable without numbered migration files.
+
+**Fix:**
+
+```bash
+# Switch SQLite to a persistent path
+POLSTOCKS_DB=/data/polstocks.db  # env var, default to /data/polstocks.db
+
+# Add numbered migration files
+/migrations/
+  001_initial_schema.sql
+  002_add_horizon_tier_columns.sql
+  003_add_source_accuracy_table.sql
+  004_add_daily_snapshots_table.sql
+
+# Startup migration runner (Python, ~20 lines)
+# Runs all unapplied migrations on app start
 ```
 
-The issue is at the **Stock Payload** stage. When `build_refresh_payload()` runs:
-1. It fetches news and creates events.
-2. It fetches stock quotes.
-3. It matches events to tickers.
-4. It computes impact scores.
-5. It calls `classify_signal(stock)` for each ticker.
+```python
+# migrations/runner.py
+import sqlite3, os, glob
 
-But the stock dict passed to `classify_signal` often has:
-- `impact_direction: "neutral"` → triggers WATCH/IGNORE immediately
-- `relationship_confidence: 0` or very low → event score near zero
-- `corroboration_count: 0` → event score near zero
-- Missing technical indicator data → `compute_technical_confirmation` returns 0/0
+def run_migrations(db_path: str, migrations_dir: str = "migrations"):
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY)")
+    applied = {r[0] for r in conn.execute("SELECT name FROM _migrations")}
+    for f in sorted(glob.glob(f"{migrations_dir}/*.sql")):
+        name = os.path.basename(f)
+        if name not in applied:
+            conn.executescript(open(f).read())
+            conn.execute("INSERT INTO _migrations VALUES (?)", (name,))
+            conn.commit()
+            print(f"Applied migration: {name}")
+    conn.close()
+```
 
-**Root cause:** The scoring pipeline produces weak signals because most events don't generate strong enough impact scores, and technical indicators are only computed when a stock has price history available.
-
-### 3.2 Technical Confirmation Thresholds Are Wrong
-
-The current thresholds:
-- RSI: BUY if < 40, SELL if > 60
-- MACD: BUY if histogram > 0, SELL if < 0
-- Bollinger %B: BUY if < 0.2, SELL if > 0.8
-- Volume: confirm if is_spike
-
-These are reasonable for oversold/overbought detection, but they're **too extreme for confirming directional moves**. A stock at RSI 45 with a positive MACD and rising volume should count as confirmation for a BUY signal, but currently it doesn't.
-
-### 3.3 Negative Predictions Must Be Suppressed
-
-24 live negative predictions → 0 correct (0.0% hit rate). The SPEC correctly identifies this:
-> "SELL must be stricter than BUY... No alert for SELL until backtest accuracy improves above baseline."
-
-The code does require 3/4 tech confirmations for SELL (vs 2/4 for BUY), but even this isn't enough. SELL signals should be **completely disabled for push alerts** until the hit rate improves.
-
-### 3.4 Historical Backfill is Polluting Perception
-
-The SPEC states:
-> "Historical backfill hit rate is 20.5%; it should not drive live product confidence."
-
-The code separates `origin=live` vs historical in backtest queries, but the `/api/backtest` default still returns mixed data. The calibration report correctly uses live-only, but the main backtest endpoint doesn't default to live.
+**Daily backup (add to cron):**
+```bash
+0 2 * * * cp /data/polstocks.db /data/backups/$(date +%Y%m%d).db
+```
 
 ---
 
-## 4. What's Missing (SPEC vs Reality)
+### 3.2 Error Handling & Resilience 🟡
 
-| SPEC Item | Status | Notes |
-|-----------|--------|-------|
-| `backend/trading_signals.py` | ✅ | 310 lines, all pure functions |
-| `classify_signal()` wired into dashboard | ✅ | main.py:2001-2004 |
-| Horizon-aware columns in signal_history | ✅ | Safe ALTER TABLE |
-| Horizon-aware columns in predictions | ✅ | Safe ALTER TABLE |
-| `source_accuracy` table | ✅ | Created in backtest.py |
-| `compute_source_accuracy()` | ✅ | Live-only, per source_type |
-| `compute_category_calibration()` | ✅ | Live-only, per category |
-| `/api/calibration/report` | ✅ | Full report with recommendations |
-| `/api/calibration/auto-apply` | ❌ | Not implemented |
-| `/api/signals/daily-summary` | ✅ | Groups by 1d/7d/30d |
-| `/api/signals/ticker/{ticker}` | ❌ | Not implemented |
-| `daily_signal_snapshots` table | ❌ | Not implemented |
-| Bot `/signals` | ✅ | Groups by horizon |
-| Bot `/daily` | ✅ | With accuracy footer |
-| Bot `/why TICKER` | ✅ | Explains signal |
-| Bot `/watch` | ❌ | Mentioned in help, not implemented |
-| Morning cron (08:30 WIB) | ❌ | Not implemented |
-| Dashboard actionable signals | ✅ | Card at top of Overview |
-| Dashboard horizon/tier chips | ✅ | On watchlist table |
-| Dashboard calibration banner | ✅ | When live < baseline |
-| Tests for trading_signals.py | ✅ | In test_app.py:3044+ |
+**Problem: Yahoo Finance is a single point of failure.**
 
----
+`yfinance` scrapes undocumented Yahoo endpoints. Rate limits, structure changes, or outages silently return stale or empty data with no fallback. Stock cards should clearly show "data stale since X" when the fetcher fails.
 
-## 5. Performance Metrics (Live Data)
+**Problem: RSS feeds fail silently.**
 
-### Backtest (30-day window, live origin)
-- **Total predictions:** 237
-- **Hit rate:** 44.7%
-- **Baseline (neutral):** 54.0%
-- **Edge:** -9.3% 🔴
+If an Indonesian news source changes its RSS structure or goes down, the app returns the last cached result without flagging which sources failed. Users can't distinguish "quiet market" from "broken fetcher."
 
-### By Direction
-- Positive: 30 predictions, 43.3% hit rate
-- Negative: 24 predictions, 0.0% hit rate 🔴
-- Neutral: 183 predictions, 50.8% hit rate
+**Problem: No request timeouts.**
 
-### By Horizon
-- 1d: 0 predictions (no signals assigned to this horizon)
-- 7d: 237 predictions, 44.7% hit rate
-- 30d: 0 predictions (no signals assigned to this horizon)
+A slow RSS source or delayed Yahoo Finance response can block the entire `/api/refresh` endpoint with no timeout, causing the frontend to hang indefinitely.
 
-### By Source Type (live only)
-- media: 161 predictions, 58.4% hit rate ✅
-- government: 49 predictions, 12.2% hit rate 🔴
-- regulator: 27 predictions, 22.2% hit rate 🔴
+**Problem: No circuit breaker.**
 
-### Current Signal Production
-- **Actionable signals:** 0 (across all horizons)
-- **All stocks:** IGNORE action, Tier D, 7d horizon
+A source returning errors 10× in a row keeps getting retried every cycle, wasting time and potentially triggering rate limits.
+
+**Fix:**
+
+```python
+# Use httpx with explicit timeouts
+import httpx
+
+async def fetch_rss(url: str) -> list[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return parse_feed(resp.text)
+    except Exception as e:
+        record_source_failure(url, str(e))
+        return []
+
+# Circuit breaker state in SQLite
+# Open after 5 consecutive failures
+# Half-open probe every 15 minutes
+# Expose via GET /api/source-health
+```
 
 ---
 
-## 6. Recommendations
+### 3.3 Security 🟡
 
-### Priority 1 — Fix Signal Production (blocks all value)
+**Problem: No authentication on write endpoints.**
 
-1. **Relax technical confirmation thresholds.** Change RSI thresholds from <40/>60 to <45/>55, or add a "directional alignment" mode that checks if indicators *agree with* the event direction rather than requiring extreme levels.
-2. **Lower event score floor.** Many stocks get `event_score < 0.1` because `corroboration_count` defaults to 0 and `relationship_confidence` is often 0.1-0.2. The `max(..., 0.1)` floor helps but the multiplication still produces very small numbers.
-3. **Add standalone technical signals.** SPEC section 9.4 calls for "oversold bounce candidate", "momentum breakout", etc. These don't require event catalyst and would populate the signal pipeline during quiet political periods.
+`PUT /api/watchlist`, `POST /api/refresh`, and all portfolio endpoints are publicly accessible. Anyone who finds the URL can reset the portfolio or spam refresh calls.
 
-### Priority 2 — Fix Signal Quality (blocks trust)
+**Problem: No rate limiting on `/api/refresh`.**
 
-4. **Suppress SELL push alerts entirely.** 0% hit rate on negatives means every SELL alert is wrong. Disable until hit rate > baseline.
-5. **Wire category calibration into scoring.** The `get_calibration_multiplier()` function skips category calibration. TRADE_POLICY and ENERGY_POLICY have 75.8% hit rates — signals from these categories should get a boost.
-6. **Penalize government/regulator sources.** Their 12-22% hit rates are worse than random. The calibration multiplier of 0.5 is a start, but the event pipeline still gives these sources high base weight.
+A bot can trigger dozens of refreshes per minute, hammering Yahoo Finance and RSS sources.
 
-### Priority 3 — Complete Missing Features
+**Fix:**
 
-7. **Implement `/api/signals/ticker/{ticker}` endpoint.** The bot's `/why` command needs this.
-8. **Implement `daily_signal_snapshots` table.** Essential for fair historical evaluation.
-9. **Add morning cron job.** 08:30 WIB daily summary push to subscribed users.
-10. **Implement `/watch` command.** Listed in help text but not implemented.
+```python
+# requirements.txt additions
+slowapi>=0.1.9
+python-dotenv>=1.0
 
-### Priority 4 — Improve Calibration
+# .env
+API_KEY=your-secret-key-here
 
-11. **Default `/api/backtest` to `origin=live`.** Historical backfill data (20.5% hit rate) shouldn't mix with live data in the default view.
-12. **Add backtest by signal tier.** Currently `by_signal_tier` is empty because no signals have tier data in the predictions table.
-13. **Implement `/api/calibration/auto-apply`.** Only when sample size gates are defined.
+# FastAPI middleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
----
+limiter = Limiter(key_func=get_remote_address)
 
-## 7. Recommended Next Steps
-
-The SPEC correctly identifies the immediate next step:
-> "Start with Phase 1: Trading Signal Decision Layer."
-
-But Phase 1 is already implemented. The real next step is:
-
-**Fix the signal production pipeline so `classify_signal()` actually produces BUY/WATCH signals from live data.**
-
-Concretely:
-1. Audit `build_refresh_payload()` to understand why stock dicts have weak event data.
-2. Relax `compute_technical_confirmation()` thresholds.
-3. Add a `compute_standalone_technical_signal()` function for event-independent signals.
-4. Test with live data and verify at least 2-3 signals appear in `/api/signals/daily-summary`.
-5. Commit, push, restart, verify.
-
-After that, the existing bot commands, dashboard UI, and calibration system will actually have data to display.
+@app.post("/api/refresh")
+@limiter.limit("2/minute")
+async def refresh(request: Request, x_api_key: str = Header(None)):
+    if x_api_key != os.getenv("API_KEY"):
+        raise HTTPException(status_code=401)
+    ...
+```
 
 ---
 
-## 8. Test Status
+## 4. Signal Quality — Root Cause Analysis
 
-- **Backend tests:** Exist in `tests/test_app.py` (3442 lines) — timeout during evaluation (may need optimization).
-- **Trading signal unit tests:** Exist at test_app.py:3044+ covering `compute_event_score`, `compute_technical_confirmation`, `infer_time_horizon`, `classify_signal`, `rank_trade_signals`.
-- **Integration test:** `test_dashboard_stocks_have_trading_signal` verifies dashboard payload includes `trading_signal`.
-- **Bot tests:** `tests/test_formatting_alerts.py` exists but is minimal.
+The 34.7% accuracy (below the 40.1% random baseline) is caused by three compounding problems. Fixing any one will help; all three need addressing to reach the 55% target.
+
+### Root Cause 1: Neutral predictions dominate (87%) 🔴
+
+`record_predictions_from_events` records every event→ticker pair regardless of whether there's any directional signal. This means 87% of the backtest is neutral noise.
+
+**Fix (one line):**
+```python
+def record_predictions_from_events(events, stocks):
+    for event in events:
+        for relationship in event["relationships"]:
+            # Add this guard
+            if relationship.get("impact_direction") == "neutral":
+                continue
+            record_prediction(event, relationship)
+```
+
+### Root Cause 2: No actual return data to evaluate 🔴
+
+`return_7d` and `return_30d` are NULL for all 382 resolved predictions. Without knowing whether the stock moved the predicted direction at the predicted horizon, calibration is impossible.
+
+**Fix:**
+```python
+def resolve_predictions(conn):
+    pending = conn.execute(
+        "SELECT id, ticker, predicted_at, signal_direction FROM predictions "
+        "WHERE return_7d IS NULL AND predicted_at < datetime('now', '-7 days')"
+    ).fetchall()
+
+    for pred in pending:
+        try:
+            price_at_signal = get_price_at(pred["ticker"], pred["predicted_at"])
+            price_7d_later  = get_price_at(pred["ticker"], pred["predicted_at"], offset_days=7)
+            price_30d_later = get_price_at(pred["ticker"], pred["predicted_at"], offset_days=30)
+
+            return_7d  = (price_7d_later  - price_at_signal) / price_at_signal
+            return_30d = (price_30d_later - price_at_signal) / price_at_signal
+
+            direction_correct_7d = (
+                (pred["signal_direction"] == "positive" and return_7d > 0) or
+                (pred["signal_direction"] == "negative" and return_7d < 0)
+            )
+
+            conn.execute(
+                "UPDATE predictions SET return_7d=?, return_30d=?, is_correct=? WHERE id=?",
+                (return_7d, return_30d, direction_correct_7d, pred["id"])
+            )
+        except Exception:
+            pass  # Price fetch failed; skip, retry next cycle
+```
+
+### Root Cause 3: High-confidence scores are uncalibrated 🟡
+
+High-confidence predictions hit 26.7% — worse than medium (53.3%) and low (42.7%). The scoring is likely over-weighting dramatic political events (corruption cases, cabinet reshuffles) which get high `impact_score` but historically don't move individual stocks predictably.
+
+**Fix (after resolving issues 1 and 2):**
+```python
+# Compute per-category calibration multipliers from live backtest data
+def compute_category_calibration(conn) -> dict[str, float]:
+    rows = conn.execute("""
+        SELECT event_category,
+               COUNT(*) as n,
+               AVG(CASE WHEN is_correct THEN 1.0 ELSE 0.0 END) as hit_rate
+        FROM predictions
+        WHERE origin = 'live' AND is_correct IS NOT NULL
+        GROUP BY event_category
+        HAVING COUNT(*) >= 15
+    """).fetchall()
+
+    baseline = 0.50
+    return {
+        row["event_category"]: row["hit_rate"] / baseline
+        for row in rows
+    }
+```
+
+### Root Cause 4: Support/resistance unused in signal scoring 🟡
+
+`support` and `resistance` fields exist on each stock payload but don't feed into `trading_signals.py`. A stock near support with a positive event is a much stronger BUY setup.
+
+**Fix (add to `trading_signals.py`):**
+```python
+def compute_sr_proximity_boost(stock: dict) -> float:
+    price      = stock.get("price", 0)
+    support    = stock.get("support")
+    resistance = stock.get("resistance")
+
+    if not price:
+        return 1.0
+
+    boost = 1.0
+    if support and abs(price - support) / price <= 0.03:
+        boost += 0.20   # within 3% of support → +20% boost for BUY
+    if resistance and abs(price - resistance) / price <= 0.03:
+        boost += 0.10   # near resistance → mild boost for SELL / breakout watch
+
+    return boost
+```
 
 ---
 
-## 9. Architecture Health
+## 5. Infrastructure Gaps
 
-| Component | Lines | Status |
-|-----------|-------|--------|
-| `backend/main.py` | 3,099 | Large but stable. Consider splitting. |
-| `backend/trading_signals.py` | 310 | Clean pure functions. Good. |
-| `backend/backtest.py` | 1,809 | Complex but well-structured. |
-| `backend/signals.py` | 434 | Solid. Horizon-aware. |
-| `backend/scoring.py` | — | Core scoring pipeline. |
-| `dashboard.html` | 4,347+ | Single-file. Signal UI added. |
-| `bot/handlers.py` | 1,232 | All commands implemented. |
-| `bot/alerts.py` | 152 | Event-based alerts. Needs signal-based alerts. |
+### 5.1 No Dockerfile
+
+The app runs via `python app.py` with no container. CPU-only PyTorch + Transformers means dependency installation is environment-sensitive and slow. A Dockerfile makes deploys reproducible.
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Persistent data directory
+VOLUME ["/data"]
+ENV POLSTOCKS_DB=/data/polstocks.db
+
+EXPOSE 8001
+CMD ["python", "app.py"]
+```
+
+```yaml
+# docker-compose.yml
+services:
+  polstocks:
+    build: .
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/data
+    env_file: .env
+    restart: unless-stopped
+```
 
 ---
 
-*This evaluation reflects live system state on 2026-06-10. Metrics will change as new events arrive and predictions resolve.*
+### 5.2 No CI/CD
+
+There's no `.github/workflows/` folder. Tests don't run automatically on push. A broken import in `backend/*.py` could be deployed without detection.
+
+```yaml
+# .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m py_compile backend/*.py app.py
+
+      - name: Run tests (NLP disabled for speed)
+        run: POLSTOCK_ENABLE_ML_NLP=0 pytest tests/ -q --tb=short
+```
+
+---
+
+### 5.3 Unpinned Dependencies
+
+`requirements.txt` uses `>=` version bounds for all packages. A major version bump in FastAPI, transformers, or httpx could silently break the app.
+
+```txt
+# Before (fragile)
+fastapi>=0.115
+uvicorn>=0.30
+
+# After (stable)
+fastapi==0.115.6
+uvicorn==0.30.6
+requests==2.32.3
+torch==2.6.0+cpu
+transformers==4.44.2
+safetensors==0.4.5
+tokenizers==0.19.1
+slowapi==0.1.9
+structlog==24.4.0
+```
+
+---
+
+### 5.4 No Structured Logging
+
+Python `print()` or basic `logging` with no structured format makes production debugging hard.
+
+```python
+# Replace print() calls with:
+import structlog
+
+log = structlog.get_logger()
+
+# In RSS fetcher:
+log.info("rss_fetch_complete",
+    source=source_name,
+    articles=len(articles),
+    latency_ms=int((time.time() - t0) * 1000),
+    status="ok"
+)
+
+# In signal generator:
+log.info("signal_classified",
+    ticker=ticker,
+    action=signal["action"],
+    tier=signal["tier"],
+    strength=round(signal["signal_strength"], 3)
+)
+```
+
+---
+
+## 6. Phased Roadmap
+
+### Phase 6 — Actionable BUY signals & feedback loop *(current)*
+
+**Goal:** Generate at least 1 Tier A/B BUY signal and close the feedback loop with actual return data.
+
+| Task | File | Effort |
+|---|---|---|
+| Add `compute_sr_proximity_boost()` | `trading_signals.py` | 1h |
+| Add `detect_bollinger_squeeze()` | `trading_signals.py` | 1h |
+| Filter neutral predictions at recording | `signals.py` | 15min |
+| Update `resolve_predictions()` to compute `return_7d`, `return_30d` | `signals.py` | 2h |
+| Verify ≥1 BUY in `/api/signals/daily-summary` | manual | 30min |
+
+**Acceptance criteria:**
+- At least 1 BUY signal appears in `/api/signals/daily-summary` within 24h
+- `by_signal_tier` in backtest shows non-empty A/B categories
+- `return_7d` populated for predictions older than 7 days
+
+---
+
+### Phase 7 — Persistent storage & data durability
+
+**Goal:** Ensure all predictions, signals, and calibration history survive restarts.
+
+| Task | File | Effort |
+|---|---|---|
+| Move SQLite to `/data/polstocks.db` with env var | `backend/main.py` | 1h |
+| Write migration runner | `migrations/runner.py` | 2h |
+| Add Phase 10.1 & 10.2 ALTER TABLE migrations | `migrations/002_*.sql` | 1h |
+| Add `source_accuracy` + `daily_signal_snapshots` tables | `migrations/003_*.sql` | 30min |
+| Add daily backup cron | `scripts/backup.sh` | 15min |
+| Validate data survives `systemctl restart` | manual | 15min |
+
+---
+
+### Phase 8 — Resilience & error handling
+
+**Goal:** Make the system survive bad external conditions gracefully.
+
+| Task | File | Effort |
+|---|---|---|
+| Add `httpx` with `timeout=10s` on all external calls | `sources.py`, `stocks.py` | 2h |
+| Add per-source circuit breaker (open after 5 failures) | `sources.py` | 3h |
+| Surface source health in `/api/source-health` | `backend/main.py` | 1h |
+| Add `slowapi` rate limiter on `/api/refresh` | `backend/main.py` | 30min |
+| Add API key header check on write endpoints | `backend/main.py` | 30min |
+| Add `structlog` structured logging | all backend modules | 2h |
+
+---
+
+### Phase 9 — Source calibration & confidence recalibration
+
+**Goal:** Fix inverted confidence scores (high-confidence currently worse than low).
+
+| Task | File | Effort |
+|---|---|---|
+| Populate `source_accuracy` from live-only outcomes | `signals.py` | 2h |
+| Compute per-category calibration multipliers | `scoring.py` | 2h |
+| Add `/api/calibration/report` endpoint | `backend/main.py` | 1h |
+| Wire multipliers into `compute_event_score()` | `trading_signals.py` | 2h |
+| Investigate and fix high-confidence inversion | `trading_signals.py` | 3h |
+| Add `/api/calibration/auto-apply` with n≥30 guard | `backend/main.py` | 1h |
+
+---
+
+### Phase 10 — CI/CD, Docker & production hardening
+
+**Goal:** Make it deployable, maintainable, and observable.
+
+| Task | File | Effort |
+|---|---|---|
+| Write `Dockerfile` + `docker-compose.yml` | root | 1h |
+| Add GitHub Actions test CI | `.github/workflows/test.yml` | 30min |
+| Add GitHub Actions deploy workflow | `.github/workflows/deploy.yml` | 1h |
+| Pin all dependency versions | `requirements.txt` | 15min |
+| Add CORS origin whitelist | `backend/main.py` | 15min |
+| Add detailed `/healthz` response (DB, sources, last refresh) | `backend/main.py` | 1h |
+| Add Telegram alert on 3 consecutive refresh failures | Telegram bot | 1h |
+
+---
+
+## 7. Quick Wins (Do These Today)
+
+These can each be done in under 30 minutes with near-zero risk.
+
+### 5-minute wins
+
+**Pin dependency versions**
+Change all `>=` bounds to exact versions in `requirements.txt`. Prevents surprise breakages when a new major version ships.
+
+**Add `.env.example`**
+Document all env vars: `POLSTOCK_ENABLE_ML_NLP`, `API_KEY`, `POLSTOCKS_DB`, `TELEGRAM_BOT_TOKEN`. Makes onboarding and self-hosting dramatically easier.
+
+**Move runtime JSON files**
+Move `data.json`, `watchlist.json`, `source_registry.json` to `/data/` or `/config/`. The root directory should contain only code, not runtime state.
+
+---
+
+### 30-minute wins
+
+**Add request timeouts**
+Add `timeout=10` to every `requests.get()` call. This single change prevents the most common "server hangs on refresh" class of bugs.
+
+```python
+# Before
+resp = requests.get(url)
+
+# After
+resp = requests.get(url, timeout=10)
+```
+
+**Add GitHub Actions CI**
+The `tests/` folder already exists. Add the workflow YAML so tests run on every push. Catches syntax errors and import failures before they hit production.
+
+**Filter neutral predictions**
+Single-line fix in `record_predictions_from_events`. Immediately improves backtest signal quality.
+
+```python
+if relationship.get("impact_direction") == "neutral":
+    continue
+```
+
+**Make SQLite persistent**
+Change the SQLite connection string from in-memory (or temp path) to a file-backed path controlled by an env var. Create `/data/` on startup if it doesn't exist.
+
+```python
+import os
+
+DB_PATH = os.getenv("POLSTOCKS_DB", "/data/polstocks.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+```
+
+---
+
+## Success Metrics
+
+| Metric | Now | Phase 6 target | Phase 9 target |
+|---|---|---|---|
+| Live non-neutral hit rate | ~43% | 50% | 55%+ |
+| Edge vs neutral baseline | -9.4% | 0% | +5% |
+| Tier A/B signals/week | 0 | ≥1 | 5–10 |
+| SELL signal status | blocked (0% acc.) | still blocked | unblock when >baseline |
+| Backtest return tracking | 0% populated | 100% for >7d old | — |
+| Data durability | lost on restart | persistent | persistent + backed up |
+
+---
+
+*Generated: June 2026 | Repo: [aldimhr/polstocks](https://github.com/aldimhr/polstocks)*
