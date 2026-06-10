@@ -1789,6 +1789,10 @@
 
   <!-- ════════ OVERVIEW TAB ════════ -->
   <!-- Metrics -->
+  <!-- Calibration Warning Banner -->
+  <div id="calibrationBanner" data-tab="overview" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(255,100,50,0.1);border:1px solid rgba(255,100,50,0.3);border-radius:8px;font-size:12px;color:var(--text);">
+    <span id="calibrationBannerText"></span>
+  </div>
   <div class="metrics" data-tab="overview">
     <div class="metric">
       <div class="metric-label">Events detected</div>
@@ -1837,6 +1841,17 @@
       <div class="overview-stat-label">🎯 Win Rate</div>
       <div class="overview-stat-value" id="ov-winrate">—</div>
       <div class="overview-stat-sub" id="ov-winrate-sub">0 trades</div>
+    </div>
+  </div>
+
+  <!-- Actionable Trading Signals -->
+  <div class="card" data-tab="overview" style="margin-bottom:16px;">
+    <div class="card-header">
+      <span class="card-title">🎯 Actionable Signals</span>
+      <span class="card-badge" id="actionableBadge">Loading…</span>
+    </div>
+    <div id="actionableSignals" style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="footer-note">Loading daily signals…</div>
     </div>
   </div>
 
@@ -3673,9 +3688,20 @@
       }
       const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
       const pinIcon = stock.in_portfolio ? '💼 ' : stock.pinned ? '📌 ' : '';
+      // Trading signal chips (Phase 5)
+      const ts5 = stock.trading_signal || {};
+      const tsAction = ts5.action || '';
+      const tsHorizon = ts5.time_horizon || '';
+      const tsTier = ts5.signal_tier || '';
+      const tsActionIcon = tsAction === 'BUY' ? '🟢' : tsAction === 'SELL' ? '🔴' : tsAction === 'WATCH' ? '🟡' : '';
+      const tsChips = tsAction && tsAction !== 'IGNORE'
+        ? `<span style="font-size:10px;padding:1px 4px;border-radius:3px;background:${tsAction === 'BUY' ? 'var(--green)' : tsAction === 'SELL' ? 'var(--red)' : 'var(--accent)'};color:#000;font-weight:600;margin-left:4px;">${tsActionIcon}${tsAction}</span>` +
+          (tsHorizon ? `<span style="font-size:9px;padding:1px 3px;border-radius:3px;background:var(--surface);border:1px solid var(--border);color:var(--muted);margin-left:2px;">${tsHorizon}</span>` : '') +
+          (tsTier ? `<span style="font-size:9px;padding:1px 3px;border-radius:3px;background:var(--surface);border:1px solid var(--border);color:var(--muted);margin-left:2px;">Tier ${tsTier}</span>` : '')
+        : '';
       return `
         <tr title="${escapeHtml(stock.rationale || '')}">
-          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${pinIcon}${escapeHtml(stock.ticker || '')}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
+          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${pinIcon}${escapeHtml(stock.ticker || '')}${tsChips}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
           <td class="price-cell" data-label="Price (IDR)">${formatPrice(stock.price)}</td>
           <td class="change-cell ${changeClass}" data-label="Today">${formatPct(stock.change_pct)}</td>
           <td class="impact-cell" data-label="Impact score"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
@@ -3890,6 +3916,87 @@
     }
   }
 
+  async function loadActionableSignals() {
+    try {
+      const data = await apiJson('/api/signals/daily-summary?limit=3&include_watch=true');
+      if (!data) return;
+      const horizons = data.horizons || {};
+      const acc = data.accuracy || {};
+      const total = data.total_signals || 0;
+      const badge = $('actionableBadge');
+      if (badge) {
+        const edge = (acc.edge || 0) * 100;
+        const edgeIcon = edge > 0 ? '📈' : '📉';
+        badge.textContent = `${total} signals · ${edgeIcon} ${edge.toFixed(1)}% edge`;
+      }
+      const root = $('actionableSignals');
+      if (!root) return;
+
+      if (total === 0) {
+        root.innerHTML = '<div class="footer-note" style="padding:12px;">No actionable signals right now. This is normal during quiet policy periods.</div>';
+        return;
+      }
+
+      const horizonConfig = [
+        { key: '1d', label: '⚡ 1d', color: 'var(--red)' },
+        { key: '7d', label: '📅 7d', color: 'var(--accent)' },
+        { key: '30d', label: '🗓 30d', color: 'var(--blue)' },
+      ];
+
+      root.innerHTML = horizonConfig.map(({ key, label, color }) => {
+        const sigs = horizons[key] || [];
+        return `<div style="flex:1;min-width:200px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:8px;">${label}</div>
+          ${sigs.length === 0
+            ? '<div style="font-size:12px;color:var(--muted2);">No signals</div>'
+            : sigs.map(s => {
+                const actionIcon = s.action === 'BUY' ? '🟢' : s.action === 'SELL' ? '🔴' : '🟡';
+                const tierColor = s.signal_tier === 'A' ? 'var(--green)' : s.signal_tier === 'B' ? 'var(--accent)' : 'var(--muted)';
+                const entry = s.entry_price ? Number(s.entry_price).toLocaleString() : '—';
+                const sl = s.stop_loss ? Number(s.stop_loss).toLocaleString() : '—';
+                const tp = s.take_profit ? Number(s.take_profit).toLocaleString() : '—';
+                return `<div style="margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                    <span>${actionIcon}</span>
+                    <strong style="font-size:13px;">${escapeHtml(s.ticker)}</strong>
+                    <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${tierColor};color:#000;font-weight:600;">${s.signal_tier}</span>
+                    <span style="font-size:10px;color:var(--muted);">str ${(s.signal_strength || 0).toFixed(2)}</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;">
+                    Entry ${entry} · SL ${sl} · TP ${tp}
+                  </div>
+                  ${s.reasons && s.reasons.length ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(s.reasons[0])}</div>` : ''}
+                </div>`;
+              }).join('')
+          }
+        </div>`;
+      }).join('');
+    } catch (e) {
+      console.warn('Actionable signals load failed:', e);
+    }
+  }
+
+  async function loadCalibrationBanner() {
+    try {
+      const data = await apiJson('/api/calibration/report?window_days=30&min_samples=5');
+      if (!data || !data.overall) return;
+      const edge = data.overall.edge || 0;
+      const banner = $('calibrationBanner');
+      const text = $('calibrationBannerText');
+      if (!banner || !text) return;
+      if (edge < 0) {
+        const hitRate = ((data.overall.hit_rate || 0) * 100).toFixed(1);
+        const baseline = ((data.overall.baseline || 0) * 100).toFixed(1);
+        text.innerHTML = `⚠️ <b>Strict Mode ON</b> — Live accuracy ${hitRate}% vs ${baseline}% baseline (${(edge * 100).toFixed(1)}% edge). Signals are filtered for precision. <a href="/api/calibration/report" target="_blank" style="color:var(--accent);">Full report →</a>`;
+        banner.style.display = '';
+      } else {
+        banner.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Calibration banner load failed:', e);
+    }
+  }
+
   function renderPayload(payload, dashboardCues = null) {
     state.payload = payload;
     state.window = payload.window || state.window || '24h';
@@ -3931,6 +4038,8 @@
     safeRender(() => renderGlobalMarkets(payload.global_markets || {}), 'globalMarketsGrid', 'Global Markets');
     safeRender(() => renderWatchlistEditor(watchlist), 'watchlistChips', 'Watchlist');
     loadHistory(null);  // Fire-and-forget: loads prediction history panel
+    loadActionableSignals();
+    loadCalibrationBanner();
     $('footerNote').textContent = `${payload.from_cache ? 'cached' : 'live'} data · ${watchlist.length} tickers · ${payload.window_label || 'last 24 hours'} · cache TTL 5 minutes`;
   }
 
@@ -4232,6 +4341,9 @@
             <span>SL: ${sl}</span>
             <span>TP: ${tp}</span>
             ${s.timeframe ? `<span>⏱ ${s.timeframe}</span>` : ''}
+            ${s.time_horizon ? `<span style="font-size:10px;padding:1px 4px;border-radius:3px;background:var(--surface);border:1px solid var(--border);">${s.time_horizon}</span>` : ''}
+            ${s.signal_tier && s.signal_tier !== 'D' ? `<span style="font-size:10px;padding:1px 4px;border-radius:3px;background:var(--accent);color:#000;font-weight:600;">Tier ${s.signal_tier}</span>` : ''}
+            ${s.signal_type ? `<span style="font-size:10px;color:var(--muted);">${s.signal_type}</span>` : ''}
           </div>
           <div class="signal-bottom">
             <span class="signal-time">${created}</span>
