@@ -675,6 +675,9 @@ def test_refresh_payload_sorts_impacted_tickers_first(monkeypatch):
 
 
 def test_refresh_payload_keeps_neutral_ticker_order_when_no_impacts(monkeypatch):
+    import backend.signals as signalsmod
+    monkeypatch.setattr(signalsmod, "get_pinned_tickers", lambda: set())
+    monkeypatch.setattr(signalsmod, "get_portfolio_tickers", lambda: set())
     neutral_article = {
         "source": "Sports News",
         "headline": "Laga persahabatan dan skor akhir pertandingan",
