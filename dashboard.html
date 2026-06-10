@@ -544,6 +544,56 @@
     gap: 8px;
   }
 
+  .stock-industry-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .stock-industry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 2px 2px 0;
+    color: var(--muted2);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .stock-industry-count {
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .stock-list-actions {
+    display: flex;
+    justify-content: center;
+    padding: 4px 0 0;
+  }
+
+  .stock-show-more-btn {
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .stock-show-more-btn:hover,
+  .stock-show-more-btn:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+
   .stock-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2326,7 +2376,7 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', stockSearchQuery: '', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', stockSearchQuery: '', stockShowAll: false, tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
 
   // ── Tab switching ──
   function switchTab(tabName) {
@@ -3969,81 +4019,120 @@
     return `<span class="signal-mini ${tone}">${action}${horizon ? ` · ${escapeHtml(horizon)}` : ''}${escapeHtml(tier)}</span>`;
   }
 
+  function groupStocksByIndustry(rows) {
+    const groups = new Map();
+    for (const stock of rows) {
+      const key = stock.sector || stock.industry || 'Other / Unclassified';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(stock);
+    }
+    return Array.from(groups.entries()).map(([industry, items]) => ({ industry, items }));
+  }
+
+  function renderStockRow(stock) {
+    const change = Number(stock.change_pct);
+    const impact = Number(stock.impact_score);
+    const changeClass = Number.isFinite(change) && change > 0 ? 'up' : Number.isFinite(change) && change < 0 ? 'down' : 'flat';
+    const impactClass = impact > 0 ? 'pos' : impact < 0 ? 'neg' : 'neu';
+    const provenanceBadges = renderProvenanceBadges(stock);
+    const conflictBadges = renderConflictBadges(stock);
+    const linkMeta = stock.relationship_type
+      ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
+      : 'No strong policy link';
+    const directionChip = renderReasoningChip('Direction', stock.impact_direction || 'neutral', 'direction');
+    const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
+    const rsiVal = stock.rsi_value;
+    const rsiChip = rsiVal != null ? renderReasoningChip('RSI', `${rsiVal.toFixed(0)}${rsiVal > 70 ? ' ▲' : rsiVal < 30 ? ' ▼' : ''}`, 'rsi') : '';
+    const macdObj = stock.macd;
+    const macdHist = macdObj && typeof macdObj === 'object' ? macdObj.histogram : stock.macd_histogram;
+    const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${Number(macdHist).toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'macd') : '';
+    const trendObj = stock.trend;
+    const trendDir = (trendObj && typeof trendObj === 'object' ? trendObj.trend : stock.sma_trend) || '';
+    const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'trend') : '';
+    const bb = stock.bollinger;
+    const bbChip = bb && bb.squeeze ? renderReasoningChip('BB Squeeze', `BW ${(bb.bandwidth * 100).toFixed(1)}%`, 'squeeze') : '';
+    const vs = stock.volume_spike;
+    const volSpikeChip = vs && vs.is_spike ? renderReasoningChip('Vol Spike', `${vs.spike_ratio}x avg`, 'volume') : '';
+    const validationParts = [];
+    if (stock.validation_status) {
+      validationParts.push(escapeHtml(labelText(stock.validation_status)));
+      if (stock.validation_window) validationParts.push(escapeHtml(stock.validation_window));
+      if (Number.isFinite(Number(stock.validation_score))) validationParts.push(`score ${Number(stock.validation_score || 0).toFixed(2)}`);
+    }
+    const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
+    const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
+    const pinIcon = stock.in_portfolio ? '💼' : stock.pinned ? '📌' : '';
+    const signalMini = renderSignalMini(stock);
+    const sectorLabel = stock.sector || stock.industry || 'Unknown sector';
+    const impactLabel = Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—';
+    const compactChips = [directionChip, validationChip, rsiChip, macdChip, trendChip, bbChip, volSpikeChip, conflictBadges].filter(Boolean).join(' ');
+    return `
+      <div class="stock-row" role="button" tabindex="0" data-ticker="${escapeHtml(stock.ticker || '')}" title="${escapeHtml(stock.rationale || '')}">
+        <div class="stock-row-main">
+          <div class="stock-row-top">
+            <button type="button" class="stock-row-ticker" data-ticker="${escapeHtml(stock.ticker || '')}">${pinIcon ? `${pinIcon} ` : ''}${escapeHtml(stock.ticker || '')}</button>
+            ${signalMini}
+          </div>
+          <div class="stock-row-name">${escapeHtml(stock.name || '')}</div>
+          <div class="stock-row-meta">${escapeHtml(sectorLabel)} · ${linkMeta}</div>
+          <div class="stock-row-chips">${compactChips || validationMeta || provenanceBadges || '<span class="reasoning-chip muted">No signal metadata</span>'}</div>
+          ${knowledgeMeta ? `<div class="stock-row-meta">${escapeHtml(knowledgeMeta)}</div>` : ''}
+        </div>
+        <div class="stock-row-side">
+          <div>
+            <div class="stock-row-price">${formatPrice(stock.price)}</div>
+            <div class="stock-row-change ${changeClass}">${formatPct(stock.change_pct)}</div>
+          </div>
+          <div class="stock-row-impact"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${impactLabel}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderGroupedStocks(rows, totalRows) {
+    const visibleRows = state.stockShowAll ? rows : rows.slice(0, STOCK_LIST_PREVIEW_LIMIT);
+    const groups = groupStocksByIndustry(visibleRows);
+    const groupHtml = groups.map(({ industry, items }) => `
+      <section class="stock-industry-group" data-industry="${escapeHtml(industry)}">
+        <div class="stock-industry-header">
+          <span>${escapeHtml(industry)}</span>
+          <span class="stock-industry-count">${items.length} shown</span>
+        </div>
+        ${items.map(renderStockRow).join('')}
+      </section>
+    `).join('');
+    const hasMore = totalRows > STOCK_LIST_PREVIEW_LIMIT;
+    const actionHtml = hasMore ? `
+      <div class="stock-list-actions">
+        <button type="button" class="stock-show-more-btn" id="stockShowMoreBtn" onclick="setStockShowAll(${state.stockShowAll ? 'false' : 'true'})">
+          ${state.stockShowAll ? 'Show top 10' : `Show all ${totalRows} tickers`}
+        </button>
+      </div>
+    ` : '';
+    return groupHtml + actionHtml;
+  }
+
   function renderStocks(stocks) {
     const body = $('stockBody');
     const sourceRows = Array.isArray(stocks) ? stocks : [];
     const rows = filterStocksList(sourceRows);
+    const previewCount = Math.min(rows.length, STOCK_LIST_PREVIEW_LIMIT);
     const meta = $('stockListMeta');
     if (meta) {
       const q = String(state.stockSearchQuery || '').trim();
+      const scope = rows.length > STOCK_LIST_PREVIEW_LIMIT
+        ? (state.stockShowAll ? `showing all ${rows.length}` : `showing top ${previewCount} of ${rows.length}`)
+        : `showing ${rows.length}`;
       meta.textContent = q
-        ? `${rows.length} of ${sourceRows.length} stocks match “${q}” · tap any row for chart/detail`
-        : `${sourceRows.length} stocks · sorted by ${state.sortBy === 'impact' ? 'short-term signal' : state.sortBy} · tap any row for chart/detail`;
+        ? `${rows.length} of ${sourceRows.length} stocks match “${q}” · ${scope} · grouped by industry`
+        : `${sourceRows.length} stocks · ${scope} · sorted by ${state.sortBy === 'impact' ? 'short-term signal' : state.sortBy} · grouped by industry`;
     }
     if (!rows.length) {
       const isSearching = Boolean(String(state.stockSearchQuery || '').trim());
       body.innerHTML = `<div class="empty-state"><div class="empty-state-icon">\u{1F4CA}</div><div class="empty-state-title">${isSearching ? 'No stocks match your search' : 'No stock signals found'}</div><div class="empty-state-hint">${isSearching ? 'Try ticker, company name, sector, or clear the search box.' : 'No political signals matched your watchlist in this window. Try a longer window (7d, 30d) or add more tickers. This is normal during quiet policy periods.'}</div></div>`;
       return;
     }
-    body.innerHTML = rows.map((stock) => {
-      const change = Number(stock.change_pct);
-      const impact = Number(stock.impact_score);
-      const changeClass = Number.isFinite(change) && change > 0 ? 'up' : Number.isFinite(change) && change < 0 ? 'down' : 'flat';
-      const impactClass = impact > 0 ? 'pos' : impact < 0 ? 'neg' : 'neu';
-      const provenanceBadges = renderProvenanceBadges(stock);
-      const conflictBadges = renderConflictBadges(stock);
-      const linkMeta = stock.relationship_type
-        ? `${escapeHtml(stock.relationship_type)} · score ${Number(stock.relevance_score || 0).toFixed(2)} · conf ${Math.round(Number(stock.confidence || 0) * 100)}%`
-        : 'No strong policy link';
-      const directionChip = renderReasoningChip('Direction', stock.impact_direction || 'neutral', 'direction');
-      const validationChip = renderReasoningChip('Validation', stock.validation_status || 'unvalidated', 'validation');
-      const rsiVal = stock.rsi_value;
-      const rsiChip = rsiVal != null ? renderReasoningChip('RSI', `${rsiVal.toFixed(0)}${rsiVal > 70 ? ' ▲' : rsiVal < 30 ? ' ▼' : ''}`, 'rsi') : '';
-      const macdObj = stock.macd;
-      const macdHist = macdObj && typeof macdObj === 'object' ? macdObj.histogram : stock.macd_histogram;
-      const macdChip = macdHist != null ? renderReasoningChip('MACD', `${macdHist > 0 ? '+' : ''}${Number(macdHist).toFixed(1)}${macdHist > 0 ? ' ▲' : macdHist < 0 ? ' ▼' : ''}`, 'macd') : '';
-      const trendObj = stock.trend;
-      const trendDir = (trendObj && typeof trendObj === 'object' ? trendObj.trend : stock.sma_trend) || '';
-      const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'trend') : '';
-      const bb = stock.bollinger;
-      const bbChip = bb && bb.squeeze ? renderReasoningChip('BB Squeeze', `BW ${(bb.bandwidth * 100).toFixed(1)}%`, 'squeeze') : '';
-      const vs = stock.volume_spike;
-      const volSpikeChip = vs && vs.is_spike ? renderReasoningChip('Vol Spike', `${vs.spike_ratio}x avg`, 'volume') : '';
-      const validationParts = [];
-      if (stock.validation_status) {
-        validationParts.push(escapeHtml(labelText(stock.validation_status)));
-        if (stock.validation_window) validationParts.push(escapeHtml(stock.validation_window));
-        if (Number.isFinite(Number(stock.validation_score))) validationParts.push(`score ${Number(stock.validation_score || 0).toFixed(2)}`);
-      }
-      const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
-      const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
-      const pinIcon = stock.in_portfolio ? '💼' : stock.pinned ? '📌' : '';
-      const signalMini = renderSignalMini(stock);
-      const sectorLabel = stock.sector || 'Unknown sector';
-      const impactLabel = Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—';
-      const compactChips = [directionChip, validationChip, rsiChip, macdChip, trendChip, bbChip, volSpikeChip, conflictBadges].filter(Boolean).join(' ');
-      return `
-        <div class="stock-row" role="button" tabindex="0" data-ticker="${escapeHtml(stock.ticker || '')}" title="${escapeHtml(stock.rationale || '')}">
-          <div class="stock-row-main">
-            <div class="stock-row-top">
-              <button type="button" class="stock-row-ticker" data-ticker="${escapeHtml(stock.ticker || '')}">${pinIcon ? `${pinIcon} ` : ''}${escapeHtml(stock.ticker || '')}</button>
-              ${signalMini}
-            </div>
-            <div class="stock-row-name">${escapeHtml(stock.name || '')}</div>
-            <div class="stock-row-meta">${escapeHtml(sectorLabel)} · ${linkMeta}</div>
-            <div class="stock-row-chips">${compactChips || validationMeta || provenanceBadges || '<span class="reasoning-chip muted">No signal metadata</span>'}</div>
-            ${knowledgeMeta ? `<div class="stock-row-meta">${escapeHtml(knowledgeMeta)}</div>` : ''}
-          </div>
-          <div class="stock-row-side">
-            <div>
-              <div class="stock-row-price">${formatPrice(stock.price)}</div>
-              <div class="stock-row-change ${changeClass}">${formatPct(stock.change_pct)}</div>
-            </div>
-            <div class="stock-row-impact"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${impactLabel}</span></div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    body.innerHTML = renderGroupedStocks(rows, rows.length);
   }
 
   function renderEvents(events) {
