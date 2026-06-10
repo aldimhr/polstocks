@@ -6,6 +6,7 @@ from backend import main as appmod
 from backend import validation as valmod
 from backend import stocks as stocksmod
 from backend import sources as sourcesmod
+from backend import signals as signalsmod
 
 client = TestClient(appmod.app)
 
@@ -758,6 +759,11 @@ def test_dashboard_contains_runtime_hooks():
         'stock-row',
         'stock-row-price',
         'signal-mini',
+        'tradeHistorySummary',
+        'tradeHistoryList',
+        'loadTradeHistory(',
+        'renderTradeHistory(',
+        'trade-history-item',
         'filterStocksList(',
         'setStockSearch(',
         'sort-bar',
@@ -2877,8 +2883,9 @@ def test_quiet_hours_detection():
     assert _is_quiet_hours({"alert_quiet_start": -1, "alert_quiet_end": -1}) is False
 
 
-def test_portfolio_api():
+def test_portfolio_api(tmp_path, monkeypatch):
     """GET /api/portfolio returns positions and summary."""
+    monkeypatch.setattr(signalsmod, "BACKEND_DB_PATH", tmp_path / "portfolio_api.db")
     response = client.get("/api/portfolio")
     assert response.status_code == 200
     data = response.json()
@@ -2887,8 +2894,9 @@ def test_portfolio_api():
     assert "open_count" in data["summary"]
 
 
-def test_portfolio_add_and_close():
+def test_portfolio_add_and_close(tmp_path, monkeypatch):
     """POST /api/portfolio/position and PUT to close with P&L."""
+    monkeypatch.setattr(signalsmod, "BACKEND_DB_PATH", tmp_path / "portfolio_add_close.db")
     # Add position
     add_resp = client.post("/api/portfolio/position", json={
         "ticker": "BBCA.JK", "direction": "long", "entry_price": 9500,
@@ -2906,6 +2914,18 @@ def test_portfolio_add_and_close():
     assert close_resp.status_code == 200
     assert close_resp.json()["pnl"] == 30000  # (9800-9500) * 100
     assert close_resp.json()["pnl_pct"] > 0
+
+    history = client.get("/api/portfolio/history?limit=20")
+    assert history.status_code == 200
+    history_data = history.json()
+    trade = next(t for t in history_data["trades"] if t["id"] == pos_id)
+    assert trade["status"] == "closed"
+    assert trade["entry_date"]
+    assert trade["exit_date"]
+    assert trade["entry_price"] == 9500
+    assert trade["exit_price"] == 9800
+    assert trade["pnl"] == 30000
+    assert history_data["summary"]["total_trades"] >= 1
 
 
 def test_signals_api_endpoint():

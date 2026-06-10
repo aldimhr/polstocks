@@ -1663,6 +1663,21 @@
   .portfolio-item { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 13px; background: var(--surface2); border-radius: 8px; padding: 10px 14px; }
   .portfolio-sector { font-size: 11px; color: var(--muted); background: var(--surface); padding: 2px 8px; border-radius: 4px; }
 
+  .trade-history-section { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .trade-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .trade-history-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; color: var(--text); }
+  .trade-history-summary { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .trade-history-list { display: flex; flex-direction: column; gap: 8px; }
+  .trade-history-item { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 10px; align-items: flex-start; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .trade-history-dot { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; font-family: 'DM Mono', monospace; }
+  .trade-history-dot.buy { background: var(--green-dim); color: var(--green); }
+  .trade-history-dot.sell { background: var(--red-dim); color: var(--red); }
+  .trade-history-dot.open { background: var(--amber-dim); color: var(--amber); }
+  .trade-history-main { min-width: 0; }
+  .trade-history-line { font-size: 13px; color: var(--text); font-weight: 600; }
+  .trade-history-sub { margin-top: 3px; font-size: 11px; color: var(--muted); line-height: 1.35; }
+  .trade-history-pnl { text-align: right; font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700; white-space: nowrap; }
+
   .source-health-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -2228,6 +2243,18 @@
       <div class="footer-note">Loading portfolio…</div>
     </div>
     <div id="portfolioPositions" class="portfolio-positions"></div>
+    <div class="trade-history-section" id="tradeHistorySection">
+      <div class="trade-history-head">
+        <span class="trade-history-title">📜 Trade History</span>
+        <span class="card-badge" id="tradeHistoryBadge">Loading…</span>
+      </div>
+      <div class="trade-history-summary" id="tradeHistorySummary">
+        <span class="reasoning-chip muted">Loading trades…</span>
+      </div>
+      <div class="trade-history-list" id="tradeHistoryList">
+        <div class="footer-note">Loading buy/sell history…</div>
+      </div>
+    </div>
   </div>
 
   <!-- Footer -->
@@ -4713,6 +4740,117 @@
     }
   }
 
+  function tradeEventTime(value) {
+    return value ? formatTime(value) : 'Unknown time';
+  }
+
+  function renderTradeHistory(openPositions, historyPayload) {
+    const summaryEl = $('tradeHistorySummary');
+    const listEl = $('tradeHistoryList');
+    const badgeEl = $('tradeHistoryBadge');
+    if (!summaryEl || !listEl) return;
+
+    const openRows = Array.isArray(openPositions) ? openPositions : [];
+    const closedRows = Array.isArray(historyPayload?.trades) ? historyPayload.trades : [];
+    const summary = historyPayload?.summary || {};
+    const wins = Number(summary.wins || 0);
+    const losses = Number(summary.losses || 0);
+    const totalTrades = Number(summary.total_trades || closedRows.length || 0);
+    const totalPnl = Number(summary.total_pnl || 0);
+    const winRate = summary.win_rate != null ? Number(summary.win_rate) : null;
+
+    if (badgeEl) badgeEl.textContent = `${totalTrades} closed · ${openRows.length} open`;
+    summaryEl.innerHTML = `
+      <span class="reasoning-chip muted">${totalTrades} closed</span>
+      <span class="reasoning-chip pos">${wins} wins</span>
+      <span class="reasoning-chip neg">${losses} losses</span>
+      <span class="reasoning-chip muted">Win rate ${winRate != null ? `${(winRate * 100).toFixed(1)}%` : '—'}</span>
+      <span class="reasoning-chip ${totalPnl >= 0 ? 'pos' : 'neg'}">Realized IDR ${totalPnl.toLocaleString()}</span>
+    `;
+
+    const events = [];
+    for (const p of openRows) {
+      events.push({
+        type: 'open',
+        action: 'OPEN',
+        icon: '⏳',
+        ticker: p.ticker,
+        date: p.entry_date,
+        price: p.entry_price,
+        shares: p.shares,
+        lots: p.lots || ((p.shares || 0) / 100),
+        sector: p.sector,
+        pnl: p.unrealized_pnl,
+        pnlPct: p.unrealized_pct,
+        sub: 'Currently open position',
+      });
+    }
+    for (const p of closedRows) {
+      events.push({
+        type: 'sell',
+        action: p.direction === 'short' ? 'COVER / CLOSE' : 'SELL / CLOSE',
+        icon: 'S',
+        ticker: p.ticker,
+        date: p.exit_date,
+        price: p.exit_price,
+        shares: p.shares,
+        lots: (p.shares || 0) / 100,
+        sector: p.sector,
+        pnl: p.pnl,
+        pnlPct: p.pnl_pct,
+        sub: `Closed from entry ${formatPrice(p.entry_price)}`,
+      });
+      events.push({
+        type: 'buy',
+        action: p.direction === 'short' ? 'SHORT / OPEN' : 'BUY / OPEN',
+        icon: 'B',
+        ticker: p.ticker,
+        date: p.entry_date,
+        price: p.entry_price,
+        shares: p.shares,
+        lots: (p.shares || 0) / 100,
+        sector: p.sector,
+        pnl: null,
+        pnlPct: null,
+        sub: p.exit_date ? `Later closed at ${formatPrice(p.exit_price)}` : 'Opened position',
+      });
+    }
+
+    events.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    if (!events.length) {
+      listEl.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📜</div><div class="empty-state-title">No trade history yet</div><div class="empty-state-hint">Your buy/open and sell/close events will appear here after positions are tracked.</div></div>';
+      return;
+    }
+
+    listEl.innerHTML = events.slice(0, 80).map((ev) => {
+      const pnl = Number(ev.pnl);
+      const hasPnl = Number.isFinite(pnl);
+      const pnlPct = Number(ev.pnlPct);
+      const pnlClass = hasPnl && pnl >= 0 ? 'pnl-pos' : hasPnl ? 'pnl-neg' : '';
+      const lotLabel = Number(ev.lots || 0) ? `${Number(ev.lots || 0).toLocaleString()} lot` : `${Number(ev.shares || 0).toLocaleString()} shares`;
+      return `<div class="trade-history-item">
+        <span class="trade-history-dot ${ev.type}">${escapeHtml(ev.icon)}</span>
+        <div class="trade-history-main">
+          <div class="trade-history-line">${escapeHtml(ev.action)} · ${escapeHtml(ev.ticker || '')} · ${formatPrice(ev.price)}</div>
+          <div class="trade-history-sub">${tradeEventTime(ev.date)} · ${lotLabel}${ev.sector ? ` · ${escapeHtml(ev.sector)}` : ''}</div>
+          <div class="trade-history-sub">${escapeHtml(ev.sub || '')}</div>
+        </div>
+        <div class="trade-history-pnl ${pnlClass}">${hasPnl ? `IDR ${pnl.toLocaleString()}${Number.isFinite(pnlPct) ? `<br>${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` : ''}` : '—'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function loadTradeHistory(openPositions = []) {
+    try {
+      const history = await apiJson(withUserParam('/api/portfolio/history?limit=50'));
+      renderTradeHistory(openPositions, history);
+    } catch (e) {
+      console.warn('Trade history load failed:', e);
+      const listEl = $('tradeHistoryList');
+      if (listEl) listEl.innerHTML = '<div class="footer-note">Trade history temporarily unavailable.</div>';
+    }
+  }
+
   async function loadPortfolio() {
     try {
       // Load live portfolio with P&L
@@ -4791,6 +4929,7 @@
       if (!posEl) return;
       if (!positions.length) {
         posEl.innerHTML = '<div class="footer-note">No positions tracked. Use /buy in the bot to add one.</div>';
+        await loadTradeHistory([]);
         return;
       }
 
@@ -4817,6 +4956,7 @@
           ${p.take_profit ? `<span>TP: ${p.take_profit.toLocaleString()}</span>` : ''}
         </div>`;
       }).join('');
+      await loadTradeHistory(positions);
     } catch (e) {
       console.warn('Portfolio load failed:', e);
     }
