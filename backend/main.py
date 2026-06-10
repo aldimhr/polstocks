@@ -59,6 +59,7 @@ from backend.sources import (
     summarize_source_diagnostics_from_articles, build_source_health_summary,
     unpack_news_fetch_result, fetch_news_bundle,
 )
+from backend.circuit_breaker import source_breaker
 from backend.scoring import (
     evidence_quality_score, relationship_confidence_label, analyze_article,
 )
@@ -3193,6 +3194,24 @@ def api_indicator_analysis(min_samples: int = 5) -> dict[str, Any]:
     """Analyze per-indicator effectiveness and suggest auto-tune adjustments."""
     from backend.backtest import analyze_indicator_effectiveness
     return analyze_indicator_effectiveness(min_samples=min_samples)
+@app.get("/api/source-health")
+def api_source_health() -> dict[str, Any]:
+    """Return per-source circuit breaker state and overall summary."""
+    all_states = source_breaker.get_all_states()
+    open_count = sum(1 for s in all_states.values() if s["state"] == "open")
+    half_open_count = sum(1 for s in all_states.values() if s["state"] == "half_open")
+    closed_count = sum(1 for s in all_states.values() if s["state"] == "closed")
+    return {
+        "sources": all_states,
+        "summary": {
+            "tracked_source_count": len(all_states),
+            "open_breaker_count": open_count,
+            "half_open_breaker_count": half_open_count,
+            "closed_breaker_count": closed_count,
+        },
+    }
+
+
 
 
 @app.get("/api/weights")

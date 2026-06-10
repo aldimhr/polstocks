@@ -1230,10 +1230,37 @@ def fetch_news_bundle() -> tuple[list[dict[str, Any]], list[str], list[dict[str,
     articles: list[dict[str, Any]] = []
     warnings: list[str] = []
     diagnostics: list[dict[str, Any]] = []
+    from backend.circuit_breaker import source_breaker
     with ThreadPoolExecutor(max_workers=min(8, len(NEWS_SOURCES))) as pool:
-        futures = {pool.submit(fetch_source, source, True): source for source in NEWS_SOURCES}
+        futures = {}
+        for source in NEWS_SOURCES:
+            name = source.get("name", "")
+            if not source_breaker.should_allow(name):
+                breaker_state = source_breaker.get_state(name)
+                warnings.append(
+                    f"{name}: circuit breaker open (consecutive failures: "
+                    f"{breaker_state['consecutive_failures']}, skipping)"
+                )
+                diagnostics.append(build_source_diagnostic(
+                    source,
+                    status="skipped",
+                    warning=f"circuit_breaker_open: {breaker_state['consecutive_failures']} consecutive failures",
+                ))
+                continue
+            futures[pool.submit(fetch_source, source, True)] = source
         for future in as_completed(futures):
+            source = futures[future]
             source_articles, warning, source_diagnostic = future.result()
+            src_name = source.get("name", "")
+            if source_articles:
+                source_breaker.record_success(src_name)
+            elif warning and ("error" in warning.lower() or "exception" in warning.lower()
+                              or "timeout" in warning.lower() or "connection" in warning.lower()
+                              or "http" in warning.lower()):
+                source_breaker.record_failure(src_name, error=warning)
+            else:
+                # empty result but no network-level error — count as success (no break)
+                source_breaker.record_success(src_name)
             if warning:
                 warnings.append(warning)
             diagnostics.append(source_diagnostic)
