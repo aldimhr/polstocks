@@ -153,3 +153,113 @@ def infer_time_horizon(
         return "7d"
 
     return "7d"
+
+
+def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
+    """Full signal classification: action, horizon, tier, entry/SL/TP, reasons.
+
+    This is the main entry point for the trading signal decision layer.
+    Takes a stock dict from build_refresh_payload and returns a trading_signal.
+    """
+    price = float(stock.get("price", 0) or 0)
+    atr = float(stock.get("atr_value", 0) or 0)
+    if atr <= 0 and price > 0:
+        atr = price * 0.02  # fallback: 2% of price
+
+    # Step 1: Event score
+    ev = compute_event_score(stock)
+    ev_score = ev["score"]
+    direction = ev["direction"]
+
+    # Step 2: Technical confirmation
+    tech = compute_technical_confirmation(stock)
+    tech_score = tech["score"]
+    confirm_count = tech["confirm_count"]
+    tech_total = tech["total"]
+
+    # Step 3: Composite signal strength
+    calibration = 1.0  # placeholder for Phase 3
+    signal_strength = round(
+        ev_score * 0.55 + tech_score * 0.35 + calibration * 0.10, 4
+    )
+
+    # Step 4: Determine action
+    reasons: list[str] = []
+    has_conflict = bool(stock.get("source_conflict", False))
+
+    if direction not in ("positive", "negative"):
+        action = "WATCH" if ev_score > 0.1 else "IGNORE"
+        reasons.append(f"Direction is {direction} — no directional conviction")
+    elif signal_strength < 0.20:
+        action = "IGNORE"
+        reasons.append(f"Signal strength {signal_strength:.2f} below 0.20 minimum")
+    elif signal_strength < 0.45:
+        action = "WATCH"
+        reasons.append(f"Signal strength {signal_strength:.2f} below 0.45 action threshold")
+    else:
+        if direction == "positive":
+            if confirm_count < 2:
+                action = "WATCH"
+                reasons.append(f"Only {confirm_count}/4 tech confirmations, need 2+ for BUY")
+            else:
+                action = "BUY"
+        else:  # negative
+            if confirm_count < 3:
+                action = "WATCH"
+                reasons.append(f"Only {confirm_count}/4 tech confirmations, need 3+ for SELL (strict mode)")
+            else:
+                action = "SELL"
+
+    # Step 5: Horizon
+    time_horizon = infer_time_horizon(stock, ev, tech)
+
+    # Step 6: Tier
+    signal_tier = "D"
+    if action == "BUY" and signal_strength >= 0.70 and confirm_count >= 3 and not has_conflict:
+        signal_tier = "A"
+    elif action == "BUY" and signal_strength >= 0.60 and confirm_count >= 2 and not has_conflict:
+        signal_tier = "B"
+    elif action in ("BUY", "SELL") and signal_strength >= 0.45:
+        signal_tier = "C"
+    elif action == "WATCH":
+        signal_tier = "C"
+
+    # Step 7: Entry / SL / TP
+    entry_price = price
+    stop_loss = None
+    take_profit = None
+    if action == "BUY" and price > 0:
+        stop_loss = round(price - 1.5 * atr, 2)
+        take_profit = round(price + 3.0 * atr, 2)
+    elif action == "SELL" and price > 0:
+        stop_loss = round(price + 1.5 * atr, 2)
+        take_profit = round(price - 3.0 * atr, 2)
+
+    # Step 8: Reasons enrichment
+    if confirm_count > 0:
+        reasons.extend(tech["details"])
+    if has_conflict:
+        reasons.append("Source conflict detected — reduced confidence")
+
+    # Step 9: Invalidation
+    invalidation = ""
+    if action == "BUY":
+        invalidation = f"Close below {stop_loss} or direction reversal"
+    elif action == "SELL":
+        invalidation = f"Close above {stop_loss} or direction reversal"
+
+    return {
+        "action": action,
+        "time_horizon": time_horizon,
+        "signal_tier": signal_tier,
+        "signal_type": "composite" if ev_score > 0 and tech_score > 0 else ("event" if ev_score > 0 else "technical"),
+        "signal_strength": signal_strength,
+        "event_score": ev_score,
+        "tech_score": tech_score,
+        "tech_confirmation_count": confirm_count,
+        "entry_price": entry_price,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "reasons": reasons,
+        "invalidation": invalidation,
+    }

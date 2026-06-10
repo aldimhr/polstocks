@@ -3044,6 +3044,7 @@ class TestAPIShapeBaseline:
 from backend.trading_signals import compute_event_score
 from backend.trading_signals import compute_technical_confirmation
 from backend.trading_signals import infer_time_horizon
+from backend.trading_signals import classify_signal
 
 
 class TestComputeEventScore:
@@ -3162,3 +3163,57 @@ class TestInferTimeHorizon:
         event = {"score": 0.4}
         tech = {"confirm_count": 1, "total": 4}
         assert infer_time_horizon(stock, event, tech) == "7d"
+
+
+class TestClassifySignal:
+    def _strong_buy_stock(self):
+        return {
+            "ticker": "CPIN.JK", "price": 3300,
+            "impact_score": 7.0, "impact_direction": "positive",
+            "relationship_confidence": 0.8, "source_confidence": 0.8,
+            "corroboration_count": 3, "recency_weight": 1.0,
+            "source_conflict": False, "event_stage": "developing",
+            "rsi_value": 35.0,
+            "macd": {"histogram": 0.5},
+            "bollinger": {"percent_b": 0.15},
+            "volume_spike": {"is_spike": True, "spike_ratio": 2.0},
+            "trend": {"trend": "bullish"},
+            "atr_value": 50.0,
+            "support_resistance": {"support": [3200], "resistance": [3400]},
+        }
+
+    def test_strong_stock_classifies_as_buy(self):
+        result = classify_signal(self._strong_buy_stock())
+        assert result["action"] == "BUY"
+        assert result["time_horizon"] in ("1d", "7d", "30d")
+        assert result["signal_tier"] in ("A", "B", "C", "D")
+        assert result["entry_price"] > 0
+        assert result["stop_loss"] is not None
+        assert result["take_profit"] is not None
+        assert isinstance(result["reasons"], list)
+
+    def test_neutral_direction_is_watch_or_ignore(self):
+        stock = {
+            "ticker": "BBCA.JK", "price": 9500,
+            "impact_score": 2.0, "impact_direction": "neutral",
+            "relationship_confidence": 0.3, "source_confidence": 0.3,
+            "corroboration_count": 0, "recency_weight": 0.5,
+            "source_conflict": False,
+        }
+        result = classify_signal(stock)
+        assert result["action"] in ("WATCH", "IGNORE")
+
+    def test_source_conflict_downgrades(self):
+        stock = self._strong_buy_stock()
+        stock["source_conflict"] = True
+        result = classify_signal(stock)
+        if result["action"] == "BUY":
+            assert result["signal_tier"] != "A"
+
+    def test_result_has_all_required_keys(self):
+        result = classify_signal(self._strong_buy_stock())
+        required = {"action", "time_horizon", "signal_tier", "signal_type",
+                     "signal_strength", "event_score", "tech_score",
+                     "tech_confirmation_count", "entry_price", "stop_loss",
+                     "take_profit", "reasons", "invalidation"}
+        assert required.issubset(result.keys())
