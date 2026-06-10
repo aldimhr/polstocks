@@ -3039,3 +3039,48 @@ class TestAPIShapeBaseline:
         data = resp.json()
         for key in ("total_predictions", "hit_rate", "baseline"):
             assert key in data
+
+
+from backend.trading_signals import compute_event_score
+
+
+class TestComputeEventScore:
+    def test_returns_dict_with_score_key(self):
+        stock = {"impact_score": 5.0, "relationship_confidence": 0.7,
+                 "source_confidence": 0.8, "corroboration_count": 2,
+                 "recency_weight": 0.9, "source_conflict": False}
+        result = compute_event_score(stock)
+        assert "score" in result
+        assert 0.0 <= result["score"] <= 1.0
+
+    def test_zero_impact_gives_zero_score(self):
+        stock = {"impact_score": 0, "relationship_confidence": 0.0,
+                 "source_confidence": 0.0, "corroboration_count": 0,
+                 "recency_weight": 0.0, "source_conflict": False}
+        result = compute_event_score(stock)
+        assert result["score"] == 0.0
+
+    def test_high_impact_no_conflict_gives_high_score(self):
+        stock = {"impact_score": 8.0, "relationship_confidence": 0.9,
+                 "source_confidence": 0.9, "corroboration_count": 3,
+                 "recency_weight": 1.0, "source_conflict": False}
+        result = compute_event_score(stock)
+        assert result["score"] >= 0.5
+
+    def test_source_conflict_penalizes(self):
+        stock = {"impact_score": 8.0, "relationship_confidence": 0.9,
+                 "source_confidence": 0.9, "corroboration_count": 3,
+                 "recency_weight": 1.0, "source_conflict": True}
+        result_conflict = compute_event_score(stock)
+        stock["source_conflict"] = False
+        result_no_conflict = compute_event_score(stock)
+        assert result_conflict["score"] < result_no_conflict["score"]
+
+    def test_returns_direction(self):
+        stock = {"impact_score": 5.0, "impact_direction": "positive",
+                 "relationship_confidence": 0.5, "source_confidence": 0.5,
+                 "corroboration_count": 1, "recency_weight": 0.8,
+                 "source_conflict": False}
+        result = compute_event_score(stock)
+        assert "direction" in result
+        assert result["direction"] == "positive"
