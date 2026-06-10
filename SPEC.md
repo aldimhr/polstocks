@@ -1,373 +1,323 @@
-# SPEC.md
-# Indonesia Political-Stock Impact System — Specification (Simplified)
+# PolStock — Short-Term Trading Signal Spec
+
+## Vision
+
+PolStock should be a **short-term political event → stock signal engine** for Indonesian equities.
+The goal: detect political/regulatory events early, score their likely market impact, and produce
+actionable BUY/SELL signals with defined time horizons (1d / 7d / 30d).
+
+Not a long-term investment tool. Not a news aggregator with a dashboard.
+A **signal machine** that answers: *"This just happened — should I trade it, and for how long?"*
 
 ---
 
-## 1. Purpose
+## Current State (Honest Assessment)
 
-A lightweight on-demand dashboard that lets users check how current Indonesian political events may be impacting IDX-listed stocks. The user manually triggers a refresh; the system fetches fresh news and stock prices, runs NLP analysis, and displays the results.
+### What Exists
 
----
+| Layer | Status | Notes |
+|-------|--------|-------|
+| News ingestion (19 RSS sources) | ✅ Working | 19 Indonesian political/news sources, dedup, freshness |
+| NLP (sentiment + NER + category) | ✅ Working | RoBERTa sentiment, IndoBERT NER, keyword category classifier |
+| Event→ticker linking | ✅ Working | Policy channel matching, company knowledge base, exposure scoring |
+| Technical indicators | ✅ Working | RSI, MACD, SMA trend, Bollinger Bands, ATR, support/resistance, volume spike |
+| Trade signal generator | ⚠️ Partial | `generate_trade_signal()` exists but gates on `signal_strength ≥ 0.6` — almost never fires |
+| Backtest system | ⚠️ Partial | Tracks predictions, resolves outcomes, but accuracy is below baseline |
+| Telegram alerts | ✅ Working | BUY/SELL push with dedup, quiet hours, formatting |
+| Portfolio tracking | ✅ Working | Open/close positions, live P&L, trade history |
+| Dashboard | ✅ Working | 5-tab UI, watchlist with pins, all 30 tickers |
+| Signal history | ✅ Working | Log, resolve, stats with 7-day expiry |
+| Weight tuning | ✅ Working | 29 tunable weights, override file, auto-tune suggestions |
 
-## 2. Scope
+### What's Broken
 
-### In Scope
-- Indonesian national-level political events from free public news RSS feeds
-- IDX-listed stocks (user-configurable watchlist, default: top 30 by market cap)
-- On-demand fetch triggered by user action (no automatic polling)
-- Sentiment analysis in Bahasa Indonesia
-- Sector-level impact summary across 11 IDX sectors
+| Problem | Impact | Root Cause |
+|---------|--------|------------|
+| **45% hit rate vs 55% neutral baseline** | Worse than random | News→price link is weak; most events don't move stocks |
+| **Negative predictions: 0% accuracy** | All negatives forced to neutral | System can't predict drops — likely over-indexes on negative sentiment keywords |
+| **Signals almost never fire** | `signal_strength ≥ 0.6` gate too strict | Only 30 positive signals out of 235 predictions in 30 days |
+| **No time-horizon alignment** | Can't tell "trade today" vs "trade this week" | Timeframe is ad-hoc based on signal strength, not event decay |
+| **High-significance events: 37% accuracy** | Worse than low-significance (40%) | Over-confident on big news; scoring weights not calibrated |
+| **Medium-confidence predictions: 100% accuracy** | Suspicious — only 30 predictions | Likely a data artifact; not enough sample |
+| **Historical backfill: 20% accuracy** | Pollutes metrics | Wayback Machine general news doesn't predict stock movements |
 
-### Out of Scope
-- Real-time streaming or WebSocket connections
-- Persistent database or historical data storage
-- User accounts or authentication
-- Regional politics unless involving nationally listed companies
+### Key Insight from Data
 
----
-
-## 3. Data Sources (Free & Public)
-
-### 3.1 Political & News Data (RSS Feeds)
-
-| Source | RSS URL | Notes |
-|---|---|---|
-| Antara News | `https://www.antaranews.com/rss/terkini.rss` | State news agency; most authoritative |
-| CNBC Indonesia | `https://www.cnbcindonesia.com/rss` | Finance & politics focus |
-| Kompas | `https://rss.kompas.com/nasional` | Major national newspaper |
-| Detik Finance | `https://finance.detik.com/rss` | Finance + political economy |
-| Tempo | `https://rss.tempo.co/nasional` | Investigative political news |
-| BeritaSatu | `https://www.beritasatu.com/rss` | Business & political news |
-
-### 3.2 Government Sources (HTTP scrape / RSS, checked on refresh)
-
-| Source | URL | Data |
-|---|---|---|
-| Sekretariat Kabinet | `https://setkab.go.id` | Presidential press releases |
-| OJK | `https://www.ojk.go.id` | Financial regulation news |
-| KPK | `https://www.kpk.go.id/id/berita/siaran-pers` | Corruption case announcements |
-
-### 3.3 Stock Data
-
-| Source | Library / URL | Data | Notes |
-|---|---|---|---|
-| Yahoo Finance | `yfinance` Python library | Current price, OHLCV, % change | Ticker format: `BBCA.JK` |
-| IDX Official | `https://www.idx.co.id` | Ticker list, sector classification | Scraped once on startup |
-| Stooq | `pandas-datareader` + stooq | Historical OHLCV fallback | No API key needed |
+The **medium-significance bucket (76% accuracy)** and **medium-confidence bucket (53%)** outperform.
+This suggests the system works best when it's *uncertain enough to be calibrated* — not when it's
+confident. The scoring engine over-weights big dramatic events that are actually priced in already.
 
 ---
 
-## 4. Functional Requirements
+## Design Principles
 
-### 4.1 Update Button
-
-| ID | Requirement |
-|---|---|
-| F-01 | User SHALL see a prominent "Update" button on the dashboard |
-| F-02 | Clicking Update SHALL trigger a single backend request |
-| F-03 | If the last successful fetch was less than 5 minutes ago, the backend SHALL return the cached result without re-fetching |
-| F-04 | The UI SHALL show a loading spinner during fetch and a "Last updated: HH:MM WIB" timestamp after |
-| F-05 | If fetch fails (network error, rate limit), the UI SHALL show an error toast and retain the previous result |
-
-### 4.2 News Fetching
-
-| ID | Requirement |
-|---|---|
-| F-10 | On each non-cached refresh, the system SHALL fetch up to the latest 80 articles from each configured RSS source |
-| F-11 | Articles older than the selected window (`24h`, `7d`, or `30d`) SHALL be excluded from analysis |
-| F-12 | Duplicate articles (same URL or >90% title similarity) SHALL be deduplicated |
-| F-13 | Fetch timeout per source SHALL be 5 seconds; failed sources SHALL be skipped gracefully |
-
-### 4.3 Stock Data Fetching
-
-| ID | Requirement |
-|---|---|
-| F-20 | On each non-cached refresh, the system SHALL fetch current quotes for all tickers in the user's watchlist |
-| F-21 | Each ticker response SHALL include: current price (IDR), % change today, volume, and sector |
-| F-22 | If yfinance returns stale data (>30 min old outside trading hours), it SHALL be marked as "after-hours" |
-| F-23 | Default watchlist SHALL be the top 30 IDX stocks by market cap (LQ45 index composition) |
-
-### 4.4 NLP Analysis
-
-| ID | Requirement |
-|---|---|
-| F-30 | Each article SHALL receive a political relevance score (`0.0-1.0`) and label (`political`, `maybe`, `not_political`) before downstream scoring |
-| F-31 | Each article SHALL be scored for sentiment: positive / negative / neutral with a score of -1.0 to +1.0 |
-| F-32 | Each article SHALL be assigned an event stage (`proposal`, `debate`, `approved`, `effective`, `delayed`, `revoked`, `enforced`, or `unspecified`) plus reversal/tentative flags when detectable |
-| F-33 | Each article SHALL be classified into one or more political categories (see Section 6) |
-| F-34 | Named entities SHALL be extracted: persons, organizations, commodities, laws |
-| F-35 | Each article SHALL be mapped to one or more IDX sectors based on content |
-| F-36 | An impact score SHALL be computed per (article, ticker) pair (see Section 7) |
-|| F-37 | NLP processing SHALL complete within 10 seconds for a batch of 100 articles |
-|| F-38 | Each surviving (article, ticker) relationship SHALL carry a market-validation result that distinguishes text prediction from observed price/volume follow-through |
-|| F-39 | Each article SHALL expose source freshness and quality metadata, including `source_freshness_score`, `source_quality_score`, and a coverage warning when the evidence is stale, thin, or duplicated |
-
-### 4.5 Dashboard Display
-
-| ID | Requirement |
-|---|---|
-| F-40 | Stock cards SHALL display: ticker, company name, current price, % change today, and political impact score |
-| F-41 | Impact score SHALL be color-coded: red (negative), green (positive), grey (neutral) |
-| F-42 | Event feed SHALL list the top 10 most politically significant articles from the current refresh and selected window |
-| F-43 | Each event SHALL show: headline, source, published time, political category badge, impacted tickers, and evidence context |
-| F-44 | A sector summary bar SHALL show average impact score per IDX sector |
-| F-45 | User SHALL be able to add/remove tickers from their watchlist |
-| F-46 | User SHALL be able to switch between `24h`, `7d`, and `30d` windows from the dashboard |
-| F-47 | Refresh payloads SHALL include daily event-tracking aggregates plus top themes and sources for the selected window |
-| F-48 | Stock rows and relationship payloads SHALL expose `validation_status`, `validation_window`, `abnormal_return`, `abnormal_volume_ratio`, and `validation_score` when market history is available |
-| F-49 | If market history cannot be fetched, the refresh SHALL keep the text-based relationship and mark it `predicted_only` or `insufficient_data` instead of failing the request |
-| F-50 | Relationship payloads SHALL also expose source-aware confidence metadata, including `relationship_confidence`, `confidence_label`, `source_confidence`, and `evidence_strength`, so weak evidence can be downgraded without being hidden |
-| F-51 | Dashboard event and stock cards SHALL surface friendly provenance cues, including official source status, freshness, sparse/duplicated coverage warnings, and confidence labels |
-
+1. **Precision over recall** — Better to miss signals than produce bad ones. A user who loses money once won't come back.
+2. **Every signal must have a time horizon** — No vague "bullish." Either "BUY, 1-3d horizon" or nothing.
+3. **Technical confirmation required** — NLP alone can't predict stock movements. News sets the *direction*, technicals confirm the *timing*.
+4. **Backtest-driven tuning** — Every weight adjustment must show improvement in backtest. No gut-feel tuning.
+5. **Simplicity** — The system is already 2968 lines in main.py. New features should reduce complexity, not add it.
 
 ---
 
-## 5. Non-Functional Requirements
+## Target Signal Architecture
 
-| Category | Requirement |
-|---|---|
-| Response time | Full refresh (fetch + NLP + response) SHALL complete within 15 seconds |
-| Cache TTL | In-memory cache expires after 5 minutes |
-| Concurrent users | Designed for single-user or small team use (no concurrency handling required for v1) |
-| Offline behaviour | If all sources fail, display last cached result with a warning |
-| Deployment | Runnable locally with `python3 app.py` on any machine with Python 3.11+ and network access to the public data sources |
-
----
-
-## 6. Political Event Taxonomy
-
-| Category | Description | Primarily Impacted IDX Sectors |
-|---|---|---|
-| `CABINET_RESHUFFLE` | Minister appointment or dismissal | All sectors |
-| `REGULATION_NEW` | New law, PP, Perpres, or Permen | Sector-specific |
-| `REGULATION_REPEAL` | Law or regulation revoked | Sector-specific |
-| `ELECTION_EVENT` | Election milestones, results, campaigns | All sectors |
-| `CORRUPTION_CASE` | KPK investigation, arrest, or verdict | Named company + sector |
-| `STATE_BUDGET` | APBN proposal, revision, or approval | Finance, Infrastructure |
-| `TRADE_POLICY` | Export/import bans, tariffs | Consumer Goods, Basic Materials |
-| `ENERGY_POLICY` | Mining quotas, oil/gas pricing, renewables | Energy, Basic Materials |
-| `INVESTMENT_POLICY` | FDI rules, investment restriction changes | Finance, Infrastructure |
-| `MONETARY_SIGNAL` | Bank Indonesia rate decision, inflation | Finance, Property |
-| `PARLIAMENT_SESSION` | DPR bill vote, committee hearing | Sector-specific |
-| `PROTEST_UNREST` | Labor strikes, mass protests | Consumer, Infrastructure |
-
----
-
-## 7. Impact Scoring Formula
+### Signal Pipeline (Proposed)
 
 ```
-ImpactScore(article, ticker) =
-    sentiment_score                    ← -1.0 to +1.0
-  × relationship_relevance             ← stock-link score from specificity + transmission + evidence
-  × relationship_confidence            ← 0.0 to 1.0
-  × source_quality_factor              ← freshness-aware source quality with duplicate penalty
-  × relationship_type_multiplier       ← direct / indirect / thematic
-
-Political relevance gating happens before ticker scoring:
-    relevance_score(article)           ← institution + legal + action signals, minus weak/noisy context
+[RSS Feed] → [Event Detection] → [NLP Scoring] → [Impact Score]
+                                                       ↓
+[Yahoo Finance] → [Technical Indicators] → [Tech Score] → [Composite Signal] → [Time Horizon] → [Alert]
+                                                       ↑
+[Backtest DB] → [Historical Calibration] → [Weight Adjustment]
 ```
 
-Final score is clamped to [-1.0, +1.0].
+### Signal Types
 
-Per-ticker score across all current articles = weighted average, heavier weight on more recent articles.
+| Type | Source | Time Horizon | Confidence Gate |
+|------|--------|-------------|-----------------|
+| **Event-driven** | Political news + NLP | 1-7d | `event_impact ≥ 3` AND `tech_confirm ≥ 2/4` |
+| **Technical** | Price patterns only | 1-3d | `signal_strength ≥ 0.5` AND ≥ 2 indicators align |
+| **Composite** | Event + Technical | 1-30d | Both scores above threshold, same direction |
+
+### Time Horizons
+
+Every signal MUST carry one of:
+
+| Horizon | Meaning | Resolution Window | Expected Hold |
+|---------|---------|-------------------|---------------|
+| `1d` | Intraday/next-day move | 24 hours | Hours to 1 day |
+| `7d` | Week-long trend | 7 days | 1-5 days |
+| `30d` | Multi-week position | 30 days | 1-3 weeks |
+
+Time horizon is determined by:
+- **Event decay**: Breaking news → 1d, policy announcement → 7d, regulation passed → 30d
+- **Signal strength**: Stronger signals get shorter horizons (more conviction = act faster)
+- **Technical setup**: Bollinger squeeze → 1d, trend reversal → 7d, breakout → 30d
+
+### Technical Confirmation Matrix
+
+For a BUY signal to fire, at least 2 of 4 must agree:
+
+| Indicator | BUY confirm | SELL confirm |
+|-----------|-------------|--------------|
+| RSI | < 40 (oversold) | > 60 (overbought) |
+| MACD histogram | > 0 and rising | < 0 and falling |
+| Bollinger %B | < 0.2 (near lower band) | > 0.8 (near upper band) |
+| Volume spike | ≥ 1.5x avg AND direction aligns | ≥ 1.5x avg AND direction aligns |
+
+For a SELL signal, same logic inverted.
+
+If indicators conflict → signal downgraded to WATCH, not sent as alert.
+
+### Signal Strength Formula (Proposed Revision)
+
+Current formula:
+```
+signal_strength = 0.35*confidence + 0.25*corroboration + 0.20*validation + 0.20*tech_alignment
+```
+
+Proposed:
+```
+signal_strength = event_score × tech_confirmation × calibration_multiplier
+```
+
+Where:
+- `event_score` = impact_score (0-10) × confidence × corroboration × category_weight
+- `tech_confirmation` = (agreeing_indicators / total_indicators), range 0-1
+- `calibration_multiplier` = backtest-derived per-category, per-confidence multiplier
+
+This forces signals to have BOTH event conviction AND technical agreement.
 
 ---
 
-## 8. API Contract
+## What Needs to Change
 
-### `POST /api/refresh`
+### Phase 1: Fix the Foundation
 
-**Request**
-```json
-{
-  "tickers": ["BBCA.JK", "TLKM.JK", "ASII.JK"],
-  "force": false,
-  "window": "7d"
-}
-```
-- `force: true` bypasses the 5-minute cache
+**Goal**: Get the signal pipeline producing accurate signals before adding features.
 
-**Response**
-```json
-{
-  "fetched_at": "2025-05-30T09:15:00+07:00",
-  "from_cache": false,
-  "window": "7d",
-  "window_label": "7 hari terakhir",
-  "reasoning_summary": {
-    "summary_line": "5 confirmed links · 2 predicted-only links · 1 contested thread",
-    "relevance_breakdown": [
-      { "name": "political", "count": 8 },
-      { "name": "maybe", "count": 1 }
-    ],
-    "stage_breakdown": [
-      { "name": "approved", "count": 4 },
-      { "name": "proposal", "count": 3 }
-    ],
-    "thread_breakdown": [
-      { "name": "confirmed", "count": 2 },
-      { "name": "contested", "count": 1 }
-    ],
-    "validation_breakdown": [
-      { "name": "confirmed", "count": 5 },
-      { "name": "predicted_only", "count": 2 }
-    ],
-    "direction_breakdown": [
-      { "name": "positive", "count": 4 },
-      { "name": "negative", "count": 3 }
-    ]
-  },
-  "events": [
-    {
-      "id": "evt_001",
-      "headline": "Pemerintah larang ekspor batu bara",
-      "source": "antaranews.com",
-      "url": "https://...",
-      "published_at": "2025-05-30T08:00:00+07:00",
-      "categories": ["ENERGY_POLICY", "TRADE_POLICY"],
-      "relevance_label": "political",
-      "relevance_score": 0.91,
-      "event_stage": "approved",
-      "is_reversal": false,
-      "sentiment": "negative",
-      "sentiment_score": -0.72,
-      "impacted_sectors": ["Energy", "Basic Materials"],
-      "impacted_tickers": ["ADRO.JK", "PTBA.JK"],
-      "stock_relationships": [
-        {
-          "ticker": "ADRO.JK",
-          "impact_direction": "negative",
-          "validation_status": "confirmed",
-          "validation_window": "30m",
-          "abnormal_return": -0.031,
-          "abnormal_volume_ratio": 1.87,
-          "validation_score": 0.84
-        }
-      ]
-    }
-  ],
-  "event_threads": [
-    {
-      "thread_id": "thr_energy-policy-pemerintah-adro-jk-trade-policy",
-      "thread_status": "confirmed",
-      "article_count": 2,
-      "latest_event_stage": "approved",
-      "latest_headline": "Pemerintah larang ekspor batu bara",
-      "contradiction_count": 0
-    }
-  ],
-  "stocks": [
-    {
-      "ticker": "BBCA.JK",
-      "name": "Bank Central Asia",
-      "sector": "Finance",
-      "price": 9500,
-      "change_pct": -0.52,
-      "volume": 12500000,
-      "impact_score": -0.18,
-      "related_event_ids": ["evt_003"],
-      "validation_status": "predicted_only",
-      "validation_window": "30m",
-      "abnormal_return": -0.002,
-      "abnormal_volume_ratio": 1.04,
-      "validation_score": 0.28
-    }
-  ],
-  "sector_summary": {
-    "Energy": -0.65,
-    "Finance": -0.18,
-    "Consumer Goods": 0.10
-  }
-}
-```
+#### 1.1 Remove negative prediction suppression
+- **Current**: `expected_direction_for_company()` force-converts "negative" → "neutral"
+- **Change**: Remove suppression. Instead, require SELL signals to have ≥ 3 technical confirmations (stricter than BUY's 2)
+- **Why**: Suppression hides real problems. Better to understand why negatives fail.
 
-The dashboard uses `reasoning_summary` to render compact badges for relevance, stage, thread status, direction, and validation instead of burying the same data inside longer text blocks.
+#### 1.2 Revise signal strength gate
+- **Current**: `signal_strength ≥ 0.6` — almost never fires
+- **Change**: Separate gates for event-only vs technical-confirmed signals:
+  - Event-only: `event_impact ≥ 4` AND `confidence ≥ 0.5` (high bar, rare)
+  - Tech-confirmed: `event_impact ≥ 2` AND `tech_agreement ≥ 2/4` (lower event bar, needs tech backup)
+  - Technical-only: `tech_agreement ≥ 3/4` AND `signal_strength ≥ 0.5` (no news required)
 
-### `GET /api/watchlist`
-Returns current watchlist tickers.
+#### 1.3 Add time horizon to every signal
+- **Current**: Timeframe is ad-hoc string based on strength
+- **Change**: Compute from event category + stage + decay:
+  - `event_stage == "breaking"` → `1d`
+  - `event_stage == "developing"` → `7d`
+  - `event_stage == "established"` → `30d`
+  - Technical-only signals → `1d` default
+- Store `time_horizon` in `signal_history` table and `predictions` table
 
-### `PUT /api/watchlist`
-```json
-{ "tickers": ["BBCA.JK", "GOTO.JK"] }
-```
-Updates watchlist (stored in memory for session).
+#### 1.4 Calibrate scoring from backtest data
+- **Current**: Weights are manually tuned or auto-suggested but rarely applied
+- **Change**: Compute calibration multipliers from resolved predictions:
+  - Per category: `actual_hit_rate / expected_hit_rate`
+  - Per confidence bucket: same
+  - Apply as multiplier in signal strength formula
+- **Auto-apply** weekly (cron) with human-readable diff logged
 
-### `GET /api/dashboard`
-Returns the current dashboard view for the selected window.
+#### 1.5 Fix resolution windows
+- **Current**: 1h/4h/24h resolution only
+- **Change**: Add resolution at signal's time horizon:
+  - `1d` signal → resolve at 24h
+  - `7d` signal → resolve at 7d
+  - `30d` signal → resolve at 30d
+- Store resolution at each horizon for multi-window accuracy tracking
 
-**Response**
-```json
-{
-  "watchlist": ["BBCA.JK", "TLKM.JK"],
-  "reasoning_summary": {
-    "summary_line": "5 confirmed links · 2 predicted-only links",
-    "validation_breakdown": [{ "name": "confirmed", "count": 5 }]
-  },
-  "payload": { "...": "same shape as POST /api/refresh" }
-}
-```
-- Mirrors the refresh payload, but also surfaces `watchlist` and a top-level `reasoning_summary` for simpler dashboard rendering.
+### Phase 2: Improve Signal Quality
+
+#### 2.1 Standalone technical signals
+- RSI oversold + MACD crossover + volume spike → BUY (no news needed)
+- RSI overbought + MACD crossover down + volume spike → SELL
+- Must have ≥ 3/4 indicators agreeing
+- Default time horizon: 1d (technical setups are short-lived)
+
+#### 2.2 Event novelty scoring
+- **Current**: Novelty dampens repeated events (1.0 → 0.8 → 0.6 → 0.4)
+- **Change**: Also boost truly novel events:
+  - First event in category for ticker in 30d → 1.3x boost
+  - First event from source in 7d → 1.1x boost
+  - Repeated event within 24h → 0.3x (nearly suppress)
+
+#### 2.3 Source quality refinement
+- **Current**: Source tiers (tier_1/2/3) with quality/freshness scores
+- **Change**: Track per-source prediction accuracy:
+  - Sources with >60% accuracy on ≥10 predictions → boost confidence by 1.15x
+  - Sources with <30% accuracy on ≥10 predictions → dampen by 0.85x
+  - New sources (<5 predictions) → neutral 1.0x
+
+#### 2.4 Sector rotation detection
+- If multiple tickers in a sector get same direction signal → boost by `sector_alignment_factor`
+- If sector signals conflict → dampen all signals in that sector
+- Already have `sector_correlation_count` but it's not used for signal gating
+
+### Phase 3: Make It Useful
+
+#### 3.1 Daily signal summary (Telegram)
+- **New cron job**: Every market day at 08:30 WIB (before market open)
+- Sends: Top 3 signals for the day, with entry/SL/TP/horizon
+- Format: concise, actionable, no jargon
+- Example:
+  ```
+  📊 PolStock Daily — 10 Jun 2026
+  
+  🟢 BUY CPIN.JK — 7d horizon
+  Entry: 3,300 → TP: 3,450 / SL: 3,225
+  Reason: Trade policy positive, RSI oversold, volume rising
+  
+  🟡 WATCH ADRO.JK — 1d horizon
+  Energy policy developing, MACD near crossover
+  
+  📈 30d accuracy: 52% (11/21 correct)
+  ```
+
+#### 3.2 Signal confidence tiers
+| Tier | Meaning | Alert? | Auto-trade? |
+|------|---------|--------|-------------|
+| A | Event + 3+ tech confirm + calibrated | ✅ Push | ❌ (future) |
+| B | Event + 2 tech confirm | ✅ Push | ❌ |
+| C | Event-only OR tech-only | ❌ Dashboard only | ❌ |
+| D | Low confidence / conflicting | ❌ Logged only | ❌ |
+
+#### 3.3 Weekly calibration report
+- Every Sunday: accuracy by category, by source, by direction, by time horizon
+- Compare to baseline, flag degraded categories
+- Auto-suggest weight adjustments with expected impact
+- Push summary to Telegram
+
+#### 3.4 Clean historical data
+- Remove or isolate `historical_backfill` predictions (20% accuracy pollutes metrics)
+- Only count `origin=live` for real-time calibration
+- Historical data useful for training but not for live accuracy tracking
 
 ---
 
-## 9. NLP Model
+## Database Schema Changes
 
-- **Model**: `indobenchmark/indobert-base-p2` via HuggingFace Transformers
-- **Tasks**: Sentiment classification, named entity recognition, political category multi-label classification
-- **Language**: Bahasa Indonesia
-- **Inference**: Runs locally on CPU (no GPU required for v1); ~0.5s per article
-- **Fallback**: If model fails to load, use keyword-based rule classifier as fallback
-
----
-
-## 10. Default Watchlist (LQ45 Top 30)
-
+### signal_history (add)
+```sql
+ALTER TABLE signal_history ADD COLUMN time_horizon TEXT DEFAULT '1d';
+ALTER TABLE signal_history ADD COLUMN signal_tier TEXT DEFAULT 'C';
+ALTER TABLE signal_history ADD COLUMN tech_confirmation_count INTEGER DEFAULT 0;
+ALTER TABLE signal_history ADD COLUMN event_score REAL DEFAULT 0;
+ALTER TABLE signal_history ADD COLUMN calibration_multiplier REAL DEFAULT 1.0;
+ALTER TABLE signal_history ADD COLUMN resolved_at_horizon TEXT;
+ALTER TABLE signal_history ADD COLUMN return_at_horizon REAL;
 ```
-BBCA.JK, BBRI.JK, BMRI.JK, TLKM.JK, ASII.JK,
-GOTO.JK, BYAN.JK, ADRO.JK, UNVR.JK, ICBP.JK,
-PTBA.JK, ANTM.JK, INDF.JK, SMGR.JK, KLBF.JK,
-HMSP.JK, PGAS.JK, JSMR.JK, EXCL.JK, INCO.JK,
-TOWR.JK, MNCN.JK, ITMG.JK, HRUM.JK, BSDE.JK,
-CPIN.JK, JPFA.JK, ESSA.JK, BRPT.JK, MEDC.JK
+
+### predictions (add)
+```sql
+ALTER TABLE predictions ADD COLUMN time_horizon TEXT DEFAULT '1d';
+ALTER TABLE predictions ADD COLUMN tech_confirmation_count INTEGER DEFAULT 0;
+ALTER TABLE predictions ADD COLUMN signal_tier TEXT DEFAULT 'C';
+```
+
+### New: source_accuracy
+```sql
+CREATE TABLE IF NOT EXISTS source_accuracy (
+    source_id TEXT PRIMARY KEY,
+    total_predictions INTEGER DEFAULT 0,
+    correct_predictions INTEGER DEFAULT 0,
+    hit_rate REAL DEFAULT 0.5,
+    last_updated TEXT
+);
 ```
 
 ---
 
-## 11. Development Phases
+## API Changes
 
-### Phase 1 — Core (Weeks 1–2)
-- [ ] FastAPI backend with `/api/refresh` endpoint
-- [ ] RSS fetcher with deduplication
-- [ ] yfinance stock data integration
-- [ ] In-memory cache with 5-minute TTL
-- [ ] Basic Next.js dashboard with Update button + stock cards
+### Modified Endpoints
 
-### Phase 2 — NLP (Weeks 3–4)
-- [ ] IndoBERT sentiment pipeline
-- [ ] Political category classifier
-- [ ] Sector + ticker impact mapping
-- [ ] Impact score calculation
-- [ ] Event feed on dashboard with category badges
+- `GET /api/signals/history` — Add `time_horizon`, `signal_tier` filters
+- `GET /api/backtest` — Add `by_time_horizon` breakdown, separate `live` vs `historical` by default
+- `GET /api/dashboard` — Stocks include `time_horizon` and `signal_tier` for top signals
 
-### Phase 3 — Polish (Week 5)
-- [ ] Sector summary bar
-- [ ] Watchlist editor
-- [ ] Error handling (failed sources, timeouts)
-- [ ] "Last updated" timestamp + loading state
-- [ ] Docker Compose packaging
+### New Endpoints
+
+- `GET /api/signals/daily-summary` — Today's top signals for Telegram cron
+- `GET /api/calibration/report` — Weekly calibration metrics
+- `POST /api/calibration/auto-apply` — Apply calibration multipliers from backtest
 
 ---
 
-## 12. Glossary
+## Success Metrics
 
-| Term | Definition |
-|---|---|
-| IDX | Indonesia Stock Exchange (Bursa Efek Indonesia / BEI) |
-| WIB | Waktu Indonesia Barat — Western Indonesia Time (UTC+7) |
-| LQ45 | IDX index of 45 most liquid stocks; used as default watchlist basis |
-| DPR RI | Dewan Perwakilan Rakyat — Indonesian House of Representatives |
-| OJK | Otoritas Jasa Keuangan — Financial Services Authority |
-| KPK | Komisi Pemberantasan Korupsi — Corruption Eradication Commission |
-| IndoBERT | Pre-trained BERT model for Bahasa Indonesia (HuggingFace) |
-| OHLCV | Open, High, Low, Close, Volume — standard stock price fields |
-| TTL | Time To Live — cache expiry duration |
+| Metric | Current | Target (30d) | Target (90d) |
+|--------|---------|--------------|--------------|
+| Hit rate (live, non-neutral) | 43% | 55% | 60% |
+| Edge vs neutral baseline | -9.4% | +5% | +10% |
+| Signals per week | ~4 | 5-10 | 10-20 |
+| Alert accuracy (A+B tier) | N/A | 55% | 65% |
+| Time horizon accuracy | N/A | 50% at horizon | 60% at horizon |
+| User-reported usefulness | N/A | "Useful 2x/week" | "Daily driver" |
+
+---
+
+## What We're NOT Building
+
+- ❌ Automated trading (no broker API integration)
+- ❌ Options/derivatives signals (cash equities only)
+- ❌ Crypto signals
+- ❌ Long-term portfolio optimization
+- ❌ Real-time intraday scanning (RSS is delayed, not suitable for scalping)
+- ❌ Sentiment analysis of social media (too noisy for Indonesian market)
+
+---
+
+## Implementation Priority
+
+1. **Phase 1** (this week): Fix signal pipeline — remove suppression, revise gates, add time horizons, fix resolution windows
+2. **Phase 2** (next week): Improve quality — technical signals, novelty boost, source calibration
+3. **Phase 3** (following week): Make it useful — daily summary cron, confidence tiers, weekly report
+
+Each phase should be testable independently and show measurable improvement in backtest before moving on.
