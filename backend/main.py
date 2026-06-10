@@ -30,7 +30,7 @@ from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
 import requests
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Header, HTTPException, Response, Depends, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -636,6 +636,54 @@ def _cleanup_rate_store():
                 del _rate_store[ip]
 
 threading.Thread(target=_cleanup_rate_store, daemon=True, name="rate-limit-cleanup").start()
+
+
+_API_KEY = os.environ.get("API_KEY", "").strip()
+
+
+async def _check_api_key(request: Request):
+    """FastAPI dependency: enforce X-API-Key header when API_KEY env is set.
+
+    If API_KEY is not configured all requests pass through (backward compat).
+    Otherwise callers must send either ``X-API-Key`` or ``Authorization: Bearer <key>``.
+    """
+    if not _API_KEY:
+        return  # no key configured → allow everything
+    header_key = request.headers.get("x-api-key", "")
+    if header_key == _API_KEY:
+        return
+    # Also accept Authorization: Bearer <key>
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer ") and auth[7:] == _API_KEY:
+        return
+    raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+# ── Refresh-specific rate limiter ──────────────────────────────────
+_REFRESH_RATE_WINDOW = 60       # seconds
+_REFRESH_RATE_MAX = 5           # max refresh calls per window per IP
+_refresh_rate_store: dict[str, list[float]] = {}
+_refresh_rate_lock = threading.Lock()
+
+
+def _check_refresh_rate_limit(request: Request):
+    """Dependency: sliding-window rate limit for /api/refresh per client IP."""
+    client_ip = request.client.host if request.client else "unknown"
+    now = _time.time()
+    with _refresh_rate_lock:
+        if client_ip not in _refresh_rate_store:
+            _refresh_rate_store[client_ip] = []
+        timestamps = _refresh_rate_store[client_ip]
+        cutoff = now - _REFRESH_RATE_WINDOW
+        _refresh_rate_store[client_ip] = [t for t in timestamps if t > cutoff]
+        current = len(_refresh_rate_store[client_ip])
+        if current >= _REFRESH_RATE_MAX:
+            raise HTTPException(
+                status_code=429,
+                detail="Refresh rate limit exceeded. Try again later.",
+                headers={"Retry-After": str(_REFRESH_RATE_WINDOW)},
+            )
+        _refresh_rate_store[client_ip].append(now)
 
 
 class RefreshRequest(BaseModel):
@@ -2447,7 +2495,7 @@ def api_get_all_tickers() -> dict[str, Any]:
 
 
 @app.post("/api/watchlist/pin/{ticker}")
-def api_pin_ticker(ticker: str) -> dict[str, Any]:
+def api_pin_ticker(ticker: str, _auth: None = Depends(_check_api_key)) -> dict[str, Any]:
     """Pin a ticker to the top of the watchlist."""
     from backend.signals import pin_ticker
     from backend.utils import normalize_ticker
@@ -2459,7 +2507,7 @@ def api_pin_ticker(ticker: str) -> dict[str, Any]:
 
 
 @app.delete("/api/watchlist/pin/{ticker}")
-def api_unpin_ticker(ticker: str) -> dict[str, Any]:
+def api_unpin_ticker(ticker: str, _auth: None = Depends(_check_api_key)) -> dict[str, Any]:
     """Unpin a ticker from the watchlist."""
     from backend.signals import unpin_ticker
     from backend.utils import normalize_ticker
@@ -2533,7 +2581,7 @@ def api_ticker_detail(ticker: str, window: str = DEFAULT_EVENT_WINDOW) -> dict[s
 
 
 @app.put("/api/watchlist")
-def api_put_watchlist(payload: WatchlistRequest, user_id: int | None = None) -> dict[str, Any]:
+def api_put_watchlist(payload: WatchlistRequest, user_id: int | None = None, _auth: None = Depends(_check_api_key)) -> dict[str, Any]:
     if user_id is not None:
         save_user_watchlist_to_bot_db(user_id, payload.tickers)
         return {"tickers": payload.tickers, "user_id": user_id}
@@ -2833,7 +2881,7 @@ def api_portfolio_history(limit: int = 50) -> dict[str, Any]:
 
 
 @app.post("/api/portfolio/reset")
-def api_portfolio_reset() -> dict[str, Any]:
+def api_portfolio_reset(_auth: None = Depends(_check_api_key)) -> dict[str, Any]:
     """Delete all portfolio positions (open and closed)."""
     from backend.signals import init_signal_tables, _get_conn
     init_signal_tables()
@@ -2848,7 +2896,7 @@ def api_portfolio_reset() -> dict[str, Any]:
 
 
 @app.post("/api/portfolio/position")
-def api_portfolio_add(payload: dict[str, Any]) -> dict[str, Any]:
+def api_portfolio_add(payload: dict[str, Any], _auth: None = Depends(_check_api_key)) -> dict[str, Any]:
     """Add a position to the portfolio."""
     from backend.signals import init_signal_tables, _get_conn
     init_signal_tables()
@@ -2879,7 +2927,7 @@ def api_portfolio_add(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.put("/api/portfolio/position/{position_id}")
-def api_portfolio_close(position_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+def api_portfolio_close(position_id: int, payload: dict[str, Any], _auth: None = Depends(_check_api_key)) -> dict[str, Any]:
     """Close a portfolio position."""
     from backend.signals import init_signal_tables, _get_conn
     init_signal_tables()
@@ -2917,7 +2965,7 @@ def api_portfolio_close(position_id: int, payload: dict[str, Any]) -> dict[str, 
 
 
 @app.post("/api/refresh")
-def api_refresh(payload: RefreshRequest) -> JSONResponse:
+def api_refresh(payload: RefreshRequest, _auth: None = Depends(_check_api_key), _rl: None = Depends(_check_refresh_rate_limit)) -> JSONResponse:
     result = build_refresh_payload(payload.tickers, force=payload.force, window=payload.window)
     return JSONResponse(result)
 
@@ -3353,3 +3401,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
