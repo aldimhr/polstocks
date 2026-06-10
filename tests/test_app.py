@@ -2998,3 +2998,44 @@ def test_backfill_web_endpoint_dry_run():
     assert data["import_result"]["dry_run"] is True
     assert "raw_articles" in data
     assert "politically_filtered" in data
+
+
+class TestAPIShapeBaseline:
+    """Regression tests: lock down current response shapes before refocus."""
+
+    def test_dashboard_has_expected_top_level_keys(self, monkeypatch):
+        _patch_fetch_news_bundle(monkeypatch, lambda *a, **k: ([], []))
+        _patch_fetch_stock_quotes(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_fetch_market_index(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_validation_series(monkeypatch, lambda *a, **k: ({}, []))
+        resp = client.get("/api/dashboard?window=1d")
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in ("watchlist", "payload", "nlp_status", "dashboard_cues"):
+            assert key in data, f"Missing top-level key: {key}"
+
+    def test_dashboard_stock_has_trade_signal(self, monkeypatch):
+        _patch_fetch_news_bundle(monkeypatch, lambda *a, **k: ([], []))
+        _patch_fetch_stock_quotes(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_fetch_market_index(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_validation_series(monkeypatch, lambda *a, **k: ({}, []))
+        resp = client.get("/api/dashboard?window=1d")
+        assert resp.status_code == 200
+        stocks = resp.json().get("payload", {}).get("stocks", [])
+        assert len(stocks) > 0
+        for s in stocks[:3]:
+            assert "trade_signal" in s
+            ts = s["trade_signal"]
+            assert "action" in ts
+            assert ts["action"] in ("BUY", "SELL", "HOLD")
+
+    def test_signals_history_has_expected_shape(self):
+        resp = client.get("/api/signals/history")
+        assert resp.status_code == 200
+
+    def test_backtest_has_expected_shape(self):
+        resp = client.get("/api/backtest?window_days=30")
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in ("total_predictions", "hit_rate", "baseline"):
+            assert key in data
