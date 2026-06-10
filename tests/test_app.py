@@ -3260,3 +3260,60 @@ class TestDashboardTradingSignal:
             assert ts["signal_tier"] in ("A", "B", "C", "D")
             # Old field must still exist for backward compatibility
             assert "trade_signal" in s
+
+
+class TestRecordPredictionHorizon:
+    def test_record_prediction_stores_horizon_fields(self):
+        from backend.backtest import record_prediction, init_backtest_db, _get_conn
+        init_backtest_db()
+        result = record_prediction(
+            event_id="test_horizon_001",
+            event_headline="Test horizon fields",
+            published_at="2026-06-10T10:00:00",
+            ticker="TESTH.JK",
+            predicted_direction="positive",
+            predicted_score=0.7,
+            time_horizon="1d",
+            signal_tier="B",
+            signal_type="composite",
+            event_score=0.6,
+            tech_score=0.75,
+            tech_confirmation_count=3,
+        )
+        assert result is True
+        # Verify stored
+        conn = _get_conn()
+        row = conn.execute("SELECT time_horizon, signal_tier, signal_type, event_score, tech_score, tech_confirmation_count FROM predictions WHERE event_id = 'test_horizon_001'").fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "1d"
+        assert row[1] == "B"
+        assert row[2] == "composite"
+        assert row[3] == 0.6
+        # Cleanup
+        conn = _get_conn()
+        conn.execute("DELETE FROM predictions WHERE event_id = 'test_horizon_001'")
+        conn.commit()
+        conn.close()
+
+
+class TestLogSignalHorizon:
+    def test_log_signal_stores_horizon_fields(self):
+        from backend.signals import log_signal, get_signal_history, init_signal_tables
+        init_signal_tables()
+        result = log_signal(
+            ticker="TEST.JK", action="BUY", signal_strength=0.7,
+            price_at_signal=1000, time_horizon="1d", signal_tier="B",
+            signal_type="composite", event_score=0.6, tech_score=0.75,
+            tech_confirmation_count=3,
+        )
+        assert result is not None
+        assert result["time_horizon"] == "1d"
+        assert result["signal_tier"] == "B"
+        assert result["tech_confirmation_count"] == 3
+        # Cleanup
+        from backend.signals import _get_conn
+        conn = _get_conn()
+        conn.execute("DELETE FROM signal_history WHERE ticker = 'TEST.JK'")
+        conn.commit()
+        conn.close()

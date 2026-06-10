@@ -121,6 +121,16 @@ def init_backtest_db() -> None:
             ("currency_factor", "REAL"),
             ("prediction_origin", "TEXT DEFAULT 'live'"),
             ("source_article_id", "TEXT"),
+            ("time_horizon", "TEXT DEFAULT '7d'"),
+            ("signal_tier", "TEXT DEFAULT 'D'"),
+            ("signal_type", "TEXT DEFAULT 'event'"),
+            ("event_score", "REAL DEFAULT 0"),
+            ("tech_score", "REAL DEFAULT 0"),
+            ("tech_confirmation_count", "INTEGER DEFAULT 0"),
+            ("return_7d", "REAL"),
+            ("return_30d", "REAL"),
+            ("outcome_7d", "TEXT"),
+            ("outcome_30d", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
@@ -308,6 +318,12 @@ def record_prediction(
     currency_factor: float | None = None,
     prediction_origin: str = "live",
     source_article_id: str | None = None,
+    time_horizon: str | None = None,
+    signal_tier: str | None = None,
+    signal_type: str | None = None,
+    event_score: float | None = None,
+    tech_score: float | None = None,
+    tech_confirmation_count: int | None = None,
 ) -> bool:
     """Insert a prediction. Returns True if inserted, False if duplicate."""
     conn = _get_conn()
@@ -325,8 +341,9 @@ def record_prediction(
                 atr_value, atr_pct, atr_factor,
                 sector_correlation_count, sector_correlation_factor,
                 foreign_market_factor, sentiment_momentum, sentiment_momentum_factor,
-                currency_factor, prediction_origin, source_article_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                currency_factor, prediction_origin, source_article_id,
+                time_horizon, signal_tier, signal_type, event_score, tech_score, tech_confirmation_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id, event_headline, published_at, ticker,
                 predicted_direction, round(predicted_score, 4), significance,
@@ -341,6 +358,8 @@ def record_prediction(
                 sector_correlation_count, sector_correlation_factor,
                 foreign_market_factor, sentiment_momentum, sentiment_momentum_factor,
                 currency_factor, prediction_origin, source_article_id,
+                time_horizon or '7d', signal_tier or 'D', signal_type or 'event',
+                event_score or 0, tech_score or 0, tech_confirmation_count or 0,
             ),
         )
         conn.commit()
