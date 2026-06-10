@@ -108,6 +108,23 @@ def run_migrations(db_path: str, migrations_dir: str = "migrations"):
 0 2 * * * cp /data/polstocks.db /data/backups/$(date +%Y%m%d).db
 ```
 
+### Persistent SQLite environment contract
+
+PolStock now uses explicit, durable SQLite paths instead of ad-hoc relative or in-memory defaults.
+
+- `POLSTOCK_BACKEND_DB`
+  - backend-owned durable SQLite database
+  - current production value: `data/polstock_backend.db`
+- `POLSTOCK_BOT_DB`
+  - Telegram bot-owned SQLite database
+  - current production value: sibling bot repo `polstock.db`
+
+Expected behavior:
+
+- both paths should live on durable disk, not temp or ephemeral storage
+- service restart should preserve all prediction, signal, portfolio, and cache state
+- migrations should be applied from `migrations/*.sql` at startup, not inline ad-hoc DDL
+
 ---
 
 ### 3.2 Error Handling & Resilience 🟡
