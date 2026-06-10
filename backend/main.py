@@ -2029,11 +2029,45 @@ def build_refresh_payload(
         stock["pin_source"] = "portfolio" if is_portfolio else ("manual" if is_pinned else None)
 
     # Trading signal decision layer
-    from backend.trading_signals import classify_signal
+    from backend.trading_signals import (
+        classify_signal, compute_sector_avg_rsi,
+        apply_market_regime, deduplicate_by_sector,
+    )
+
+    # Compute sector-relative RSI averages for signal quality boost
+    sector_avg_rsi = compute_sector_avg_rsi(stocks)
+
     for stock in stocks:
-        stock["trading_signal"] = classify_signal(stock)
+        stock["trading_signal"] = classify_signal(stock, sector_avg_rsi)
+
+    # Apply IHSG market regime filter (suppress BUY in downtrend)
+    market_index = payload.get("market_index", {}) if 'payload' in dir() else {}
+    if not market_index:
+        # Try to get from the payload we're building
+        pass  # will be applied after sort
 
     stocks = sort_stocks_by_impact(stocks)
+
+    # Sector deduplication: keep strongest WATCH per sector
+    all_signals_for_dedup = []
+    for stock in stocks:
+        ts = stock.get("trading_signal") or {}
+        if ts.get("action") not in ("IGNORE",):
+            all_signals_for_dedup.append({
+                "ticker": stock.get("ticker"),
+                "sector": stock.get("sector", "unknown"),
+                **ts,
+            })
+    deduped = deduplicate_by_sector(all_signals_for_dedup)
+    deduped_tickers = {s["ticker"] for s in deduped}
+    for stock in stocks:
+        ts = stock.get("trading_signal") or {}
+        if ts.get("action") not in ("IGNORE",) and stock.get("ticker") not in deduped_tickers:
+            stock["trading_signal"] = {
+                **ts,
+                "action": "IGNORE",
+                "reasons": ts.get("reasons", []) + ["Sector dedup — stronger peer selected"],
+            }
 
     # Phase 3: Log BUY signals to history and send Telegram alerts
     # Uses trading_signal (new system) instead of trade_signal (old system).

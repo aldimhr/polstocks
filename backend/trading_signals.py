@@ -158,7 +158,10 @@ def infer_time_horizon(
     return "7d"
 
 
-def detect_technical_setup(stock: dict[str, Any]) -> dict[str, Any] | None:
+def detect_technical_setup(
+    stock: dict[str, Any],
+    sector_avg_rsi: dict[str, float] | None = None,
+) -> dict[str, Any] | None:
     """Detect standalone technical setups that don't need event catalyst.
 
     Returns a dict with action, reasons, and score if a setup is found.
@@ -200,6 +203,19 @@ def detect_technical_setup(stock: dict[str, Any]) -> dict[str, Any] | None:
         reasons.append("Near upper Bollinger Band — potential breakout or reversal")
         score += 0.15
 
+    # Sector-relative RSI boost
+    if sector_avg_rsi:
+        sector_boost = compute_sector_rsi_boost(stock, sector_avg_rsi)
+        if sector_boost > 0:
+            score += sector_boost
+            reasons.append(f"RSI below sector average — relative oversold")
+
+    # Volume trend boost
+    vol_boost = compute_volume_trend_boost(vol)
+    if vol_boost > 0:
+        score += vol_boost
+        reasons.append(f"Volume above average — rising interest")
+
     if score >= 0.2 and reasons:
         return {
             "action": "WATCH",
@@ -209,7 +225,10 @@ def detect_technical_setup(stock: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
+def classify_signal(
+    stock: dict[str, Any],
+    sector_avg_rsi: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """Full signal classification: action, horizon, tier, entry/SL/TP, reasons.
 
     This is the main entry point for the trading signal decision layer.
@@ -243,7 +262,7 @@ def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
 
     if direction not in ("positive", "negative"):
         # No event direction — check standalone technical setups
-        tech_setup = detect_technical_setup(stock)
+        tech_setup = detect_technical_setup(stock, sector_avg_rsi)
         if tech_setup:
             action = "WATCH"
             signal_strength = max(signal_strength, tech_setup["score"])
@@ -398,3 +417,136 @@ def get_calibration_multiplier(stock: dict[str, Any]) -> float:
             multiplier *= max(cat_multipliers)
 
     return _clamp(multiplier, 0.5, 1.5)
+
+
+# ── Signal Quality Upgrade Functions ──────────────────────────────
+
+
+def compute_sector_rsi_boost(
+    stock: dict[str, Any],
+    sector_avg_rsi: dict[str, float],
+) -> float:
+    """Boost strength when stock RSI is significantly below sector average.
+
+    A stock at RSI 25 in a sector averaging RSI 45 is a stronger bounce
+    candidate than one where the whole sector is oversold.
+
+    Returns 0.0-0.15 boost value.
+    """
+    rsi = stock.get("rsi_value")
+    sector = str(stock.get("sector", "") or "")
+    if rsi is None or not sector or sector not in sector_avg_rsi:
+        return 0.0
+
+    avg = sector_avg_rsi[sector]
+    delta = avg - rsi  # positive = stock is more oversold than peers
+
+    if delta >= 20:
+        return 0.15
+    elif delta >= 10:
+        return 0.10
+    elif delta >= 5:
+        return 0.05
+    return 0.0
+
+
+def compute_volume_trend_boost(vol: dict[str, Any]) -> float:
+    """Boost when current volume is above average (rising interest).
+
+    Uses spike_ratio (current_volume / avg_volume).
+    Returns 0.0-0.10 boost.
+    """
+    if not vol or not isinstance(vol, dict):
+        return 0.0
+    spike_ratio = float(vol.get("spike_ratio", 0) or 0)
+    if spike_ratio >= 2.0:
+        return 0.10
+    elif spike_ratio >= 1.3:
+        return 0.05
+    return 0.0
+
+
+def apply_signal_decay(signal: dict[str, Any], days_since_signal: int) -> None:
+    """Apply decay to signal strength based on age.
+
+    WATCH signals lose 10% per day after day 1.
+    BUY/SELL signals are not decayed (they have entry/SL/TP).
+    Signals below 0.15 strength are auto-downgraded to IGNORE.
+    """
+    if signal.get("action") != "WATCH":
+        return
+    if days_since_signal <= 1:
+        return
+    decay = min(0.5, (days_since_signal - 1) * 0.10)
+    signal["signal_strength"] = round(
+        signal["signal_strength"] * (1 - decay), 4
+    )
+    if signal["signal_strength"] < 0.15:
+        signal["action"] = "IGNORE"
+        signal["reasons"] = signal.get("reasons", []) + [
+            f"Signal stale ({days_since_signal}d) — auto-decayed"
+        ]
+
+
+def deduplicate_by_sector(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only the strongest WATCH signal per sector.
+
+    BUY/SELL signals are always kept (they have entry/SL/TP).
+    This prevents concentrated risk from multiple signals in the same sector.
+    """
+    best_by_sector: dict[str, dict[str, Any]] = {}
+    always_keep: list[dict[str, Any]] = []
+
+    for sig in signals:
+        if sig.get("action") in ("BUY", "SELL"):
+            always_keep.append(sig)
+            continue
+        sector = sig.get("sector", "unknown")
+        if sector not in best_by_sector or (
+            sig.get("signal_strength", 0) > best_by_sector[sector].get("signal_strength", 0)
+        ):
+            best_by_sector[sector] = sig
+
+    return always_keep + sorted(
+        best_by_sector.values(),
+        key=lambda s: s.get("signal_strength", 0),
+        reverse=True,
+    )
+
+
+def apply_market_regime(signal: dict[str, Any], market_index: dict[str, Any]) -> None:
+    """Downgrade BUY signals when IHSG is in a clear downtrend.
+
+    Uses IHSG price relative to its 5-point SMA and daily change.
+    Only affects BUY signals — WATCH and SELL are unchanged.
+    """
+    if signal.get("action") != "BUY":
+        return
+    change = float(market_index.get("change_pct", 0) or 0)
+    series = market_index.get("series", [])
+    if len(series) >= 5:
+        sma5 = sum(series[-5:]) / len(series[-5:])
+        last = series[-1]
+        if last < sma5 and change < -1.0:
+            signal["action"] = "WATCH"
+            signal["reasons"] = signal.get("reasons", []) + [
+                f"IHSG downtrend ({change:+.1f}%) — BUY suppressed"
+            ]
+
+
+def compute_sector_avg_rsi(stocks: list[dict[str, Any]]) -> dict[str, float]:
+    """Compute average RSI per sector from a list of stock dicts.
+
+    Returns dict: sector -> average RSI (only sectors with >= 2 stocks with RSI data).
+    """
+    sector_rsis: dict[str, list[float]] = {}
+    for s in stocks:
+        rsi = s.get("rsi_value")
+        sector = str(s.get("sector", "") or "")
+        if rsi is not None and sector:
+            sector_rsis.setdefault(sector, []).append(float(rsi))
+    return {
+        sector: sum(rsis) / len(rsis)
+        for sector, rsis in sector_rsis.items()
+        if len(rsis) >= 2
+    }
