@@ -150,6 +150,11 @@ def infer_time_horizon(
     if stage == "established":
         return "30d"
 
+    # Bollinger squeeze + directional event → 1d (breakout imminent)
+    bb = stock.get("bollinger") or {}
+    if bb.get("squeeze") and ev_score > 0.1:
+        return "1d"
+
     if ev_score >= 0.5 and total >= 4 and confirm >= 3:
         return "1d"
     if ev_score >= 0.3 and total >= 4 and confirm >= 2:
@@ -216,6 +221,18 @@ def detect_technical_setup(
         score += vol_boost
         reasons.append(f"Volume above average — rising interest")
 
+    # Support/resistance proximity boost
+    sr_boost, sr_reasons = compute_sr_proximity_boost(stock)
+    if sr_boost > 0:
+        score += sr_boost
+        reasons.extend(sr_reasons)
+
+    # Bollinger squeeze detection
+    squeeze_boost, squeeze_reasons = detect_bollinger_squeeze(stock)
+    if squeeze_boost > 0:
+        score += squeeze_boost
+        reasons.extend(squeeze_reasons)
+
     if score >= 0.2 and reasons:
         return {
             "action": "WATCH",
@@ -255,6 +272,13 @@ def classify_signal(
     signal_strength = round(
         ev_score * 0.55 + tech_score * 0.35 + calibration * 0.10, 4
     )
+
+    # Step 3b: Context boosts (S/R proximity, Bollinger squeeze)
+    sr_boost, sr_reasons = compute_sr_proximity_boost(stock)
+    squeeze_boost, squeeze_reasons = detect_bollinger_squeeze(stock)
+    context_boost = sr_boost + squeeze_boost
+    if context_boost > 0:
+        signal_strength = round(min(signal_strength + context_boost, 1.0), 4)
 
     # Step 4: Determine action
     reasons: list[str] = []
@@ -328,6 +352,10 @@ def classify_signal(
                 reasons.append(detail)
     if has_conflict:
         reasons.append("Source conflict detected — reduced confidence")
+    # Add context boost reasons (S/R proximity, squeeze)
+    for r in sr_reasons + squeeze_reasons:
+        if r not in reasons:
+            reasons.append(r)
 
     # Step 9: Invalidation
     invalidation = ""
@@ -550,3 +578,98 @@ def compute_sector_avg_rsi(stocks: list[dict[str, Any]]) -> dict[str, float]:
         for sector, rsis in sector_rsis.items()
         if len(rsis) >= 2
     }
+
+
+# ── Phase 6: Support/Resistance & Squeeze Detection ──────────────
+
+
+def compute_sr_proximity_boost(stock: dict[str, Any]) -> tuple[float, list[str]]:
+    """Boost signal strength when price is near support or resistance.
+
+    Near support + positive direction → bounce play (BUY boost).
+    Near resistance + negative direction → breakdown play (SELL boost).
+
+    For standalone technical setups (no event), uses RSI as direction proxy:
+    RSI < 40 → buy-side (near support is bullish), RSI > 60 → sell-side.
+
+    Returns (boost 0.0-0.15, reasons list).
+    """
+    price = float(stock.get("price", 0) or 0)
+    if price <= 0:
+        return 0.0, []
+
+    sr = stock.get("support_resistance") or {}
+    supports = sr.get("support", [])
+    resistances = sr.get("resistance", [])
+    direction = str(stock.get("impact_direction", "neutral") or "neutral")
+
+    # For standalone technical setups, infer direction from RSI
+    if direction == "neutral":
+        rsi = stock.get("rsi_value")
+        if rsi is not None:
+            if rsi < 40:
+                direction = "positive"  # oversold → expect bounce
+            elif rsi > 60:
+                direction = "negative"  # overbought → expect pullback
+
+    reasons: list[str] = []
+    boost = 0.0
+
+    # Check proximity to support levels (for BUY / positive direction)
+    if direction == "positive" and supports:
+        for level in supports:
+            if level and level > 0:
+                distance_pct = abs(price - level) / price
+                if distance_pct <= 0.02:  # within 2%
+                    boost = max(boost, 0.15)
+                    reasons.append(f"Price {price:.0f} near support {level:.0f} ({distance_pct*100:.1f}%)")
+                elif distance_pct <= 0.05:  # within 5%
+                    boost = max(boost, 0.08)
+                    reasons.append(f"Price {price:.0f} approaching support {level:.0f} ({distance_pct*100:.1f}%)")
+
+    # Check proximity to resistance levels (for SELL / negative direction)
+    if direction == "negative" and resistances:
+        for level in resistances:
+            if level and level > 0:
+                distance_pct = abs(price - level) / price
+                if distance_pct <= 0.02:
+                    boost = max(boost, 0.15)
+                    reasons.append(f"Price {price:.0f} near resistance {level:.0f} ({distance_pct*100:.1f}%)")
+                elif distance_pct <= 0.05:
+                    boost = max(boost, 0.08)
+                    reasons.append(f"Price {price:.0f} approaching resistance {level:.0f} ({distance_pct*100:.1f}%)")
+
+    return boost, reasons
+
+
+def detect_bollinger_squeeze(stock: dict[str, Any]) -> tuple[float, list[str]]:
+    """Detect Bollinger Band squeeze — low volatility preceding breakout.
+
+    A squeeze is when bandwidth is below its recent average, indicating
+    consolidation. Combined with directional event → high-conviction 1d signal.
+
+    Returns (boost 0.0-0.20, reasons list).
+    """
+    bb = stock.get("bollinger") or {}
+    is_squeeze = bb.get("squeeze", False)
+    bandwidth = float(bb.get("bandwidth", 0) or 0)
+    pct_b = float(bb.get("percent_b", 0.5) or 0.5)
+    direction = str(stock.get("impact_direction", "neutral") or "neutral")
+
+    reasons: list[str] = []
+    boost = 0.0
+
+    if is_squeeze:
+        reasons.append(f"Bollinger squeeze (BW {bandwidth:.3f}) — breakout imminent")
+        boost += 0.10
+
+        # If price is near lower band + positive direction → strong BUY setup
+        if direction == "positive" and pct_b < 0.3:
+            boost += 0.10
+            reasons.append("Squeeze near lower band + positive direction — high-conviction breakout")
+        # If price is near upper band + negative direction → strong SELL setup
+        elif direction == "negative" and pct_b > 0.7:
+            boost += 0.10
+            reasons.append("Squeeze near upper band + negative direction — breakdown setup")
+
+    return boost, reasons

@@ -405,6 +405,10 @@ def record_predictions_from_events(events: list[dict[str, Any]], stock_quotes: d
                 continue
 
             predicted_direction = rel.get("impact_direction", "neutral")
+            # Skip neutral predictions — they pollute backtest with noise
+            if predicted_direction not in ("positive", "negative"):
+                continue
+
             # Derive a normalized score from available relationship fields
             rel_confidence = float(rel.get("relationship_confidence", 0.0) or 0.0)
             relevance = float(rel.get("relevance_score", 0.0) or 0.0)
@@ -493,6 +497,7 @@ def record_outcome(
     price_after_1h: float | None = None,
     price_after_4h: float | None = None,
     price_after_24h: float | None = None,
+    price_after_7d: float | None = None,
 ) -> None:
     """Update a prediction with actual price outcomes."""
     conn = _get_conn()
@@ -500,7 +505,7 @@ def record_outcome(
         # Fetch current state
         row = conn.execute(
             """SELECT price_at_event, price_after_1h, price_after_4h, price_after_24h,
-                      predicted_direction
+                      predicted_direction, return_7d
                FROM predictions WHERE id = ?""",
             (prediction_id,),
         ).fetchone()
@@ -512,11 +517,13 @@ def record_outcome(
         existing_4h = row[2] or price_after_4h
         existing_24h = row[3] or price_after_24h
         pred_dir = row[4]
+        existing_ret_7d = row[5]
 
         # Compute returns
         ret_1h = _compute_return(price_at, existing_1h) if existing_1h else None
         ret_4h = _compute_return(price_at, existing_4h) if existing_4h else None
         ret_24h = _compute_return(price_at, existing_24h) if existing_24h else None
+        ret_7d = _compute_return(price_at, price_after_7d) if price_after_7d else existing_ret_7d
 
         # Determine actual direction from 24h return (or 4h if 24h not available)
         best_return = ret_24h if ret_24h is not None else (ret_4h if ret_4h is not None else ret_1h)
@@ -527,7 +534,7 @@ def record_outcome(
         if actual_dir is not None and pred_dir:
             is_correct = int(_directions_match(pred_dir, actual_dir))
 
-        # Determine if fully resolved
+        # Determine if fully resolved (24h filled = resolved; 7d is bonus)
         all_filled = all(r is not None for r in [ret_1h, ret_4h, ret_24h])
         status = "resolved" if all_filled else "pending"
 
@@ -539,6 +546,8 @@ def record_outcome(
                actual_return_1h = COALESCE(?, actual_return_1h),
                actual_return_4h = COALESCE(?, actual_return_4h),
                actual_return_24h = COALESCE(?, actual_return_24h),
+               return_7d = COALESCE(?, return_7d),
+               outcome_7d = CASE WHEN ? IS NOT NULL THEN CASE WHEN ? > 0.5 THEN 'hit' WHEN ? < -0.5 THEN 'miss' ELSE 'flat' END ELSE outcome_7d END,
                actual_direction = COALESCE(?, actual_direction),
                is_correct = COALESCE(?, is_correct),
                outcome_status = ?,
@@ -547,6 +556,8 @@ def record_outcome(
             (
                 price_after_1h, price_after_4h, price_after_24h,
                 ret_1h, ret_4h, ret_24h,
+                ret_7d,
+                ret_7d, ret_7d, ret_7d,
                 actual_dir, is_correct, status, status, prediction_id,
             ),
         )
@@ -954,11 +965,11 @@ def resolve_pending_outcomes() -> int:
     if not tickers_needed:
         return 0
 
-    # Fetch historical OHLC data for all tickers (30d window covers all needs)
+    # Fetch historical OHLC data for all tickers (3mo window covers 7d needs)
     price_history: dict[str, list[dict]] = {}
     for ticker in tickers_needed:
         try:
-            hist = fetch_ticker_history(ticker, "1mo")
+            hist = fetch_ticker_history(ticker, "3mo")
             ohlc = hist.get("ohlc_series", [])
             if ohlc:
                 price_history[ticker] = ohlc
@@ -997,6 +1008,23 @@ def resolve_pending_outcomes() -> int:
             p = _find_closest_price(ohlc, target_24h)
             if p:
                 kwargs["price_after_24h"] = p
+
+        # 7d return tracking
+        target_7d = pub_dt + timedelta(days=7)
+        if age_hours >= 168.0:  # 7 days = 168 hours
+            try:
+                _c = _get_conn()
+                _row = _c.execute(
+                    "SELECT return_7d FROM predictions WHERE id = ?",
+                    (pred["id"],),
+                ).fetchone()
+                _c.close()
+                if _row and _row[0] is None:
+                    p = _find_closest_price(ohlc, target_7d)
+                    if p:
+                        kwargs["price_after_7d"] = p
+            except Exception:
+                pass
 
         if kwargs:
             record_outcome(pred["id"], **kwargs)
