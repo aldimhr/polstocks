@@ -3303,12 +3303,83 @@
       const atrLabel = atrPct > 5 ? 'High Vol' : atrPct > 3 ? 'Moderate' : atrPct < 1 ? 'Low Vol' : 'Normal';
       stats.push({ label: `ATR · ${atrLabel}`, value: atrPct != null ? `${atrPct.toFixed(1)}%` : formatPrice(atrVal), cls: atrClass, infoKey: 'ATR' });
     }
+    // Add Bollinger stat if available
+    const bbData = payload.bollinger;
+    if (bbData && bbData.percent_b != null) {
+      const bbPct = Number(bbData.percent_b);
+      const bbClass = bbPct < 0.2 ? 'up' : bbPct > 0.8 ? 'down' : 'flat';
+      const bbLabel = bbData.squeeze ? '⚡ Squeeze!' : bbPct < 0.2 ? 'Near Lower' : bbPct > 0.8 ? 'Near Upper' : 'Mid-band';
+      stats.push({ label: `Bollinger · ${bbLabel}`, value: `${(bbPct * 100).toFixed(0)}%${bbData.squeeze ? ' 💥' : ''}`, cls: bbClass, infoKey: 'Bollinger' });
+    }
+    // Add Volume Spike stat if available
+    const vsData = payload.volume_spike;
+    if (vsData && vsData.spike_ratio != null) {
+      const vsClass = vsData.is_spike ? 'up' : 'flat';
+      stats.push({ label: `Volume · ${vsData.is_spike ? 'Spike!' : 'Normal'}`, value: `${Number(vsData.spike_ratio).toFixed(1)}x avg`, cls: vsClass, infoKey: 'Volume' });
+    }
     $('tickerModalStats').innerHTML = stats.map((item) => `
       <div class="ticker-stat">
         <span class="label${item.infoKey ? ' indicator-info' : ''}"${item.infoKey ? ` onclick="showIndicatorInfo('${item.infoKey}')"` : ''}>${escapeHtml(item.label)}</span>
         <span class="value ${item.cls}">${escapeHtml(item.value)}</span>
       </div>
     `).join('');
+
+    // ── Signal Detail Section ──
+    // Look up signal data from dashboard state (merged from daily-summary)
+    const stockInState = (state.payload?.stocks || []).find(s => s.ticker === ticker);
+    const sig = stockInState?.trading_signal || {};
+    const sigAction = sig.action || '';
+    const sigMeta = $('tickerModalMeta');
+    let signalHtml = '';
+    if (sigAction && sigAction !== 'IGNORE') {
+      const actionColor = sigAction === 'BUY' ? 'var(--green)' : sigAction === 'SELL' ? 'var(--red)' : 'var(--accent)';
+      const actionIcon = sigAction === 'BUY' ? '🟢' : sigAction === 'SELL' ? '🔴' : '🟡';
+      const strength = sig.signal_strength || 0;
+      const strengthPct = Math.round(strength * 100);
+      const strengthColor = strength >= 70 ? 'var(--green)' : strength >= 40 ? 'var(--accent)' : 'var(--muted)';
+      const entry = sig.entry_price ? formatPrice(sig.entry_price) : '—';
+      const sl = sig.stop_loss ? formatPrice(sig.stop_loss) : '—';
+      const tp = sig.take_profit ? formatPrice(sig.take_profit) : '—';
+      const reasons = sig.reasons || [];
+      signalHtml = `
+        <div style="margin:12px 0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${actionColor};color:#000;font-weight:700;">${actionIcon} ${sigAction}</span>
+            ${sig.time_horizon ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);">${sig.time_horizon}</span>` : ''}
+            ${sig.signal_tier ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);">Tier ${sig.signal_tier}</span>` : ''}
+            <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">${strengthPct}% strength</span>
+          </div>
+          <div style="height:4px;background:var(--surface2);border-radius:2px;margin-bottom:8px;overflow:hidden;">
+            <div style="height:100%;width:${strengthPct}%;background:${strengthColor};border-radius:2px;"></div>
+          </div>
+          ${entry !== '—' || sl !== '—' || tp !== '—' ? `<div style="display:flex;gap:16px;margin-bottom:6px;font-size:11px;font-family:'DM Mono',monospace;">
+            <span>Entry <strong>${entry}</strong></span>
+            <span>SL <strong style="color:var(--red)">${sl}</strong></span>
+            <span>TP <strong style="color:var(--green)">${tp}</strong></span>
+          </div>` : ''}
+          ${sig.invalidation ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">⚠️ ${escapeHtml(sig.invalidation)}</div>` : ''}
+          ${reasons.length ? `<div style="font-size:10px;color:var(--muted2);line-height:1.5;">${reasons.slice(0, 5).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
+        </div>`;
+    }
+
+    // ── Support/Resistance Levels ──
+    const srData = payload.support_resistance;
+    let srHtml = '';
+    if (srData && (srData.support?.length || srData.resistance?.length)) {
+      const supports = (srData.support || []).map(l => `<span style="color:var(--green);font-family:'DM Mono',monospace;">${formatPrice(l)}</span>`).join(' · ');
+      const resistances = (srData.resistance || []).map(l => `<span style="color:var(--red);font-family:'DM Mono',monospace;">${formatPrice(l)}</span>`).join(' · ');
+      srHtml = `
+        <div style="margin:8px 0;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:11px;">
+          ${supports ? `<div>🟢 Support: ${supports}</div>` : ''}
+          ${resistances ? `<div>🔴 Resistance: ${resistances}</div>` : ''}
+        </div>`;
+    }
+
+    // Inject signal + S/R into modal note area
+    if (signalHtml || srHtml) {
+      const noteEl = $('tickerModalNote');
+      if (noteEl) noteEl.innerHTML = (signalHtml + srHtml) + '<div style="margin-top:8px;">' + escapeHtml(noteEl.textContent || '') + '</div>';
+    }
 
     // Sync timeframe buttons
     const modalWindow = state.tickerModal.window || '24h';
@@ -3955,12 +4026,17 @@
                 const entry = s.entry_price ? Number(s.entry_price).toLocaleString() : '—';
                 const sl = s.stop_loss ? Number(s.stop_loss).toLocaleString() : '—';
                 const tp = s.take_profit ? Number(s.take_profit).toLocaleString() : '—';
-                return `<div style="margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+                const strength = Math.round((s.signal_strength || 0) * 100);
+                const barColor = s.action === 'BUY' ? 'var(--green)' : s.action === 'SELL' ? 'var(--red)' : 'var(--accent)';
+                return `<div onclick="openTickerModal('${escapeHtml(s.ticker)}')" style="margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
                     <span>${actionIcon}</span>
                     <strong style="font-size:13px;">${escapeHtml(s.ticker)}</strong>
                     <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${tierColor};color:#000;font-weight:600;">${s.signal_tier}</span>
                     <span style="font-size:10px;color:var(--muted);">str ${(s.signal_strength || 0).toFixed(2)}</span>
+                  </div>
+                  <div style="margin:3px 0 5px 0;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;">
+                    <div style="width:${strength}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.4s;"></div>
                   </div>
                   <div style="font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;">
                     Entry ${entry} · SL ${sl} · TP ${tp}
@@ -3997,13 +4073,56 @@
     }
   }
 
-  function renderPayload(payload, dashboardCues = null) {
+  function buildSignalLookup(horizons) {
+    const map = {};
+    if (!horizons || typeof horizons !== 'object') return map;
+    for (const key of Object.keys(horizons)) {
+      const sigs = horizons[key] || [];
+      for (const s of sigs) {
+        const t = String(s.ticker || '').toUpperCase();
+        if (!t) continue;
+        if (!map[t]) map[t] = s;
+      }
+    }
+    return map;
+  }
+
+  function mergeSignalsIntoStocks(stocks, signalMap) {
+    if (!stocks || !signalMap) return;
+    for (const stock of stocks) {
+      const t = String(stock.ticker || '').toUpperCase();
+      const sig = signalMap[t];
+      if (sig && (!stock.trading_signal || !stock.trading_signal.action)) {
+        stock.trading_signal = {
+          action: sig.action || '',
+          time_horizon: sig.time_horizon || '',
+          signal_tier: sig.signal_tier || '',
+          signal_strength: sig.signal_strength || 0,
+          entry_price: sig.entry_price || null,
+          stop_loss: sig.stop_loss || null,
+          take_profit: sig.take_profit || null,
+        };
+      }
+    }
+  }
+
+  async function renderPayload(payload, dashboardCues = null) {
     state.payload = payload;
     state.window = payload.window || state.window || '24h';
     $('windowSelect').value = state.window;
     writeHash();
     const events = payload.events || [];
     const stocks = payload.stocks || [];
+    /* Pre-fetch daily-summary signal data and merge into stocks before rendering */
+    try {
+      const summary = await apiJson('/api/signals/daily-summary?limit=30&include_watch=true');
+      if (summary && summary.horizons) {
+        const signalMap = buildSignalLookup(summary.horizons);
+        mergeSignalsIntoStocks(stocks, signalMap);
+      }
+    } catch (e) {
+      console.warn('Signal summary merge failed (non-fatal):', e);
+    }
     const highest = [...stocks].sort((a, b) => Math.abs(Number(b.impact_score) || 0) - Math.abs(Number(a.impact_score) || 0))[0];
     const watchlist = payload.watchlist || [];
     const displayedEventCount = Number(payload.displayed_event_count ?? events.length) || 0;
@@ -4069,7 +4188,7 @@
           ? { payload: await apiJson('/api/refresh', { method: 'POST', body: JSON.stringify({ tickers: state.payload?.watchlist || [], force: true, window: state.window || '24h' }) }) }
           : await apiJson(withUserParam(`/api/dashboard?window=${encodeURIComponent(state.window || '24h')}`));
         const payload = dashboardData?.payload || {};
-        renderPayload(payload, dashboardData?.dashboard_cues || null);
+        await renderPayload(payload, dashboardData?.dashboard_cues || null);
         state.lastSuccess = Date.now();
         state.failCount = 0;
         setBusy('Ready', false);

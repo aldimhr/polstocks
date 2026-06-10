@@ -2489,6 +2489,27 @@ def api_ticker_detail(ticker: str, window: str = DEFAULT_EVENT_WINDOW) -> dict[s
             data["atr"] = atr
             if prices:
                 data["atr_pct"] = round((atr / prices[-1]) * 100, 2)
+    # RSI
+    if len(prices) >= 15:
+        rsi = compute_rsi(prices)
+        if rsi is not None:
+            data["rsi"] = rsi
+    # Bollinger Bands
+    if len(prices) >= 20:
+        from backend.stocks import compute_bollinger_bands, compute_support_resistance, detect_volume_spike
+        bb = compute_bollinger_bands(prices, period=20, std_dev=2.0)
+        if bb:
+            data["bollinger"] = bb
+        # Support/Resistance from OHLC
+        sr = compute_support_resistance(ohlc, lookback=50)
+        if sr:
+            data["support_resistance"] = sr
+        # Volume spike
+        volumes = [float(d.get("volume", 0) or 0) for d in ohlc if d.get("volume")]
+        if len(volumes) >= 20:
+            vol = detect_volume_spike(volumes, period=20)
+            if vol:
+                data["volume_spike"] = vol
     return data
 
 
