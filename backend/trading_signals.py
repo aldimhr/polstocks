@@ -263,3 +263,19 @@ def classify_signal(stock: dict[str, Any]) -> dict[str, Any]:
         "reasons": reasons,
         "invalidation": invalidation,
     }
+
+
+_ACTION_ORDER = {"BUY": 0, "SELL": 1, "WATCH": 2, "IGNORE": 3}
+_TIER_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+
+def rank_trade_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort signals by action priority (BUY > SELL > WATCH > IGNORE), then tier, then strength."""
+    return sorted(
+        signals,
+        key=lambda s: (
+            _ACTION_ORDER.get(s.get("action", "IGNORE"), 4),
+            _TIER_ORDER.get(s.get("signal_tier", "D"), 4),
+            -float(s.get("signal_strength", 0) or 0),
+        ),
+    )

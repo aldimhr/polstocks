@@ -3045,6 +3045,7 @@ from backend.trading_signals import compute_event_score
 from backend.trading_signals import compute_technical_confirmation
 from backend.trading_signals import infer_time_horizon
 from backend.trading_signals import classify_signal
+from backend.trading_signals import rank_trade_signals
 
 
 class TestComputeEventScore:
@@ -3217,3 +3218,45 @@ class TestClassifySignal:
                      "tech_confirmation_count", "entry_price", "stop_loss",
                      "take_profit", "reasons", "invalidation"}
         assert required.issubset(result.keys())
+
+
+class TestRankTradeSignals:
+    def test_buy_signals_rank_before_watch(self):
+        signals = [
+            {"action": "WATCH", "signal_strength": 0.5, "signal_tier": "C", "ticker": "A.JK"},
+            {"action": "BUY", "signal_strength": 0.6, "signal_tier": "B", "ticker": "B.JK"},
+        ]
+        ranked = rank_trade_signals(signals)
+        assert ranked[0]["ticker"] == "B.JK"
+
+    def test_higher_tier_ranks_first(self):
+        signals = [
+            {"action": "BUY", "signal_strength": 0.6, "signal_tier": "C", "ticker": "A.JK"},
+            {"action": "BUY", "signal_strength": 0.7, "signal_tier": "A", "ticker": "B.JK"},
+        ]
+        ranked = rank_trade_signals(signals)
+        assert ranked[0]["ticker"] == "B.JK"
+
+    def test_empty_list_returns_empty(self):
+        assert rank_trade_signals([]) == []
+
+
+class TestDashboardTradingSignal:
+    def test_dashboard_stocks_have_trading_signal(self, monkeypatch):
+        _patch_fetch_news_bundle(monkeypatch, lambda *a, **k: ([], []))
+        _patch_fetch_stock_quotes(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_fetch_market_index(monkeypatch, lambda *a, **k: ({}, []))
+        _patch_validation_series(monkeypatch, lambda *a, **k: ({}, []))
+        resp = client.get("/api/dashboard?window=1d")
+        assert resp.status_code == 200
+        stocks = resp.json().get("payload", {}).get("stocks", [])
+        assert len(stocks) > 0
+        for s in stocks[:3]:
+            assert "trading_signal" in s
+            ts = s["trading_signal"]
+            assert "action" in ts
+            assert ts["action"] in ("BUY", "SELL", "WATCH", "IGNORE")
+            assert ts["time_horizon"] in ("1d", "7d", "30d")
+            assert ts["signal_tier"] in ("A", "B", "C", "D")
+            # Old field must still exist for backward compatibility
+            assert "trade_signal" in s
