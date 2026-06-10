@@ -493,6 +493,187 @@
   .pos .impact-dot { background: var(--green); }
   .neu .impact-dot { background: var(--muted); }
 
+  /* ── Stockbit-inspired stock list ── */
+  .stock-list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .stock-search-shell {
+    flex: 1 1 240px;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--muted);
+  }
+
+  .stock-search-shell:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(212,240,96,0.08);
+  }
+
+  .stock-search-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+  }
+
+  .stock-list-meta {
+    margin: 2px 0 10px;
+    color: var(--muted);
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .stock-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .stock-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 12px 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012));
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.12s;
+  }
+
+  .stock-row:hover,
+  .stock-row:focus-visible {
+    outline: none;
+    border-color: var(--border2);
+    background: var(--surface2);
+    transform: translateY(-1px);
+  }
+
+  .stock-row-main,
+  .stock-row-side {
+    min-width: 0;
+  }
+
+  .stock-row-top,
+  .stock-row-price-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .stock-row-ticker {
+    border: none;
+    background: transparent;
+    color: var(--text);
+    padding: 0;
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+  }
+
+  .stock-row-ticker:hover,
+  .stock-row-ticker:focus-visible {
+    color: var(--accent);
+    outline: none;
+  }
+
+  .stock-row-name {
+    margin-top: 3px;
+    color: var(--muted2);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stock-row-meta {
+    margin-top: 5px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stock-row-chips {
+    margin-top: 7px;
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .stock-row-side {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .stock-row-price {
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .stock-row-change {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .stock-row-change.up { color: var(--green); }
+  .stock-row-change.down { color: var(--red); }
+  .stock-row-change.flat { color: var(--muted); }
+
+  .signal-mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted2);
+  }
+
+  .signal-mini.buy { background: var(--green-dim); color: var(--green); border-color: rgba(75,211,138,0.28); }
+  .signal-mini.sell { background: var(--red-dim); color: var(--red); border-color: rgba(255,92,92,0.28); }
+  .signal-mini.watch { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,166,35,0.28); }
+
+  .stock-row-impact {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+  }
+
   /* ── Event feed ── */
   .event-list {
     display: flex;
@@ -1677,6 +1858,14 @@
   @media (max-width: 560px) {
     .layout { padding: 0 14px 28px; }
     .metrics { grid-template-columns: 1fr; }
+    .stock-list-toolbar { align-items: stretch; }
+    .stock-search-shell { flex-basis: 100%; }
+    .stock-list-toolbar .sort-bar { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+    .stock-list-toolbar .sort-btn { flex: 1 0 auto; }
+    .stock-row { grid-template-columns: minmax(0, 1fr) auto; padding: 11px 10px; }
+    .stock-row-ticker { font-size: 14px; }
+    .stock-row-name { max-width: 190px; }
+    .stock-row-price { font-size: 13px; }
     .header-right .status-dot { display: none; }
     .watchlist-form {
       flex-direction: column;
@@ -1877,30 +2066,25 @@
     <!-- Watchlist -->
     <div class="card" data-tab="watchlist">
       <div class="card-header">
-        <span class="card-title">Watchlist · Political Impact</span>
+        <span class="card-title">All Stocks · Short-Term Signals</span>
         <span class="card-badge" id="watchlistBadge">0 tickers</span>
       </div>
-      <div class="sort-bar" id="sortBar">
-        <button class="sort-btn active" data-sort="impact" onclick="sortStocks('impact')">Impact</button>
-        <button class="sort-btn" data-sort="change" onclick="sortStocks('change')">Change %</button>
-        <button class="sort-btn" data-sort="price" onclick="sortStocks('price')">Price</button>
-        <button class="sort-btn" data-sort="ticker" onclick="sortStocks('ticker')">A-Z</button>
+      <div class="stock-list-toolbar">
+        <label class="stock-search-shell" aria-label="Search stocks">
+          <span>🔎</span>
+          <input id="stockSearchInput" class="stock-search-input" type="search" placeholder="Search ticker, company, sector…" autocomplete="off">
+        </label>
+        <div class="sort-bar" id="sortBar">
+          <button class="sort-btn active" data-sort="impact" onclick="sortStocks('impact')">Signal</button>
+          <button class="sort-btn" data-sort="change" onclick="sortStocks('change')">Mover</button>
+          <button class="sort-btn" data-sort="price" onclick="sortStocks('price')">Price</button>
+          <button class="sort-btn" data-sort="ticker" onclick="sortStocks('ticker')">A-Z</button>
+        </div>
       </div>
-      <table class="stock-table">
-        <thead>
-          <tr>
-            <th>Ticker</th>
-            <th>Price (IDR)</th>
-            <th>Today</th>
-            <th>Impact score</th>
-          </tr>
-        </thead>
-        <tbody id="stockBody">
-          <tr>
-            <td colspan="4" style="padding:18px 0; color:var(--muted);">Loading live stock data…</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="stock-list-meta" id="stockListMeta">Loading live stock data…</div>
+      <div class="stock-list" id="stockBody">
+        <div style="padding:18px 0; color:var(--muted);">Loading live stock data…</div>
+      </div>
       <div class="watchlist-toolbar">
         <div class="watchlist-form">
           <input id="watchlistInput" class="watchlist-input" type="text" placeholder="Add ticker, e.g. BBCA or TLKM.JK">
@@ -2115,7 +2299,7 @@
 </div>
 
 <script>
-  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
+  const state = { payload: null, loading: false, watchlist: [], window: '24h', tgUserId: null, sortBy: 'impact', stockSearchQuery: '', tickerModal: { ticker: '', loading: false, data: null, window: '24h' }, alertPrefs: { min_impact_threshold: 0, quiet_hours: 'off' }, lastSuccess: 0, failCount: 0, autoRefreshTimer: null, stalenessTimer: null, activeTab: 'overview' };
 
   // ── Tab switching ──
   function switchTab(tabName) {
@@ -3683,6 +3867,13 @@
     }
   }
 
+  function setStockSearch(value) {
+    state.stockSearchQuery = String(value || '').trim().toLowerCase();
+    if (state.payload?.stocks) {
+      renderStocks(sortStocksList(state.payload.stocks, state.sortBy));
+    }
+  }
+
   function sortStocksList(stocks, key) {
     const arr = [...stocks];
     // Pinned tickers always sort first, regardless of sort key
@@ -3727,11 +3918,44 @@
     }
   }
 
+  function filterStocksList(stocks) {
+    const rows = Array.isArray(stocks) ? stocks : [];
+    const q = String(state.stockSearchQuery || '').trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((stock) => [
+      stock.ticker,
+      stock.name,
+      stock.sector,
+      stock.relationship_type,
+      stock.impact_direction,
+      stock.validation_status,
+    ].some((value) => String(value || '').toLowerCase().includes(q)));
+  }
+
+  function renderSignalMini(stock) {
+    const ts = stock.trading_signal || stock.trade_signal || {};
+    const rawAction = String(ts.action || '').toUpperCase();
+    const action = rawAction && rawAction !== 'IGNORE' && rawAction !== 'HOLD' ? rawAction : 'WATCH';
+    const tone = action === 'BUY' ? 'buy' : action === 'SELL' ? 'sell' : 'watch';
+    const horizon = ts.time_horizon || stock.time_horizon || '';
+    const tier = ts.signal_tier ? ` · T${ts.signal_tier}` : '';
+    return `<span class="signal-mini ${tone}">${action}${horizon ? ` · ${escapeHtml(horizon)}` : ''}${escapeHtml(tier)}</span>`;
+  }
+
   function renderStocks(stocks) {
     const body = $('stockBody');
-    const rows = Array.isArray(stocks) ? stocks : [];
+    const sourceRows = Array.isArray(stocks) ? stocks : [];
+    const rows = filterStocksList(sourceRows);
+    const meta = $('stockListMeta');
+    if (meta) {
+      const q = String(state.stockSearchQuery || '').trim();
+      meta.textContent = q
+        ? `${rows.length} of ${sourceRows.length} stocks match “${q}” · tap any row for chart/detail`
+        : `${sourceRows.length} stocks · sorted by ${state.sortBy === 'impact' ? 'short-term signal' : state.sortBy} · tap any row for chart/detail`;
+    }
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="empty-state-icon">\u{1F4CA}</div><div class="empty-state-title">No stock signals found</div><div class="empty-state-hint">No political signals matched your watchlist in this window. Try a longer window (7d, 30d) or add more tickers. This is normal during quiet policy periods.</div></div></td></tr>';
+      const isSearching = Boolean(String(state.stockSearchQuery || '').trim());
+      body.innerHTML = `<div class="empty-state"><div class="empty-state-icon">\u{1F4CA}</div><div class="empty-state-title">${isSearching ? 'No stocks match your search' : 'No stock signals found'}</div><div class="empty-state-hint">${isSearching ? 'Try ticker, company name, sector, or clear the search box.' : 'No political signals matched your watchlist in this window. Try a longer window (7d, 30d) or add more tickers. This is normal during quiet policy periods.'}</div></div>`;
       return;
     }
     body.innerHTML = rows.map((stock) => {
@@ -3754,60 +3978,43 @@
       const trendObj = stock.trend;
       const trendDir = (trendObj && typeof trendObj === 'object' ? trendObj.trend : stock.sma_trend) || '';
       const trendChip = trendDir ? renderReasoningChip('Trend', trendDir === 'bullish' ? '↑ Bull' : trendDir === 'bearish' ? '↓ Bear' : 'Flat', 'trend') : '';
-      const atrPct = stock.atr_pct;
-      const atrChip = atrPct != null ? renderReasoningChip('ATR', `${atrPct.toFixed(1)}%${atrPct > 5 ? ' ▲' : atrPct < 1 ? ' ▼' : ''}`, 'atr') : '';
-      const sectorCount = stock.sector_correlation_count;
-      const sectorChip = sectorCount >= 2 ? renderReasoningChip('Sector', `${sectorCount} aligned`, 'sector') : '';
-      const foreignFactor = stock.foreign_market_factor;
-      const foreignChip = foreignFactor != null && foreignFactor !== 1.0 ? renderReasoningChip('Foreign', foreignFactor > 1 ? 'Aligned ▲' : 'Fighting ▼', 'foreign') : '';
-      const sMomentum = stock.sentiment_momentum;
-      const momentumChip = sMomentum && sMomentum !== 'stable' ? renderReasoningChip('Momentum', sMomentum === 'strengthening' ? '↑ Strengthening' : '↓ Weakening', 'momentum') : '';
-      const currFactor = stock.currency_factor;
-      const currChip = currFactor != null && currFactor !== 1.0 ? renderReasoningChip('Currency', currFactor > 1 ? 'Favorable ▲' : 'Headwind ▼', 'currency') : '';
-      // Phase 2: Trade signal chip
-      const ts = stock.trade_signal;
-      const tradeChip = ts && ts.action && ts.action !== 'HOLD'
-        ? renderReasoningChip(ts.action, `SL ${formatPrice(ts.stop_loss)} · TP ${formatPrice(ts.take_profit)} · RR ${ts.risk_reward}`, ts.action === 'BUY' ? 'buy' : 'sell')
-        : '';
-      // Phase 2: Bollinger squeeze chip
       const bb = stock.bollinger;
       const bbChip = bb && bb.squeeze ? renderReasoningChip('BB Squeeze', `BW ${(bb.bandwidth * 100).toFixed(1)}%`, 'squeeze') : '';
-      // Phase 2: Volume spike chip
       const vs = stock.volume_spike;
       const volSpikeChip = vs && vs.is_spike ? renderReasoningChip('Vol Spike', `${vs.spike_ratio}x avg`, 'volume') : '';
-      const reasoningLine = [directionChip, validationChip, rsiChip, macdChip, trendChip, atrChip, sectorChip, foreignChip, momentumChip, currChip, tradeChip, bbChip, volSpikeChip, conflictBadges].filter(Boolean).join(' ');
-      const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
       const validationParts = [];
       if (stock.validation_status) {
         validationParts.push(escapeHtml(labelText(stock.validation_status)));
         if (stock.validation_window) validationParts.push(escapeHtml(stock.validation_window));
         if (Number.isFinite(Number(stock.validation_score))) validationParts.push(`score ${Number(stock.validation_score || 0).toFixed(2)}`);
-        if (Number.isFinite(Number(stock.abnormal_return)) && Number(stock.abnormal_return) !== 0) validationParts.push(`ret ${Number(stock.abnormal_return) > 0 ? '+' : ''}${(Number(stock.abnormal_return) * 100).toFixed(1)}%`);
-        if (Number.isFinite(Number(stock.abnormal_volume_ratio)) && Number(stock.abnormal_volume_ratio) > 0) validationParts.push(`vol ${Number(stock.abnormal_volume_ratio).toFixed(1)}x`);
-        if (stock.cross_window_divergent) validationParts.push('⚠ divergent');
-        if (Number.isFinite(Number(stock.channel_reliability_multiplier)) && Number(stock.channel_reliability_multiplier) !== 1.0) validationParts.push(`ch×${Number(stock.channel_reliability_multiplier).toFixed(2)}`);
-        if (Number.isFinite(Number(stock.validation_confidence_delta)) && Number(stock.validation_confidence_delta) !== 0) validationParts.push(`Δconf ${Number(stock.validation_confidence_delta) > 0 ? '+' : ''}${Number(stock.validation_confidence_delta).toFixed(2)}`);
       }
       const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
-      const pinIcon = stock.in_portfolio ? '💼 ' : stock.pinned ? '📌 ' : '';
-      // Trading signal chips (Phase 5)
-      const ts5 = stock.trading_signal || {};
-      const tsAction = ts5.action || '';
-      const tsHorizon = ts5.time_horizon || '';
-      const tsTier = ts5.signal_tier || '';
-      const tsActionIcon = tsAction === 'BUY' ? '🟢' : tsAction === 'SELL' ? '🔴' : tsAction === 'WATCH' ? '🟡' : '';
-      const tsChips = tsAction && tsAction !== 'IGNORE'
-        ? `<span style="font-size:10px;padding:1px 4px;border-radius:3px;background:${tsAction === 'BUY' ? 'var(--green)' : tsAction === 'SELL' ? 'var(--red)' : 'var(--accent)'};color:#000;font-weight:600;margin-left:4px;">${tsActionIcon}${tsAction}</span>` +
-          (tsHorizon ? `<span style="font-size:9px;padding:1px 3px;border-radius:3px;background:var(--surface);border:1px solid var(--border);color:var(--muted);margin-left:2px;">${tsHorizon}</span>` : '') +
-          (tsTier ? `<span style="font-size:9px;padding:1px 3px;border-radius:3px;background:var(--surface);border:1px solid var(--border);color:var(--muted);margin-left:2px;">Tier ${tsTier}</span>` : '')
-        : '';
+      const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
+      const pinIcon = stock.in_portfolio ? '💼' : stock.pinned ? '📌' : '';
+      const signalMini = renderSignalMini(stock);
+      const sectorLabel = stock.sector || 'Unknown sector';
+      const impactLabel = Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—';
+      const compactChips = [directionChip, validationChip, rsiChip, macdChip, trendChip, bbChip, volSpikeChip, conflictBadges].filter(Boolean).join(' ');
       return `
-        <tr title="${escapeHtml(stock.rationale || '')}">
-          <td data-label="Ticker"><button type="button" class="ticker-name watchlist-chip-main" data-ticker="${escapeHtml(stock.ticker || '')}" style="text-align:left;"><span>${pinIcon}${escapeHtml(stock.ticker || '')}${tsChips}</span></button><div class="company-name">${escapeHtml(stock.name || '')}</div><div class="company-name">${linkMeta}</div><div class="company-name provenance-chips">${provenanceBadges || '<span class="reasoning-chip muted">No provenance metadata</span>'}</div><div class="company-name">${reasoningLine || validationMeta || '<span class="reasoning-chip muted">No reasoning metadata</span>'}</div><div class="company-name">${escapeHtml(knowledgeMeta)}</div></td>
-          <td class="price-cell" data-label="Price (IDR)">${formatPrice(stock.price)}</td>
-          <td class="change-cell ${changeClass}" data-label="Today">${formatPct(stock.change_pct)}</td>
-          <td class="impact-cell" data-label="Impact score"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—'}</span></td>
-        </tr>
+        <div class="stock-row" role="button" tabindex="0" data-ticker="${escapeHtml(stock.ticker || '')}" title="${escapeHtml(stock.rationale || '')}">
+          <div class="stock-row-main">
+            <div class="stock-row-top">
+              <button type="button" class="stock-row-ticker" data-ticker="${escapeHtml(stock.ticker || '')}">${pinIcon ? `${pinIcon} ` : ''}${escapeHtml(stock.ticker || '')}</button>
+              ${signalMini}
+            </div>
+            <div class="stock-row-name">${escapeHtml(stock.name || '')}</div>
+            <div class="stock-row-meta">${escapeHtml(sectorLabel)} · ${linkMeta}</div>
+            <div class="stock-row-chips">${compactChips || validationMeta || provenanceBadges || '<span class="reasoning-chip muted">No signal metadata</span>'}</div>
+            ${knowledgeMeta ? `<div class="stock-row-meta">${escapeHtml(knowledgeMeta)}</div>` : ''}
+          </div>
+          <div class="stock-row-side">
+            <div>
+              <div class="stock-row-price">${formatPrice(stock.price)}</div>
+              <div class="stock-row-change ${changeClass}">${formatPct(stock.change_pct)}</div>
+            </div>
+            <div class="stock-row-impact"><span class="impact-pill ${impactClass}"><span class="impact-dot"></span>${impactLabel}</span></div>
+          </div>
+        </div>
       `;
     }).join('');
   }
@@ -4251,7 +4458,7 @@
           '<div style="margin-top:16px;font-size:11px;">Click <strong>Update</strong> to retry</div>' +
           '</div>';
         const stockBody = $('stockBody');
-        if (stockBody) stockBody.innerHTML = `<tr><td colspan="4">${errorHtml}</td></tr>`;
+        if (stockBody) stockBody.innerHTML = errorHtml;
         const eventList = $('eventList');
         if (eventList) eventList.innerHTML = errorHtml;
       }
@@ -4648,6 +4855,9 @@
         addTicker();
       }
     });
+    $('stockSearchInput')?.addEventListener('input', (event) => {
+      setStockSearch(event.target.value || '');
+    });
     $('watchlistChips').addEventListener('click', (event) => {
       const tickerButton = event.target.closest('[data-ticker]');
       if (tickerButton) {
@@ -4673,6 +4883,14 @@
       const tickerButton = event.target.closest('[data-ticker]');
       if (tickerButton) {
         openTickerModal(tickerButton.dataset.ticker || '');
+      }
+    });
+    $('stockBody').addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const tickerRow = event.target.closest('[data-ticker]');
+      if (tickerRow) {
+        event.preventDefault();
+        openTickerModal(tickerRow.dataset.ticker || '');
       }
     });
 
