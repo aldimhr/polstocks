@@ -122,6 +122,9 @@ def init_signal_tables() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date
                 ON daily_signal_snapshots(snapshot_date);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_snapshots_date_ticker
+                ON daily_signal_snapshots(snapshot_date, ticker);
         """)
         conn.commit()
         # Phase 2: Add horizon/tier/type columns (safe if already exist)

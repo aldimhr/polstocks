@@ -2032,7 +2032,32 @@ def build_refresh_payload(
     from backend.trading_signals import (
         classify_signal, compute_sector_avg_rsi,
         apply_market_regime, deduplicate_by_sector,
+        apply_signal_decay,
     )
+
+    # Query existing signal snapshots for signal decay
+    _snapshot_ages: dict[str, int] = {}  # ticker -> days_since_signal
+    try:
+        import sqlite3 as _sqlite3
+        _conn = _sqlite3.connect("data/polstock_backend.db", timeout=5)
+        _conn.row_factory = _sqlite3.Row
+        _today = now_wib().strftime("%Y-%m-%d")
+        _rows = _conn.execute(
+            """SELECT ticker, snapshot_date,
+                      CAST(julianday(?) - julianday(snapshot_date) AS INTEGER) as age_days
+               FROM daily_signal_snapshots
+               WHERE action != 'IGNORE'
+               GROUP BY ticker
+               HAVING snapshot_date = MAX(snapshot_date)""",
+            (_today,),
+        ).fetchall()
+        for _r in _rows:
+            age = int(_r["age_days"] or 0)
+            if age >= 0:
+                _snapshot_ages[_r["ticker"]] = age
+        _conn.close()
+    except Exception:
+        pass
 
     # Compute sector-relative RSI averages for signal quality boost
     sector_avg_rsi = compute_sector_avg_rsi(stocks)
@@ -2040,11 +2065,22 @@ def build_refresh_payload(
     for stock in stocks:
         stock["trading_signal"] = classify_signal(stock, sector_avg_rsi)
 
+    # Apply signal decay: stale WATCH signals lose strength over time
+    for stock in stocks:
+        ticker = stock.get("ticker", "")
+        age = _snapshot_ages.get(ticker, 0)
+        if age > 1:
+            ts = stock.get("trading_signal") or {}
+            apply_signal_decay(ts, age)
+            stock["trading_signal"] = ts
+
     # Apply IHSG market regime filter (suppress BUY in downtrend)
-    market_index = payload.get("market_index", {}) if 'payload' in dir() else {}
-    if not market_index:
-        # Try to get from the payload we're building
-        pass  # will be applied after sort
+    # market_index is already in scope from the fetch_market_index() call above
+    for stock in stocks:
+        ts = stock.get("trading_signal") or {}
+        if ts.get("action") == "BUY":
+            apply_market_regime(ts, market_index)
+            stock["trading_signal"] = ts
 
     stocks = sort_stocks_by_impact(stocks)
 
@@ -2068,6 +2104,47 @@ def build_refresh_payload(
                 "action": "IGNORE",
                 "reasons": ts.get("reasons", []) + ["Sector dedup — stronger peer selected"],
             }
+
+    # Save signal snapshots for decay tracking and historical evaluation
+    _snapshot_date = now_wib().strftime("%Y-%m-%d")
+    try:
+        import sqlite3 as _snap_db
+        _conn = _snap_db.connect("data/polstock_backend.db", timeout=5)
+        for stock in stocks:
+            ts = stock.get("trading_signal") or {}
+            if ts.get("action") == "IGNORE":
+                continue
+            _conn.execute(
+                """INSERT OR REPLACE INTO daily_signal_snapshots
+                   (snapshot_date, ticker, action, time_horizon, signal_tier,
+                    entry_price, stop_loss, take_profit, signal_strength,
+                    reason_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    _snapshot_date,
+                    stock.get("ticker", ""),
+                    ts.get("action", "IGNORE"),
+                    ts.get("time_horizon", "7d"),
+                    ts.get("signal_tier", "D"),
+                    ts.get("entry_price"),
+                    ts.get("stop_loss"),
+                    ts.get("take_profit"),
+                    ts.get("signal_strength", 0),
+                    json.dumps(ts.get("reasons", []), ensure_ascii=False),
+                    now_wib().isoformat(timespec="seconds"),
+                ),
+            )
+        _conn.commit()
+        _conn.close()
+    except Exception:
+        pass  # non-critical: don't break dashboard on snapshot failure
+
+    # Build ticker→trading_signal lookup for tier propagation to predictions
+    _ticker_signals: dict[str, dict[str, Any]] = {}
+    for stock in stocks:
+        ts = stock.get("trading_signal") or {}
+        if ts.get("action") != "IGNORE":
+            _ticker_signals[stock.get("ticker", "")] = ts
 
     # Phase 3: Log BUY signals to history and send Telegram alerts
     # Uses trading_signal (new system) instead of trade_signal (old system).
@@ -2164,6 +2241,19 @@ def build_refresh_payload(
                 "source_fetch_status": str(event.get("source_profile_resolution", "unknown") or "unknown"),
             }
         )
+
+    # Inject trading signal data into formatted_events for tier propagation
+    for fe in formatted_events:
+        for rel in fe.get("stock_relationships", []):
+            tk = rel.get("ticker", "")
+            if tk in _ticker_signals:
+                ts = _ticker_signals[tk]
+                rel["time_horizon"] = ts.get("time_horizon")
+                rel["signal_tier"] = ts.get("signal_tier")
+                rel["signal_type"] = ts.get("signal_type")
+                rel["event_score"] = ts.get("event_score")
+                rel["tech_score"] = ts.get("tech_score")
+                rel["tech_confirmation_count"] = ts.get("tech_confirmation_count")
 
     sector_summary = compute_sector_summary(stocks)
     tracking = build_event_tracking(ranked_events, normalized_window)

@@ -453,6 +453,12 @@ def record_predictions_from_events(events: list[dict[str, Any]], stock_quotes: d
                 sentiment_momentum=rel.get("sentiment_momentum"),
                 sentiment_momentum_factor=rel.get("sentiment_momentum_factor"),
                 currency_factor=rel.get("currency_factor"),
+                time_horizon=rel.get("time_horizon"),
+                signal_tier=rel.get("signal_tier"),
+                signal_type=rel.get("signal_type"),
+                event_score=rel.get("event_score"),
+                tech_score=rel.get("tech_score"),
+                tech_confirmation_count=rel.get("tech_confirmation_count"),
             )
             if ok:
                 count += 1
