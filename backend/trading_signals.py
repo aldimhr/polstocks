@@ -53,3 +53,71 @@ def compute_event_score(stock: dict[str, Any]) -> dict[str, Any]:
             "conflict_penalty": conflict_penalty,
         },
     }
+
+
+def compute_technical_confirmation(stock: dict[str, Any]) -> dict[str, Any]:
+    """Count how many core technical indicators agree with the stock's direction.
+
+    Core indicators:
+    1. RSI: BUY if < 40, SELL if > 60
+    2. MACD histogram: BUY if > 0, SELL if < 0
+    3. Bollinger %B: BUY if < 0.2, SELL if > 0.8
+    4. Volume spike: confirm if is_spike AND direction aligns
+
+    Returns dict: confirm_count, total, score (0-1), details.
+    """
+    direction = str(stock.get("impact_direction", "neutral") or "neutral")
+    if direction not in ("positive", "negative"):
+        return {"confirm_count": 0, "total": 0, "score": 0.0, "details": []}
+
+    is_buy = direction == "positive"
+    confirmations: list[str] = []
+    total = 0
+
+    # 1. RSI
+    rsi = stock.get("rsi_value")
+    if rsi is not None:
+        total += 1
+        if is_buy and rsi < 40:
+            confirmations.append("RSI oversold")
+        elif not is_buy and rsi > 60:
+            confirmations.append("RSI overbought")
+
+    # 2. MACD histogram
+    macd = stock.get("macd")
+    hist = None
+    if isinstance(macd, dict):
+        hist = macd.get("histogram")
+    elif isinstance(macd, (int, float)):
+        hist = macd
+    if hist is not None:
+        total += 1
+        if is_buy and hist > 0:
+            confirmations.append("MACD histogram positive")
+        elif not is_buy and hist < 0:
+            confirmations.append("MACD histogram negative")
+
+    # 3. Bollinger %B
+    bb = stock.get("bollinger")
+    if isinstance(bb, dict) and bb.get("percent_b") is not None:
+        total += 1
+        pct_b = bb["percent_b"]
+        if is_buy and pct_b < 0.2:
+            confirmations.append("Bollinger %B near lower band")
+        elif not is_buy and pct_b > 0.8:
+            confirmations.append("Bollinger %B near upper band")
+
+    # 4. Volume spike
+    vol = stock.get("volume_spike")
+    if isinstance(vol, dict) and vol.get("is_spike") is not None:
+        total += 1
+        if vol.get("is_spike"):
+            confirmations.append("Volume spike")
+
+    score = len(confirmations) / total if total > 0 else 0.0
+    return {
+        "confirm_count": len(confirmations),
+        "total": total,
+        "score": round(score, 4),
+        "details": confirmations,
+    }

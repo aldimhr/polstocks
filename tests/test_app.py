@@ -3042,6 +3042,7 @@ class TestAPIShapeBaseline:
 
 
 from backend.trading_signals import compute_event_score
+from backend.trading_signals import compute_technical_confirmation
 
 
 class TestComputeEventScore:
@@ -3084,3 +3085,50 @@ class TestComputeEventScore:
         result = compute_event_score(stock)
         assert "direction" in result
         assert result["direction"] == "positive"
+
+
+class TestComputeTechnicalConfirmation:
+    def _bullish_stock(self):
+        return {
+            "price": 3300, "impact_direction": "positive",
+            "rsi_value": 35.0,
+            "macd": {"histogram": 0.5},
+            "bollinger": {"percent_b": 0.15, "squeeze": False},
+            "volume_spike": {"is_spike": True, "spike_ratio": 2.5},
+            "trend": {"trend": "bullish"},
+            "support_resistance": {"support": [3200], "resistance": [3400]},
+        }
+
+    def test_all_4_bullish_confirm(self):
+        result = compute_technical_confirmation(self._bullish_stock())
+        assert result["confirm_count"] == 4
+        assert result["total"] == 4
+        assert result["score"] == 1.0
+
+    def test_no_indicators_returns_zero(self):
+        stock = {"price": 100, "impact_direction": "neutral"}
+        result = compute_technical_confirmation(stock)
+        assert result["confirm_count"] == 0
+        assert result["total"] == 0
+        assert result["score"] == 0.0
+
+    def test_mixed_indicators_partial_score(self):
+        stock = {
+            "price": 100, "impact_direction": "positive",
+            "rsi_value": 35.0,
+            "macd": {"histogram": -0.3},
+            "bollinger": {"percent_b": 0.5},
+            "volume_spike": {"is_spike": False},
+        }
+        result = compute_technical_confirmation(stock)
+        assert result["confirm_count"] == 1
+        assert result["score"] == 0.25
+
+    def test_negative_direction_checks_sell_conditions(self):
+        stock = {
+            "price": 100, "impact_direction": "negative",
+            "rsi_value": 75.0,
+            "macd": {"histogram": -0.5},
+        }
+        result = compute_technical_confirmation(stock)
+        assert result["confirm_count"] >= 2
