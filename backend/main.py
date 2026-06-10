@@ -1998,6 +1998,11 @@ def build_refresh_payload(
         stock["in_portfolio"] = is_portfolio
         stock["pin_source"] = "portfolio" if is_portfolio else ("manual" if is_pinned else None)
 
+    # Trading signal decision layer
+    from backend.trading_signals import classify_signal
+    for stock in stocks:
+        stock["trading_signal"] = classify_signal(stock)
+
     stocks = sort_stocks_by_impact(stocks)
 
     # Phase 3: Log BUY/SELL signals to history and send Telegram alerts
