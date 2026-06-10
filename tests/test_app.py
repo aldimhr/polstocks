@@ -3043,6 +3043,7 @@ class TestAPIShapeBaseline:
 
 from backend.trading_signals import compute_event_score
 from backend.trading_signals import compute_technical_confirmation
+from backend.trading_signals import infer_time_horizon
 
 
 class TestComputeEventScore:
@@ -3132,3 +3133,32 @@ class TestComputeTechnicalConfirmation:
         }
         result = compute_technical_confirmation(stock)
         assert result["confirm_count"] >= 2
+
+
+class TestInferTimeHorizon:
+    def test_default_is_7d(self):
+        assert infer_time_horizon({}, {}, {}) == "7d"
+
+    def test_breaking_event_short_horizon(self):
+        stock = {"event_stage": "breaking"}
+        event = {"score": 0.8}
+        tech = {"confirm_count": 2, "total": 4}
+        assert infer_time_horizon(stock, event, tech) == "1d"
+
+    def test_strong_tech_with_high_event_is_1d(self):
+        stock = {}
+        event = {"score": 0.7}
+        tech = {"confirm_count": 3, "total": 4}
+        assert infer_time_horizon(stock, event, tech) == "1d"
+
+    def test_established_event_is_30d(self):
+        stock = {"event_stage": "established"}
+        event = {"score": 0.5}
+        tech = {"confirm_count": 2, "total": 4}
+        assert infer_time_horizon(stock, event, tech) == "30d"
+
+    def test_weak_tech_moderate_event_is_7d(self):
+        stock = {}
+        event = {"score": 0.4}
+        tech = {"confirm_count": 1, "total": 4}
+        assert infer_time_horizon(stock, event, tech) == "7d"

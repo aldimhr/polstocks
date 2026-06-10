@@ -121,3 +121,35 @@ def compute_technical_confirmation(stock: dict[str, Any]) -> dict[str, Any]:
         "score": round(score, 4),
         "details": confirmations,
     }
+
+
+def infer_time_horizon(
+    stock: dict[str, Any],
+    event_score: dict[str, Any],
+    tech: dict[str, Any],
+) -> str:
+    """Determine signal time horizon: '1d', '7d', or '30d'.
+
+    Rules:
+    - event_stage == "breaking" → 1d
+    - event_stage == "established" → 30d
+    - event_score >= 0.5 AND tech confirm >= 3/4 → 1d (strong setup, act fast)
+    - event_score >= 0.3 AND tech confirm >= 2/4 → 7d (developing swing)
+    - else → 7d default
+    """
+    stage = str(stock.get("event_stage", "") or "")
+    ev_score = float(event_score.get("score", 0) or 0)
+    confirm = int(tech.get("confirm_count", 0) or 0)
+    total = int(tech.get("total", 0) or 0)
+
+    if stage == "breaking":
+        return "1d"
+    if stage == "established":
+        return "30d"
+
+    if ev_score >= 0.5 and total >= 4 and confirm >= 3:
+        return "1d"
+    if ev_score >= 0.3 and total >= 4 and confirm >= 2:
+        return "7d"
+
+    return "7d"
