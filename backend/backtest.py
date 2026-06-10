@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # ── Database ──────────────────────────────────────────────────────
 
-BACKEND_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "polstock_backend.db"
+from backend.config import BACKEND_DB_PATH
 _db_lock = threading.Lock()
 
 

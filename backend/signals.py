@@ -28,7 +28,7 @@ EXPIRE_AFTER_DAYS_BY_HORIZON = {
     "30d": 35,
 }
 
-BACKEND_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "polstock_backend.db"
+from backend.config import BACKEND_DB_PATH
 
 
 def _get_conn() -> sqlite3.Connection:

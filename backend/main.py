@@ -34,6 +34,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from backend.config import BACKEND_DB_PATH
 from backend.weights import get_weight, get_all_weights, get_overrides, apply_overrides, reset_to_defaults
 
 from backend.stocks import (
@@ -170,7 +171,7 @@ def save_user_watchlist_to_bot_db(user_id: int, tickers: list[str]) -> None:
         pass
 
 # ── Backend-owned SQLite DB (source outcomes, event cache) ──────────
-BACKEND_DB_PATH = PROJECT_ROOT / "data" / "polstock_backend.db"
+BACKEND_DB_PATH = BACKEND_DB_PATH
 
 def _backend_conn() -> sqlite3.Connection:
     """Open the backend SQLite DB with production-safe lock handling."""
@@ -2039,7 +2040,7 @@ def build_refresh_payload(
     _snapshot_ages: dict[str, int] = {}  # ticker -> days_since_signal
     try:
         import sqlite3 as _sqlite3
-        _conn = _sqlite3.connect("data/polstock_backend.db", timeout=5)
+        _conn = _sqlite3.connect(str(BACKEND_DB_PATH), timeout=5)
         _conn.row_factory = _sqlite3.Row
         _today = now_wib().strftime("%Y-%m-%d")
         _rows = _conn.execute(
@@ -2109,7 +2110,7 @@ def build_refresh_payload(
     _snapshot_date = now_wib().strftime("%Y-%m-%d")
     try:
         import sqlite3 as _snap_db
-        _conn = _snap_db.connect("data/polstock_backend.db", timeout=5)
+        _conn = _snap_db.connect(str(BACKEND_DB_PATH), timeout=5)
         for stock in stocks:
             ts = stock.get("trading_signal") or {}
             if ts.get("action") == "IGNORE":

@@ -19,7 +19,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-BACKEND_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "polstock_backend.db"
+from backend.config import BACKEND_DB_PATH
 
 # Dedup tracking — same ticker+action within this window = skip
 ALERT_DEDUP_HOURS = 24

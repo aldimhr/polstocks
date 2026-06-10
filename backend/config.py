@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import timedelta, timezone
 from pathlib import Path
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_FILE = PROJECT_ROOT / "dashboard.html"
 MINIAPP_FILE = PROJECT_ROOT / "miniapp.html"
+BACKEND_DB_PATH = Path(os.getenv("POLSTOCK_BACKEND_DB", str(PROJECT_ROOT / "data" / "polstock_backend.db")))
 WATCHLIST_FILE = PROJECT_ROOT / "watchlist.json"
 COMPANY_KNOWLEDGE_FILE = PROJECT_ROOT / "company_knowledge.json"
 POLICY_SIGNAL_RULES_FILE = PROJECT_ROOT / "policy_signal_rules.json"
