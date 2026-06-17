@@ -2065,7 +2065,14 @@ def build_refresh_payload(
         stock["signal_strength"] = round(signal_strength, 3)
 
     # Phase 2: Add technical indicators and trade signals to each stock
-    from backend.stocks import compute_bollinger_bands, compute_support_resistance, detect_volume_spike, generate_trade_signal, fetch_ticker_history
+    from backend.stocks import (
+        compute_bollinger_bands,
+        compute_short_term_features,
+        compute_support_resistance,
+        detect_volume_spike,
+        generate_trade_signal,
+        fetch_ticker_history,
+    )
     for stock in stocks:
         ticker = stock.get("ticker", "")
         # Fetch OHLC data for Bollinger Bands and support/resistance
@@ -2115,6 +2122,16 @@ def build_refresh_payload(
         # Volume spike
         vol = detect_volume_spike(volumes, period=20)
         stock["volume_spike"] = vol
+
+        # Short-term structure / participation context
+        short_term_features = compute_short_term_features(
+            price=float(stock.get("price", 0) or 0),
+            ohlc_series=ohlc_series,
+            volume_series=volumes,
+            support_resistance=sr,
+            trend=_trend if isinstance(_trend, dict) else None,
+        )
+        stock.update(short_term_features)
 
         # Trade signal
         trend_data = trend_cache.get(ticker) or {}

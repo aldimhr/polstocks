@@ -228,6 +228,76 @@ def detect_volume_spike(volumes: list[float | int], period: int = 20) -> dict[st
     }
 
 
+def compute_short_term_features(
+    price: float,
+    ohlc_series: list[dict[str, Any]],
+    volume_series: list[float | int],
+    support_resistance: dict[str, list[float]] | None = None,
+    trend: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute richer short-term market structure features for payloads/signals."""
+    support_resistance = support_resistance or {"support": [], "resistance": []}
+    trend = trend or {}
+    closes = [float(item.get("close", 0) or item.get("value", 0) or 0) for item in ohlc_series if (item.get("close") or item.get("value"))]
+    volumes = [float(v) for v in volume_series if v is not None]
+    latest_close = float(price or (closes[-1] if closes else 0) or 0)
+
+    avg_price = sum(closes[-5:]) / min(len(closes), 5) if closes else latest_close
+    current_volume = volumes[-1] if volumes else 0.0
+    value_traded_estimate = round(max(latest_close, avg_price) * current_volume, 2) if latest_close > 0 and current_volume > 0 else 0.0
+
+    supports = [float(level) for level in support_resistance.get("support", []) if level]
+    resistances = [float(level) for level in support_resistance.get("resistance", []) if level]
+
+    nearest_support = max((level for level in supports if level <= latest_close), default=max(supports) if supports else None)
+    nearest_resistance = min((level for level in resistances if level >= latest_close), default=min(resistances) if resistances else None)
+
+    def _distance_pct(target: float | None) -> float | None:
+        if target is None or latest_close <= 0:
+            return None
+        return round(abs(latest_close - target) / latest_close, 4)
+
+    distance_to_support_pct = _distance_pct(nearest_support)
+    distance_to_resistance_pct = _distance_pct(nearest_resistance)
+
+    recent_support = supports[-1] if supports else None
+    recent_resistance = resistances[-1] if resistances else None
+    prior_close = closes[-2] if len(closes) >= 2 else None
+    close_above_resistance = bool(recent_resistance is not None and latest_close > recent_resistance)
+    reclaim_from_support = bool(
+        recent_support is not None
+        and prior_close is not None
+        and prior_close < recent_support
+        and latest_close >= recent_support
+    )
+
+    def _return_pct(period: int) -> float | None:
+        if len(closes) <= period:
+            return None
+        base = closes[-(period + 1)]
+        if not base:
+            return None
+        return round(((latest_close - base) / base) * 100.0, 3)
+
+    sma20 = trend.get("sma20")
+    sma50 = trend.get("sma50")
+
+    return {
+        "value_traded_estimate": value_traded_estimate,
+        "distance_to_support_pct": distance_to_support_pct,
+        "distance_to_resistance_pct": distance_to_resistance_pct,
+        "nearest_support": round(nearest_support, 2) if nearest_support is not None else None,
+        "nearest_resistance": round(nearest_resistance, 2) if nearest_resistance is not None else None,
+        "close_above_resistance": close_above_resistance,
+        "reclaim_from_support": reclaim_from_support,
+        "return_1d": _return_pct(1),
+        "return_3d": _return_pct(3),
+        "return_5d": _return_pct(5),
+        "price_above_sma20": bool(sma20 is not None and latest_close > float(sma20)),
+        "price_above_sma50": bool(sma50 is not None and latest_close > float(sma50)),
+    }
+
+
 def generate_trade_signal(
     price: float,
     signal_strength: float,
