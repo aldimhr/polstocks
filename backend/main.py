@@ -3192,6 +3192,47 @@ def _summarize_signal_change(current: dict[str, Any], previous: dict[str, Any] |
     return None
 
 
+def _build_daily_digest(
+    sections: dict[str, list[dict[str, Any]]],
+    alert_candidates: list[dict[str, Any]],
+    changes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary_lines: list[str] = []
+    top_buy = sections.get("best_buy_now", [])
+    breakout_watch = sections.get("watch_for_breakout", [])
+    rebound_watch = sections.get("watch_for_rebound", [])
+    watchlist_focus = breakout_watch + rebound_watch
+
+    if top_buy:
+        lead = top_buy[0]
+        summary_lines.append(
+            f"BUY now: {lead.get('ticker')} ({lead.get('signal_tier')}) RR {lead.get('rr_ratio')} · {lead.get('holding_window')}"
+        )
+    if breakout_watch:
+        lead = breakout_watch[0]
+        summary_lines.append(
+            f"Breakout watch: {lead.get('ticker')} → {lead.get('next_trigger')}"
+        )
+    if rebound_watch:
+        lead = rebound_watch[0]
+        summary_lines.append(
+            f"Rebound watch: {lead.get('ticker')} → {lead.get('next_trigger')}"
+        )
+    if changes:
+        summary_lines.append(f"Changed today: {changes[0].get('summary', '')}")
+
+    return {
+        "headline": "PolStock Daily Short Signals",
+        "top_buy_now": top_buy,
+        "breakout_watch": breakout_watch,
+        "rebound_watch": rebound_watch,
+        "watchlist_focus": watchlist_focus,
+        "alert_candidates": alert_candidates,
+        "changes": changes,
+        "summary_lines": summary_lines,
+    }
+
+
 @app.get("/api/signals/daily-summary")
 def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, Any]:
     """Return top actionable signals grouped by detected time horizon."""
@@ -3207,6 +3248,24 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
     for stock in stocks:
         ts = stock.get("trading_signal") or {}
         action = ts.get("action", "IGNORE")
+        setup_type = ts.get("setup_type")
+        setup_status = ts.get("setup_status", "none")
+        fallback_signal_state = (
+            "ready_to_buy" if action == "BUY" else
+            "ready_to_sell" if action == "SELL" else
+            "waiting_breakout" if action == "WATCH" and setup_type == "breakout_continuation" else
+            "waiting_reclaim" if action == "WATCH" and setup_type == "support_rebound" else
+            "forming_watch" if action == "WATCH" and setup_status == "forming" else
+            "low_priority"
+        )
+        fallback_state_label = {
+            "ready_to_buy": "Ready to Buy",
+            "ready_to_sell": "Ready to Sell",
+            "waiting_breakout": "Waiting Breakout",
+            "waiting_reclaim": "Waiting Reclaim",
+            "forming_watch": "Forming Watch",
+            "low_priority": "Low Priority",
+        }[fallback_signal_state]
         if action == "IGNORE":
             continue
         if not include_watch and action == "WATCH":
@@ -3229,10 +3288,13 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
             "invalidation": ts.get("invalidation", ""),
             "participation_score": ts.get("participation_score", 0),
             "participation_label": ts.get("participation_label", "low"),
-            "setup_type": ts.get("setup_type"),
-            "setup_status": ts.get("setup_status", "none"),
+            "setup_type": setup_type,
+            "setup_status": setup_status,
             "trade_label": ts.get("trade_label", ""),
+            "signal_state": ts.get("signal_state", fallback_signal_state),
+            "state_label": ts.get("state_label", fallback_state_label),
             "next_trigger": ts.get("next_trigger", ""),
+            "transition_trigger_price": ts.get("transition_trigger_price"),
             "holding_window": ts.get("holding_window", ts.get("time_horizon", "7d")),
             "execution_checklist": ts.get("execution_checklist", []),
             "trader_score": ts.get("trader_score", 0),
@@ -3287,6 +3349,7 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
         "sections": sections,
         "alert_candidates": alert_candidates,
         "changes": changes,
+        "digest": _build_daily_digest(sections, alert_candidates, changes),
         "total_signals": len(all_signals),
         "accuracy": {
             "hit_rate": metrics.get("hit_rate", 0),

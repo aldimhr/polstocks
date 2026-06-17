@@ -57,7 +57,10 @@ class TestShortTermSignalScorer:
         assert result["stop_loss"] is not None
         assert result["setup_status"] == "confirmed"
         assert result["trade_label"] == "Best Buy Now"
+        assert result["signal_state"] == "ready_to_buy"
+        assert result["state_label"] == "Ready to Buy"
         assert result["next_trigger"] == "Ready to execute"
+        assert result["transition_trigger_price"] == 980.0
         assert result["trader_score"] >= 70
         assert result["rr_ratio"] >= 1.9
         assert result["risk_reward_label"] == "good"
@@ -138,7 +141,11 @@ class TestShortTermSignalScorer:
         assert result["action"] == "WATCH"
         assert result["setup_status"] == "forming"
         assert result["trade_label"] == "Watch for Breakout"
+        assert result["signal_state"] == "waiting_breakout"
+        assert result["state_label"] == "Waiting Breakout"
         assert "close above resistance" in result["next_trigger"].lower()
+        assert "980" in result["next_trigger"]
+        assert result["transition_trigger_price"] == 980.0
         assert any(
             item["key"] == "breakout_close" and item["status"] == "fail"
             for item in result["execution_checklist"]
@@ -172,7 +179,11 @@ class TestShortTermSignalScorer:
         assert result["time_horizon"] == "14d"
         assert result["setup_status"] == "forming"
         assert result["trade_label"] == "Watch for Rebound"
+        assert result["signal_state"] == "waiting_reclaim"
+        assert result["state_label"] == "Waiting Reclaim"
         assert "reclaim from support" in result["next_trigger"].lower()
+        assert "990" in result["next_trigger"]
+        assert result["transition_trigger_price"] == 990.0
         assert any(
             item["key"] == "support_reclaim" and item["status"] == "fail"
             for item in result["execution_checklist"]

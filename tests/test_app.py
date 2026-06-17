@@ -3432,10 +3432,17 @@ class TestDailySummaryHorizons:
         assert data["sections"]["best_buy_now"][0]["trade_label"] == "Best Buy Now"
         assert data["sections"]["watch_for_rebound"][0]["next_trigger"] == "Need reclaim from support"
         assert data["sections"]["best_buy_now"][0]["shortlist_eligible"] is True
+        assert data["sections"]["best_buy_now"][0]["signal_state"] == "ready_to_buy"
+        assert data["sections"]["watch_for_rebound"][0]["signal_state"] == "waiting_reclaim"
         assert len(data["sections"]["best_buy_now"]) == 1
         assert data["alert_candidates"][0]["ticker"] == "FAST.JK"
         assert any(change["ticker"] == "FAST.JK" and change["change_type"] == "upgraded_to_buy" for change in data["changes"])
         assert any(change["ticker"] == "SWING.JK" and change["change_type"] == "watch_strengthening" for change in data["changes"])
+        assert "digest" in data
+        assert data["digest"]["headline"] == "PolStock Daily Short Signals"
+        assert data["digest"]["top_buy_now"][0]["ticker"] == "FAST.JK"
+        assert data["digest"]["watchlist_focus"][0]["signal_state"] == "waiting_reclaim"
+        assert any("FAST.JK" in line for line in data["digest"]["summary_lines"])
 
 
 class TestRecordPredictionHorizon:

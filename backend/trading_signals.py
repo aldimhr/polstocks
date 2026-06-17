@@ -356,6 +356,8 @@ def detect_breakout_continuation(stock: dict[str, Any]) -> dict[str, Any] | None
         "setup_type": "breakout_continuation",
         "setup_score": round(min(setup_score, 1.0), 4),
         "trigger_complete": trigger_complete,
+        "trigger_price": float(breakout_level) if breakout_level is not None else None,
+        "trigger_label": "close above resistance",
         "preferred_horizon": "1d" if participation["score"] >= 0.60 and close_above_resistance else "3d",
         "participation": participation,
         "reasons": reasons,
@@ -415,10 +417,14 @@ def detect_support_rebound(stock: dict[str, Any]) -> dict[str, Any] | None:
     else:
         reasons.append("Momentum recovery still weak")
 
+    nearest_support = max((level for level in supports if level <= price), default=max(supports))
+
     return {
         "setup_type": "support_rebound",
         "setup_score": round(min(setup_score, 1.0), 4),
         "trigger_complete": trigger_complete,
+        "trigger_price": float(nearest_support) if nearest_support is not None else None,
+        "trigger_label": "reclaim from support",
         "preferred_horizon": "7d" if participation["score"] >= 0.20 and trigger_complete else "14d",
         "participation": participation,
         "reasons": reasons,
@@ -545,23 +551,51 @@ def _derive_trade_label(action: str, setup_type: str, trigger_complete: bool) ->
     return "Low Priority", "none"
 
 
-def _derive_next_trigger(setup_type: str, checklist: list[dict[str, str]], action: str) -> str:
+def _format_trigger_level(level: float | None) -> str:
+    if level is None:
+        return ""
+    if abs(level - round(level)) < 1e-9:
+        return f" {int(round(level))}"
+    return f" {level:.2f}"
+
+
+def _derive_next_trigger(setup_type: str, checklist: list[dict[str, str]], action: str, trigger_price: float | None = None) -> str:
     if action == "BUY":
         return "Ready to execute"
     failed = [item for item in checklist if item.get("status") == "fail"]
+    trigger_level = _format_trigger_level(trigger_price)
     if setup_type == "breakout_continuation":
         if any(item.get("key") == "breakout_close" for item in failed):
-            return "Need close above resistance to confirm breakout"
+            return f"Need close above resistance{trigger_level} before entry".strip()
         if any(item.get("key") == "participation" for item in failed):
             return "Need stronger participation before breakout entry"
         return "Need cleaner breakout follow-through"
     if setup_type == "support_rebound":
         if any(item.get("key") == "support_reclaim" for item in failed):
-            return "Need reclaim from support before entry"
+            return f"Need reclaim from support{trigger_level} before entry".strip()
         if any(item.get("key") == "momentum_recovery" for item in failed):
             return "Need momentum recovery confirmation"
         return "Need stronger rebound confirmation"
     return "Wait for stronger confirmation"
+
+
+def _derive_signal_state(
+    action: str,
+    setup_type: str,
+    trigger_complete: bool,
+    setup_status: str,
+) -> tuple[str, str]:
+    if action == "BUY":
+        return "ready_to_buy", "Ready to Buy"
+    if action == "SELL":
+        return "ready_to_sell", "Ready to Sell"
+    if action == "WATCH" and setup_type == "breakout_continuation":
+        return "waiting_breakout", "Waiting Breakout"
+    if action == "WATCH" and setup_type == "support_rebound":
+        return "waiting_reclaim", "Waiting Reclaim"
+    if action == "WATCH" and setup_status == "forming":
+        return "forming_watch", "Forming Watch"
+    return "low_priority", "Low Priority"
 
 
 def _humanize_holding_window(time_horizon: str) -> str:
@@ -796,7 +830,9 @@ def classify_signal(
 
     execution_checklist = _build_execution_checklist(stock, setup, participation)
     trade_label, setup_status = _derive_trade_label(action, setup_type, trigger_complete)
-    next_trigger = _derive_next_trigger(setup_type, execution_checklist, action)
+    transition_trigger_price = float(setup.get("trigger_price")) if setup and setup.get("trigger_price") is not None else None
+    next_trigger = _derive_next_trigger(setup_type, execution_checklist, action, transition_trigger_price)
+    signal_state, state_label = _derive_signal_state(action, setup_type, trigger_complete, setup_status)
     holding_window = _humanize_holding_window(time_horizon)
     trader_score = _compute_trader_score(
         action,
@@ -876,7 +912,10 @@ def classify_signal(
         "setup_type": setup.get("setup_type") if setup else None,
         "setup_status": setup_status,
         "trade_label": trade_label,
+        "signal_state": signal_state,
+        "state_label": state_label,
         "next_trigger": next_trigger,
+        "transition_trigger_price": transition_trigger_price,
         "holding_window": holding_window,
         "execution_checklist": execution_checklist,
         "trader_score": trader_score,
