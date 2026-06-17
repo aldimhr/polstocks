@@ -778,6 +778,16 @@ def test_dashboard_contains_runtime_hooks():
         'loadTradeHistory(',
         'renderTradeHistory(',
         'trade-history-item',
+        'renderSignalStateBadge(',
+        'renderSignalDigestSection(',
+        'renderActionableSignalCard(',
+        'signal-lifecycle-badge',
+        'signal-digest-grid',
+        'Triggered Today',
+        'Manage Open Trades',
+        'Exit / Failure',
+        'What Changed Today',
+        'Avoid Chasing',
         'filterStocksList(',
         'setStockSearch(',
         'sort-bar',
@@ -814,6 +824,20 @@ def test_dashboard_contains_runtime_hooks():
         '.event-search-bar { flex-direction: column; align-items: stretch; }',
         '.filter-chips { width: 100%; overflow-x: auto; flex-wrap: nowrap;',
         '.history-headline { flex: 1 1 100%; max-width: 100%; white-space: normal; }',
+    ]:
+        assert snippet in dashboard_html
+
+
+def test_dashboard_signal_merge_surfaces_lifecycle_fields():
+    dashboard_html = (appmod.PROJECT_ROOT / "dashboard.html").read_text(encoding="utf-8")
+    for snippet in [
+        'state_label: sig.state_label || existing.state_label ||',
+        'signal_state: sig.signal_state || existing.signal_state ||',
+        'rr_ratio: sig.rr_ratio ?? existing.rr_ratio ?? null',
+        'risk_reward_label: sig.risk_reward_label || existing.risk_reward_label ||',
+        'shortlist_eligible: sig.shortlist_eligible ?? existing.shortlist_eligible ?? false',
+        'alert_ready: sig.alert_ready ?? existing.alert_ready ?? false',
+        'transition_trigger_price: sig.transition_trigger_price ?? existing.transition_trigger_price ?? null',
     ]:
         assert snippet in dashboard_html
 

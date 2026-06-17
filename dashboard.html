@@ -778,6 +778,92 @@
   .signal-mini.sell { background: var(--red-dim); color: var(--red); border-color: rgba(255,92,92,0.28); }
   .signal-mini.watch { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,166,35,0.28); }
 
+  .signal-lifecycle-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted2);
+  }
+
+  .signal-lifecycle-badge.ready,
+  .signal-lifecycle-badge.buy,
+  .signal-lifecycle-badge.triggered,
+  .signal-lifecycle-badge.active {
+    background: var(--green-dim);
+    color: var(--green);
+    border-color: rgba(77,219,142,0.28);
+  }
+
+  .signal-lifecycle-badge.watch,
+  .signal-lifecycle-badge.caution,
+  .signal-lifecycle-badge.chasing {
+    background: var(--amber-dim);
+    color: var(--amber);
+    border-color: rgba(245,166,35,0.28);
+  }
+
+  .signal-lifecycle-badge.exit,
+  .signal-lifecycle-badge.danger,
+  .signal-lifecycle-badge.invalid {
+    background: var(--red-dim);
+    color: var(--red);
+    border-color: rgba(255,92,92,0.28);
+  }
+
+  .signal-digest-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    width: 100%;
+    margin-top: 12px;
+  }
+
+  .signal-digest-card {
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    min-width: 0;
+  }
+
+  .signal-digest-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .signal-digest-item {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .signal-digest-item:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .actionable-signal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    width: 100%;
+  }
+
+  .actionable-signal-card {
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    min-width: 0;
+  }
+
   .stock-row-impact {
     display: inline-flex;
     align-items: center;
@@ -3740,23 +3826,36 @@
       const sl = sig.stop_loss ? formatPrice(sig.stop_loss) : '—';
       const tp = sig.take_profit ? formatPrice(sig.take_profit) : '—';
       const reasons = sig.reasons || [];
+      const signalMeta = renderSignalStateMeta(sig);
+      const rrLabel = Number.isFinite(Number(sig.rr_ratio)) ? `${Number(sig.rr_ratio).toFixed(1)}x ${escapeHtml(sig.risk_reward_label || '')}`.trim() : '—';
+      const triggerLabel = sig.transition_trigger_price ? `Trigger ${formatPrice(sig.transition_trigger_price)}` : '';
+      const checklist = Array.isArray(sig.execution_checklist) ? sig.execution_checklist : [];
       signalHtml = `
         <div style="margin:12px 0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${actionColor};color:#000;font-weight:700;">${actionIcon} ${sigAction}</span>
+            ${renderSignalStateBadge(sig)}
             ${sig.time_horizon ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);">${sig.time_horizon}</span>` : ''}
             ${sig.signal_tier ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);">Tier ${sig.signal_tier}</span>` : ''}
             <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">${strengthPct}% strength</span>
           </div>
+          ${signalMeta ? `<div style="font-size:10px;color:var(--muted2);margin-bottom:8px;">${signalMeta}${triggerLabel ? ` · ${triggerLabel}` : ''}</div>` : ''}
           <div style="height:4px;background:var(--surface2);border-radius:2px;margin-bottom:8px;overflow:hidden;">
             <div style="height:100%;width:${strengthPct}%;background:${strengthColor};border-radius:2px;"></div>
           </div>
-          ${entry !== '—' || sl !== '—' || tp !== '—' ? `<div style="display:flex;gap:16px;margin-bottom:6px;font-size:11px;font-family:'DM Mono',monospace;">
+          ${entry !== '—' || sl !== '—' || tp !== '—' ? `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;font-size:11px;font-family:'DM Mono',monospace;">
             <span>Entry <strong>${entry}</strong></span>
             <span>SL <strong style="color:var(--red)">${sl}</strong></span>
             <span>TP <strong style="color:var(--green)">${tp}</strong></span>
+            <span>RR <strong>${rrLabel}</strong></span>
           </div>` : ''}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            ${sig.shortlist_eligible === true ? '<span class="signal-lifecycle-badge ready">Shortlist-ready</span>' : ''}
+            ${sig.alert_ready === true ? '<span class="signal-lifecycle-badge triggered">Alert-ready</span>' : ''}
+          </div>
+          ${sig.next_trigger ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Next: ${escapeHtml(sig.next_trigger)}</div>` : ''}
           ${sig.invalidation ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">⚠️ ${escapeHtml(sig.invalidation)}</div>` : ''}
+          ${checklist.length ? `<div style="font-size:10px;color:var(--muted2);line-height:1.5;margin-bottom:6px;">${checklist.slice(0, 4).map(item => `${item.passed ? '✅' : '•'} ${escapeHtml(item.label || item.reason || '')}`).join('<br>')}</div>` : ''}
           ${reasons.length ? `<div style="font-size:10px;color:var(--muted2);line-height:1.5;">${reasons.slice(0, 5).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
         </div>`;
     }
@@ -4180,6 +4279,33 @@
     ].some((value) => String(value || '').toLowerCase().includes(q)));
   }
 
+  function signalStateTone(signalState, action) {
+    const state = String(signalState || '').toLowerCase();
+    if (['tp_hit', 'sl_hit', 'failed_breakout', 'invalidated', 'expired'].includes(state)) return 'exit';
+    if (['late_entry', 'avoid_chasing'].includes(state)) return 'chasing';
+    if (['triggered_today'].includes(state)) return 'triggered';
+    if (['active_trade'].includes(state)) return 'active';
+    if (['ready_to_buy'].includes(state)) return 'ready';
+    if (['waiting_breakout', 'waiting_reclaim'].includes(state)) return 'watch';
+    return String(action || '').toUpperCase() === 'BUY' ? 'buy' : String(action || '').toUpperCase() === 'SELL' ? 'danger' : 'watch';
+  }
+
+  function renderSignalStateBadge(ts) {
+    const stateLabel = ts.state_label || ts.trade_label || ts.action || 'Signal';
+    const tone = signalStateTone(ts.signal_state, ts.action);
+    return `<span class="signal-lifecycle-badge ${tone}">${escapeHtml(stateLabel)}</span>`;
+  }
+
+  function renderSignalStateMeta(ts) {
+    const bits = [];
+    if (ts.signal_tier) bits.push(`Tier ${escapeHtml(ts.signal_tier)}`);
+    if (ts.time_horizon) bits.push(escapeHtml(ts.time_horizon));
+    if (ts.holding_window) bits.push(escapeHtml(ts.holding_window));
+    if (Number.isFinite(Number(ts.rr_ratio))) bits.push(`RR ${Number(ts.rr_ratio).toFixed(1)}x`);
+    if (ts.shortlist_eligible === true) bits.push('Shortlist-ready');
+    return bits.join(' · ');
+  }
+
   function renderSignalMini(stock) {
     const ts = stock.trading_signal || stock.trade_signal || {};
     const rawAction = String(ts.action || '').toUpperCase();
@@ -4187,7 +4313,9 @@
     const tone = action === 'BUY' ? 'buy' : action === 'SELL' ? 'sell' : 'watch';
     const horizon = ts.time_horizon || stock.time_horizon || '';
     const tier = ts.signal_tier ? ` · T${ts.signal_tier}` : '';
-    return `<span class="signal-mini ${tone}">${action}${horizon ? ` · ${escapeHtml(horizon)}` : ''}${escapeHtml(tier)}</span>`;
+    const meta = renderSignalStateMeta(ts);
+    const lifecycleBadge = renderSignalStateBadge(ts);
+    return `${lifecycleBadge}<span class="signal-mini ${tone}">${action}${horizon ? ` · ${escapeHtml(horizon)}` : ''}${escapeHtml(tier)}</span>${meta ? `<span class="stock-row-meta" style="font-size:10px;">${meta}</span>` : ''}`;
   }
 
   function groupStocksByIndustry(rows) {
@@ -4234,6 +4362,7 @@
     const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
     const pinIcon = stock.in_portfolio ? '💼' : stock.pinned ? '📌' : '';
     const signalMini = renderSignalMini(stock);
+    const signalTrigger = ts?.next_trigger ? `<div class="stock-row-meta">${escapeHtml(ts.next_trigger)}</div>` : '';
     const sectorLabel = stock.sector || stock.industry || 'Unknown sector';
     const impactLabel = Number.isFinite(impact) ? `${impact > 0 ? '+' : ''}${impact.toFixed(2)}` : '—';
     const compactChips = [directionChip, validationChip, rsiChip, macdChip, trendChip, bbChip, volSpikeChip, conflictBadges].filter(Boolean).join(' ');
@@ -4246,6 +4375,7 @@
           </div>
           <div class="stock-row-name">${escapeHtml(stock.name || '')}</div>
           <div class="stock-row-meta">${escapeHtml(sectorLabel)} · ${linkMeta}</div>
+          ${signalTrigger}
           <div class="stock-row-chips">${compactChips || validationMeta || provenanceBadges || '<span class="reasoning-chip muted">No signal metadata</span>'}</div>
           ${knowledgeMeta ? `<div class="stock-row-meta">${escapeHtml(knowledgeMeta)}</div>` : ''}
         </div>
@@ -4517,12 +4647,64 @@
     }
   }
 
+  function renderActionableSignalCard(signal, fallbackLabel, toneColor) {
+    const actionIcon = signal.action === 'BUY' ? '🟢' : signal.action === 'SELL' ? '🔴' : '🟡';
+    const tierColor = signal.signal_tier === 'A' ? 'var(--green)' : signal.signal_tier === 'B' ? 'var(--accent)' : 'var(--muted)';
+    const entry = signal.entry_price ? Number(signal.entry_price).toLocaleString() : '—';
+    const sl = signal.stop_loss ? Number(signal.stop_loss).toLocaleString() : '—';
+    const tp = signal.take_profit ? Number(signal.take_profit).toLocaleString() : '—';
+    const strength = Math.round((signal.signal_strength || 0) * 100);
+    const traderScore = Math.round(signal.trader_score || 0);
+    const nextTrigger = signal.next_trigger || (signal.reasons && signal.reasons[0]) || '';
+    const stateMeta = renderSignalStateMeta(signal);
+    const lifecycleBadge = renderSignalStateBadge(signal);
+    return `<div onclick="openTickerModal('${escapeHtml(signal.ticker)}')" style="margin-bottom:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
+        <span>${actionIcon}</span>
+        <strong style="font-size:13px;">${escapeHtml(signal.ticker)}</strong>
+        <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${tierColor};color:#000;font-weight:600;">${escapeHtml(signal.signal_tier || 'D')}</span>
+        ${lifecycleBadge}
+      </div>
+      <div style="font-size:11px;color:var(--text);margin-bottom:4px;">${escapeHtml(signal.trade_label || fallbackLabel)}</div>
+      ${stateMeta ? `<div style="font-size:10px;color:var(--muted2);margin-bottom:4px;">${stateMeta}</div>` : ''}
+      <div style="margin:3px 0 5px 0;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;">
+        <div style="width:${strength}%;height:100%;background:${toneColor};border-radius:3px;transition:width 0.4s;"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;">
+        <span>Entry ${entry}</span>
+        <span>SL ${sl}</span>
+        <span>TP ${tp}</span>
+        <span>Score ${traderScore}</span>
+      </div>
+      ${nextTrigger ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;">Next: ${escapeHtml(nextTrigger)}</div>` : ''}
+    </div>`;
+  }
+
+  function renderSignalDigestSection(title, items, emptyText, accentColor) {
+    const rows = Array.isArray(items) ? items : [];
+    return `<div class="signal-digest-card">
+      <div style="font-size:11px;color:${accentColor};text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:8px;">${title}</div>
+      ${rows.length
+        ? `<div class="signal-digest-list">${rows.slice(0, 3).map((signal) => `
+            <div class="signal-digest-item" onclick="openTickerModal('${escapeHtml(signal.ticker)}')" style="cursor:pointer;">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+                <strong style="font-size:12px;">${escapeHtml(signal.ticker || '')}</strong>
+                ${renderSignalStateBadge(signal)}
+              </div>
+              <div style="font-size:10px;color:var(--muted2);">${escapeHtml(signal.next_trigger || signal.summary || emptyText)}</div>
+            </div>`).join('')}</div>`
+        : `<div style="font-size:12px;color:var(--muted2);">${emptyText}</div>`}
+    </div>`;
+  }
+
   async function loadActionableSignals() {
     try {
       const data = await apiJson('/api/signals/daily-summary?limit=3&include_watch=true');
       if (!data) return;
       const horizons = data.horizons || {};
       const sections = data.sections || {};
+      const digest = data.digest || {};
+      const changes = data.changes || [];
       const acc = data.accuracy || {};
       const total = data.total_signals || 0;
       const badge = $('actionableBadge');
@@ -4542,45 +4724,17 @@
       const sectionConfig = [
         { key: 'best_buy_now', label: '🟢 Best Buy Now', empty: 'No confirmed BUY setups', color: 'var(--green)' },
         { key: 'watch_for_breakout', label: '⚡ Watch for Breakout', empty: 'No breakout setups forming', color: 'var(--accent)' },
-        { key: 'watch_for_rebound', label: '🟡 Watch for Rebound', empty: 'No rebound setups forming', color: 'var(--yellow)' },
+        { key: 'watch_for_rebound', label: '🟡 Watch for Rebound', empty: 'No rebound setups forming', color: 'var(--amber)' },
       ];
 
       const cards = sectionConfig.map(({ key, label, empty, color }) => {
         const sigs = sections[key] || [];
-        return `<div style="flex:1;min-width:220px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;">
+        const cleanLabel = label.replace(/^[^ ]+ /, '');
+        return `<div class="actionable-signal-card">
           <div style="font-size:11px;color:${color};text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:8px;">${label}</div>
           ${sigs.length === 0
             ? `<div style="font-size:12px;color:var(--muted2);">${empty}</div>`
-            : sigs.map(s => {
-                const actionIcon = s.action === 'BUY' ? '🟢' : s.action === 'SELL' ? '🔴' : '🟡';
-                const tierColor = s.signal_tier === 'A' ? 'var(--green)' : s.signal_tier === 'B' ? 'var(--accent)' : 'var(--muted)';
-                const entry = s.entry_price ? Number(s.entry_price).toLocaleString() : '—';
-                const sl = s.stop_loss ? Number(s.stop_loss).toLocaleString() : '—';
-                const tp = s.take_profit ? Number(s.take_profit).toLocaleString() : '—';
-                const strength = Math.round((s.signal_strength || 0) * 100);
-                const traderScore = Math.round(s.trader_score || 0);
-                const nextTrigger = s.next_trigger || (s.reasons && s.reasons[0]) || '';
-                return `<div onclick="openTickerModal('${escapeHtml(s.ticker)}')" style="margin-bottom:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
-                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
-                    <span>${actionIcon}</span>
-                    <strong style="font-size:13px;">${escapeHtml(s.ticker)}</strong>
-                    <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${tierColor};color:#000;font-weight:600;">${escapeHtml(s.signal_tier || 'D')}</span>
-                    ${s.time_horizon ? `<span style="font-size:10px;color:var(--muted);">${escapeHtml(s.time_horizon)} · ${escapeHtml(s.holding_window || s.time_horizon)}</span>` : ''}
-                  </div>
-                  <div style="font-size:11px;color:var(--text);margin-bottom:4px;">${escapeHtml(s.trade_label || label.replace(/^[^ ]+ /, ''))}</div>
-                  <div style="margin:3px 0 5px 0;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;">
-                    <div style="width:${strength}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s;"></div>
-                  </div>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;">
-                    <span>Entry ${entry}</span>
-                    <span>SL ${sl}</span>
-                    <span>TP ${tp}</span>
-                    <span>Score ${traderScore}</span>
-                  </div>
-                  ${nextTrigger ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;">Next: ${escapeHtml(nextTrigger)}</div>` : ''}
-                </div>`;
-              }).join('')
-          }
+            : sigs.map((signal) => renderActionableSignalCard(signal, cleanLabel, color)).join('')}
         </div>`;
       });
 
@@ -4596,7 +4750,23 @@
         return `<span style="font-size:10px;padding:2px 6px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);">${label}: ${count}</span>`;
       }).join('');
 
-      root.innerHTML = `${cards.join('')}<div style="flex-basis:100%;display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${horizonSummary}</div>`;
+      const digestGrid = `
+        <div class="signal-digest-grid">
+          ${renderSignalDigestSection('⚠️ Avoid Chasing', digest.degraded_entries || [], 'No stretched setups.', 'var(--amber)')}
+          ${renderSignalDigestSection('🟢 Triggered Today', digest.triggered_today || [], 'No fresh triggers today.', 'var(--green)')}
+          ${renderSignalDigestSection('📌 Manage Open Trades', digest.manage_open_trades || [], 'No open trades need action.', 'var(--blue)')}
+          ${renderSignalDigestSection('🚪 Exit / Failure', digest.exit_updates || [], 'No exit updates right now.', 'var(--red)')}
+        </div>`;
+
+      const changeHtml = `
+        <div class="signal-digest-card" style="margin-top:12px; width:100%;">
+          <div style="font-size:11px;color:var(--purple);text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:8px;">🔄 What Changed Today</div>
+          ${changes.length
+            ? `<div class="signal-digest-list">${changes.slice(0, 5).map((change) => `<div class="signal-digest-item"><strong style="font-size:12px;">${escapeHtml(change.ticker || '')}</strong><div style="font-size:10px;color:var(--muted2);margin-top:4px;">${escapeHtml(change.summary || '')}</div></div>`).join('')}</div>`
+            : `<div style="font-size:12px;color:var(--muted2);">No notable signal changes today.</div>`}
+        </div>`;
+
+      root.innerHTML = `<div class="actionable-signal-grid">${cards.join('')}</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${horizonSummary}</div>${digestGrid}${changeHtml}`;
     } catch (e) {
       console.warn('Actionable signals load failed:', e);
     }
@@ -4642,25 +4812,34 @@
     for (const stock of stocks) {
       const t = String(stock.ticker || '').toUpperCase();
       const sig = signalMap[t];
-      if (sig && (!stock.trading_signal || !stock.trading_signal.action)) {
-        stock.trading_signal = {
-          action: sig.action || '',
-          time_horizon: sig.time_horizon || '',
-          signal_tier: sig.signal_tier || '',
-          signal_strength: sig.signal_strength || 0,
-          entry_price: sig.entry_price || null,
-          stop_loss: sig.stop_loss || null,
-          take_profit: sig.take_profit || null,
-          trade_label: sig.trade_label || '',
-          next_trigger: sig.next_trigger || '',
-          holding_window: sig.holding_window || '',
-          execution_checklist: sig.execution_checklist || [],
-          trader_score: sig.trader_score || 0,
-          setup_type: sig.setup_type || '',
-          setup_status: sig.setup_status || '',
-          participation_score: sig.participation_score || 0,
-        };
-      }
+      if (!sig) continue;
+      const existing = stock.trading_signal || stock.trade_signal || {};
+      stock.trading_signal = {
+        ...existing,
+        action: sig.action || existing.action || '',
+        time_horizon: sig.time_horizon || existing.time_horizon || '',
+        signal_tier: sig.signal_tier || existing.signal_tier || '',
+        signal_strength: sig.signal_strength ?? existing.signal_strength ?? 0,
+        entry_price: sig.entry_price ?? existing.entry_price ?? null,
+        stop_loss: sig.stop_loss ?? existing.stop_loss ?? null,
+        take_profit: sig.take_profit ?? existing.take_profit ?? null,
+        trade_label: sig.trade_label || existing.trade_label || '',
+        state_label: sig.state_label || existing.state_label || '',
+        signal_state: sig.signal_state || existing.signal_state || '',
+        next_trigger: sig.next_trigger || existing.next_trigger || '',
+        holding_window: sig.holding_window || existing.holding_window || '',
+        execution_checklist: sig.execution_checklist || existing.execution_checklist || [],
+        trader_score: sig.trader_score ?? existing.trader_score ?? 0,
+        setup_type: sig.setup_type || existing.setup_type || '',
+        setup_status: sig.setup_status || existing.setup_status || '',
+        participation_score: sig.participation_score ?? existing.participation_score ?? 0,
+        rr_ratio: sig.rr_ratio ?? existing.rr_ratio ?? null,
+        risk_reward_label: sig.risk_reward_label || existing.risk_reward_label || '',
+        shortlist_eligible: sig.shortlist_eligible ?? existing.shortlist_eligible ?? false,
+        alert_ready: sig.alert_ready ?? existing.alert_ready ?? false,
+        transition_trigger_price: sig.transition_trigger_price ?? existing.transition_trigger_price ?? null,
+        reasons: sig.reasons || existing.reasons || [],
+      };
     }
   }
 
