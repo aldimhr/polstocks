@@ -3185,6 +3185,36 @@ def _summarize_signal_change(current: dict[str, Any], previous: dict[str, Any] |
             "change_type": "expired_setup",
             "summary": f"{current.get('trade_label', 'Setup')} expired — wait for refresh",
         }
+    if curr_state == "triggered_today" and prev_state != "triggered_today":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "triggered_today",
+            "summary": "Triggered today — manage risk after entry",
+        }
+    if curr_state == "active_trade" and prev_state != "active_trade":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "active_trade",
+            "summary": "Trade remains active — manage open position",
+        }
+    if curr_state == "tp_hit" and prev_state != "tp_hit":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "take_profit_hit",
+            "summary": "Take profit reached — consider scaling out",
+        }
+    if curr_state == "sl_hit" and prev_state != "sl_hit":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "stop_loss_hit",
+            "summary": "Stop loss breached — exit and reset",
+        }
+    if curr_state == "failed_breakout" and prev_state != "failed_breakout":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "failed_breakout",
+            "summary": "Breakout failed after entry — reduce risk",
+        }
     if curr_state in {"late_entry", "avoid_chasing"} and prev_state not in {"late_entry", "avoid_chasing"}:
         return {
             "ticker": current.get("ticker", ""),
@@ -3226,6 +3256,18 @@ def _build_daily_digest(
         sig for sig in all_signals
         if str(sig.get("signal_state", "") or "") in {"late_entry", "avoid_chasing"}
     ]
+    triggered_today = [
+        sig for sig in all_signals
+        if str(sig.get("signal_state", "") or "") == "triggered_today"
+    ]
+    manage_open_trades = [
+        sig for sig in all_signals
+        if str(sig.get("signal_state", "") or "") == "active_trade"
+    ]
+    exit_updates = [
+        sig for sig in all_signals
+        if str(sig.get("signal_state", "") or "") in {"tp_hit", "sl_hit", "failed_breakout"}
+    ]
     watchlist_focus = breakout_watch + rebound_watch
 
     if top_buy:
@@ -3248,6 +3290,21 @@ def _build_daily_digest(
         summary_lines.append(
             f"Avoid chasing: {lead.get('ticker')} → {lead.get('next_trigger')}"
         )
+    if triggered_today:
+        lead = triggered_today[0]
+        summary_lines.append(
+            f"Triggered today: {lead.get('ticker')} → {lead.get('next_trigger')}"
+        )
+    if manage_open_trades:
+        lead = manage_open_trades[0]
+        summary_lines.append(
+            f"Active trade: {lead.get('ticker')} → {lead.get('next_trigger')}"
+        )
+    if exit_updates:
+        lead = exit_updates[0]
+        summary_lines.append(
+            f"Exit update: {lead.get('ticker')} → {lead.get('next_trigger')}"
+        )
     if changes:
         summary_lines.append(f"Changed today: {changes[0].get('summary', '')}")
 
@@ -3258,6 +3315,9 @@ def _build_daily_digest(
         "rebound_watch": rebound_watch,
         "watchlist_focus": watchlist_focus,
         "degraded_entries": degraded_entries,
+        "triggered_today": triggered_today,
+        "manage_open_trades": manage_open_trades,
+        "exit_updates": exit_updates,
         "alert_candidates": alert_candidates,
         "changes": changes,
         "summary_lines": summary_lines,

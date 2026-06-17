@@ -709,6 +709,8 @@ def _derive_lifecycle_override(
     entry_price: float | None,
     trigger_price: float | None,
     rr_ratio: float | None,
+    current_price: float | None,
+    atr: float | None,
 ) -> dict[str, Any] | None:
     invalidation_reason = str(stock.get("invalidation_reason", "") or "").strip()
     if bool(stock.get("setup_invalidated")):
@@ -729,6 +731,57 @@ def _derive_lifecycle_override(
             "state_label": "Expired",
             "next_trigger": f"Setup expired after {int(setup_age_days)} days — wait for a fresh setup",
             "reason": f"Setup aged beyond the {time_horizon} holding window",
+            "block_shortlist": True,
+            "block_alert": True,
+        }
+
+    position_entry_price = stock.get("position_entry_price")
+    if position_entry_price is not None and atr and current_price is not None:
+        managed_entry = float(position_entry_price)
+        managed_stop = round(managed_entry - 1.5 * float(atr), 2)
+        managed_take_profit = round(managed_entry + 3.0 * float(atr), 2)
+        days_since_entry = float(stock.get("days_since_entry", 0) or 0)
+        if float(current_price) >= managed_take_profit:
+            return {
+                "signal_state": "tp_hit",
+                "state_label": "Take Profit Hit",
+                "next_trigger": "Take profit reached — consider scaling out / closing",
+                "reason": "Take profit target reached from the original entry",
+                "block_shortlist": True,
+                "force_alert": True,
+            }
+        if float(current_price) <= managed_stop:
+            return {
+                "signal_state": "sl_hit",
+                "state_label": "Stop Loss Hit",
+                "next_trigger": "Stop loss breached — exit and wait for reset",
+                "reason": "Stop loss has been breached from the original entry",
+                "block_shortlist": True,
+                "force_alert": True,
+            }
+        if bool(stock.get("failed_breakout")):
+            return {
+                "signal_state": "failed_breakout",
+                "state_label": "Failed Breakout",
+                "next_trigger": "Failed breakout — reduce risk or exit on weakness",
+                "reason": "Breakout failed after entry confirmation",
+                "block_shortlist": True,
+                "force_alert": True,
+            }
+        if bool(stock.get("triggered_today")) or days_since_entry <= 1:
+            return {
+                "signal_state": "triggered_today",
+                "state_label": "Triggered Today",
+                "next_trigger": "Triggered today — manage risk after entry",
+                "reason": "Setup triggered today and is now an open trade",
+                "block_shortlist": True,
+                "force_alert": True,
+            }
+        return {
+            "signal_state": "active_trade",
+            "state_label": "Active Trade",
+            "next_trigger": f"Manage open trade between {managed_stop:.0f} and {managed_take_profit:.0f}",
+            "reason": "Trade is still active after the initial trigger",
             "block_shortlist": True,
             "block_alert": True,
         }
@@ -936,15 +989,16 @@ def classify_signal(
     )
 
     # Step 7: Entry / SL / TP
-    entry_price = price
+    entry_price = float(stock.get("position_entry_price", price) or 0) if price > 0 else 0
     stop_loss = None
     take_profit = None
-    if action == "BUY" and price > 0:
-        stop_loss = round(price - 1.5 * atr, 2)
-        take_profit = round(price + 3.0 * atr, 2)
-    elif action == "SELL" and price > 0:
-        stop_loss = round(price + 1.5 * atr, 2)
-        take_profit = round(price - 3.0 * atr, 2)
+    has_position_context = stock.get("position_entry_price") is not None
+    if (action == "BUY" or has_position_context) and entry_price > 0:
+        stop_loss = round(entry_price - 1.5 * atr, 2)
+        take_profit = round(entry_price + 3.0 * atr, 2)
+    elif action == "SELL" and entry_price > 0:
+        stop_loss = round(entry_price + 1.5 * atr, 2)
+        take_profit = round(entry_price - 3.0 * atr, 2)
 
     # Step 8: Reasons enrichment
     risk_reward = _compute_risk_reward_metrics(action, entry_price, stop_loss, take_profit)
@@ -967,6 +1021,8 @@ def classify_signal(
         entry_price,
         transition_trigger_price,
         risk_reward.get("rr_ratio"),
+        price,
+        atr,
     )
     if lifecycle_override:
         signal_state = lifecycle_override["signal_state"]
@@ -974,7 +1030,9 @@ def classify_signal(
         next_trigger = lifecycle_override["next_trigger"]
         if lifecycle_override.get("block_shortlist"):
             shortlist_eligible = False
-        if lifecycle_override.get("block_alert"):
+        if lifecycle_override.get("force_alert"):
+            alert_ready = True
+        elif lifecycle_override.get("block_alert"):
             alert_ready = False
         lifecycle_reason = lifecycle_override.get("reason")
         if lifecycle_reason and lifecycle_reason not in reasons:

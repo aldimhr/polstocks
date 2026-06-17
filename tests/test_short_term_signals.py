@@ -240,6 +240,67 @@ class TestShortTermSignalScorer:
         assert "expired" in result["next_trigger"].lower()
         assert result["alert_ready"] is False
 
+    def test_buy_setup_can_be_marked_triggered_today(self):
+        stock = self._base_stock(
+            position_entry_price=980,
+            triggered_today=True,
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "triggered_today"
+        assert result["state_label"] == "Triggered Today"
+        assert "triggered today" in result["next_trigger"].lower()
+        assert result["shortlist_eligible"] is False
+        assert result["alert_ready"] is True
+
+    def test_buy_setup_can_be_marked_active_trade(self):
+        stock = self._base_stock(
+            position_entry_price=980,
+            days_since_entry=2,
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "active_trade"
+        assert result["state_label"] == "Active Trade"
+        assert "manage open trade" in result["next_trigger"].lower()
+        assert result["shortlist_eligible"] is False
+        assert result["alert_ready"] is False
+
+    def test_buy_setup_can_be_marked_take_profit_hit(self):
+        stock = self._base_stock(
+            price=1100,
+            position_entry_price=980,
+            days_since_entry=2,
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "tp_hit"
+        assert result["state_label"] == "Take Profit Hit"
+        assert "take profit" in result["next_trigger"].lower()
+        assert result["alert_ready"] is True
+
+    def test_buy_setup_can_be_marked_stop_loss_hit(self):
+        stock = self._base_stock(
+            price=920,
+            position_entry_price=980,
+            days_since_entry=1,
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "sl_hit"
+        assert result["state_label"] == "Stop Loss Hit"
+        assert "stop loss" in result["next_trigger"].lower()
+        assert result["alert_ready"] is True
+
+    def test_buy_setup_can_be_marked_failed_breakout(self):
+        stock = self._base_stock(
+            price=970,
+            position_entry_price=980,
+            days_since_entry=1,
+            failed_breakout=True,
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "failed_breakout"
+        assert result["state_label"] == "Failed Breakout"
+        assert "failed breakout" in result["next_trigger"].lower()
+        assert result["alert_ready"] is True
+
     def test_rank_trade_signals_prefers_rr_shortlist_buy(self):
         signals = [
             {

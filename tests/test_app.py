@@ -3484,6 +3484,129 @@ class TestDailySummaryHorizons:
         assert any("FAST.JK" in line for line in data["digest"]["summary_lines"])
         assert any("STRETCH.JK" in line for line in data["digest"]["summary_lines"])
 
+    def test_daily_summary_surfaces_post_entry_lifecycle_buckets(self, monkeypatch):
+        def fake_payload(*args, **kwargs):
+            return {
+                "stocks": [
+                    {
+                        "ticker": "TRIG.JK",
+                        "name": "Trigger",
+                        "price": 1000,
+                        "trading_signal": {
+                            "action": "BUY",
+                            "time_horizon": "3d",
+                            "signal_tier": "A",
+                            "signal_strength": 0.79,
+                            "event_score": 0.2,
+                            "tech_score": 0.66,
+                            "tech_confirmation_count": 4,
+                            "entry_price": 980,
+                            "stop_loss": 920,
+                            "take_profit": 1100,
+                            "reasons": ["breakout confirmed today"],
+                            "invalidation": "Close below 920",
+                            "setup_type": "breakout_continuation",
+                            "setup_status": "confirmed",
+                            "trade_label": "Best Buy Now",
+                            "signal_state": "triggered_today",
+                            "state_label": "Triggered Today",
+                            "next_trigger": "Triggered today — manage risk after entry",
+                            "trader_score": 88,
+                            "participation_score": 0.7,
+                            "rr_ratio": 2.0,
+                            "risk_reward_label": "good",
+                            "shortlist_eligible": False,
+                            "alert_ready": True,
+                        },
+                    },
+                    {
+                        "ticker": "LIVE.JK",
+                        "name": "Live",
+                        "price": 1020,
+                        "trading_signal": {
+                            "action": "BUY",
+                            "time_horizon": "7d",
+                            "signal_tier": "B",
+                            "signal_strength": 0.7,
+                            "event_score": 0.15,
+                            "tech_score": 0.6,
+                            "tech_confirmation_count": 3,
+                            "entry_price": 980,
+                            "stop_loss": 920,
+                            "take_profit": 1100,
+                            "reasons": ["trade still active"],
+                            "invalidation": "Close below 920",
+                            "setup_type": "breakout_continuation",
+                            "setup_status": "confirmed",
+                            "trade_label": "Best Buy Now",
+                            "signal_state": "active_trade",
+                            "state_label": "Active Trade",
+                            "next_trigger": "Manage open trade between 920 and 1100",
+                            "trader_score": 80,
+                            "participation_score": 0.62,
+                            "rr_ratio": 2.0,
+                            "risk_reward_label": "good",
+                            "shortlist_eligible": False,
+                            "alert_ready": False,
+                        },
+                    },
+                    {
+                        "ticker": "TPROF.JK",
+                        "name": "Take Profit",
+                        "price": 1100,
+                        "trading_signal": {
+                            "action": "BUY",
+                            "time_horizon": "3d",
+                            "signal_tier": "A",
+                            "signal_strength": 0.82,
+                            "event_score": 0.25,
+                            "tech_score": 0.68,
+                            "tech_confirmation_count": 4,
+                            "entry_price": 980,
+                            "stop_loss": 920,
+                            "take_profit": 1100,
+                            "reasons": ["target reached"],
+                            "invalidation": "Close below 920",
+                            "setup_type": "breakout_continuation",
+                            "setup_status": "confirmed",
+                            "trade_label": "Best Buy Now",
+                            "signal_state": "tp_hit",
+                            "state_label": "Take Profit Hit",
+                            "next_trigger": "Take profit reached — consider scaling out / closing",
+                            "trader_score": 91,
+                            "participation_score": 0.7,
+                            "rr_ratio": 2.0,
+                            "risk_reward_label": "good",
+                            "shortlist_eligible": False,
+                            "alert_ready": True,
+                        },
+                    },
+                ]
+            }
+
+        monkeypatch.setattr(appmod, "build_refresh_payload", fake_payload)
+        monkeypatch.setattr(appmod, "get_watchlist", lambda: ["TRIG.JK", "LIVE.JK", "TPROF.JK"])
+        monkeypatch.setattr(
+            appmod,
+            "_load_previous_signal_snapshot_map",
+            lambda: {
+                "TRIG.JK": {"action": "BUY", "signal_state": "ready_to_buy"},
+                "LIVE.JK": {"action": "BUY", "signal_state": "triggered_today"},
+                "TPROF.JK": {"action": "BUY", "signal_state": "active_trade"},
+            },
+        )
+        response = client.get("/api/signals/daily-summary?limit=5")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["sections"]["best_buy_now"] == []
+        assert data["digest"]["triggered_today"][0]["ticker"] == "TRIG.JK"
+        assert data["digest"]["manage_open_trades"][0]["ticker"] == "LIVE.JK"
+        assert data["digest"]["exit_updates"][0]["ticker"] == "TPROF.JK"
+        assert any(change["ticker"] == "TRIG.JK" and change["change_type"] == "triggered_today" for change in data["changes"])
+        assert any(change["ticker"] == "TPROF.JK" and change["change_type"] == "take_profit_hit" for change in data["changes"])
+        assert any("TRIG.JK" in line for line in data["digest"]["summary_lines"])
+        assert any("TPROF.JK" in line for line in data["digest"]["summary_lines"])
+
 
 class TestRecordPredictionHorizon:
     def test_record_prediction_stores_horizon_fields(self):
