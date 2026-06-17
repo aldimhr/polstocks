@@ -3300,10 +3300,67 @@ class TestDashboardTradingSignal:
             ts = s["trading_signal"]
             assert "action" in ts
             assert ts["action"] in ("BUY", "SELL", "WATCH", "IGNORE")
-            assert ts["time_horizon"] in ("1d", "7d", "30d")
+            assert ts["time_horizon"] in ("1d", "3d", "7d", "14d", "30d")
             assert ts["signal_tier"] in ("A", "B", "C", "D")
             # Old field must still exist for backward compatibility
             assert "trade_signal" in s
+
+
+class TestDailySummaryHorizons:
+    def test_daily_summary_groups_dynamic_short_term_horizons(self, monkeypatch):
+        def fake_payload(*args, **kwargs):
+            return {
+                "stocks": [
+                    {
+                        "ticker": "FAST.JK",
+                        "name": "Fast",
+                        "price": 1000,
+                        "trading_signal": {
+                            "action": "BUY",
+                            "time_horizon": "3d",
+                            "signal_tier": "B",
+                            "signal_strength": 0.72,
+                            "event_score": 0.3,
+                            "tech_score": 0.6,
+                            "tech_confirmation_count": 3,
+                            "entry_price": 1000,
+                            "stop_loss": 970,
+                            "take_profit": 1060,
+                            "reasons": ["breakout confirmed"],
+                            "invalidation": "Close below 970",
+                        },
+                    },
+                    {
+                        "ticker": "SWING.JK",
+                        "name": "Swing",
+                        "price": 900,
+                        "trading_signal": {
+                            "action": "WATCH",
+                            "time_horizon": "14d",
+                            "signal_tier": "C",
+                            "signal_strength": 0.41,
+                            "event_score": 0.1,
+                            "tech_score": 0.45,
+                            "tech_confirmation_count": 2,
+                            "entry_price": 900,
+                            "stop_loss": None,
+                            "take_profit": None,
+                            "reasons": ["rebound forming"],
+                            "invalidation": "",
+                        },
+                    },
+                ]
+            }
+
+        monkeypatch.setattr(appmod, "build_refresh_payload", fake_payload)
+        monkeypatch.setattr(appmod, "get_watchlist", lambda: ["FAST.JK", "SWING.JK"])
+        response = client.get("/api/signals/daily-summary")
+        assert response.status_code == 200
+        data = response.json()
+        assert "3d" in data["horizons"]
+        assert "14d" in data["horizons"]
+        assert data["horizons"]["3d"][0]["ticker"] == "FAST.JK"
+        assert data["horizons"]["14d"][0]["ticker"] == "SWING.JK"
 
 
 class TestRecordPredictionHorizon:

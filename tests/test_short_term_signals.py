@@ -4,6 +4,7 @@ from backend.trading_signals import (
     classify_signal,
     compute_participation_score,
     detect_short_term_setup,
+    rank_trade_signals,
 )
 
 
@@ -106,3 +107,78 @@ class TestShortTermSignalScorer:
             "technical" in reason.lower() or "trigger" in reason.lower()
             for reason in result["reasons"]
         )
+
+    def test_breakout_without_close_above_resistance_stays_watch(self):
+        stock = self._base_stock(
+            impact_direction="neutral",
+            impact_score=0.0,
+            relationship_confidence=0.0,
+            source_confidence=0.0,
+            corroboration_count=0,
+            volume_spike={"is_spike": True, "spike_ratio": 1.6},
+            value_traded_estimate=900_000_000,
+            close_above_resistance=False,
+            distance_to_resistance_pct=0.02,
+            return_1d=0.4,
+            return_3d=0.3,
+            return_5d=0.8,
+            price_above_sma20=True,
+            price_above_sma50=True,
+        )
+        result = classify_signal(stock)
+        assert result["action"] == "WATCH"
+        assert any(
+            "resistance" in reason.lower() or "trigger" in reason.lower()
+            for reason in result["reasons"]
+        )
+
+    def test_support_rebound_without_reclaim_stays_watch(self):
+        stock = self._base_stock(
+            impact_direction="neutral",
+            impact_score=0.0,
+            relationship_confidence=0.0,
+            source_confidence=0.0,
+            corroboration_count=0,
+            rsi_value=34.0,
+            macd={"histogram": 0.2},
+            bollinger={"percent_b": 0.16, "squeeze": False, "bandwidth": 0.05},
+            volume_spike={"is_spike": True, "spike_ratio": 1.3},
+            support_resistance={"support": [990], "resistance": [1080]},
+            reclaim_from_support=False,
+            return_1d=-0.6,
+            return_3d=-1.2,
+            return_5d=-0.4,
+            price_above_sma20=False,
+            price_above_sma50=True,
+        )
+        result = classify_signal(stock)
+        assert result["action"] == "WATCH"
+        assert result["time_horizon"] == "14d"
+        assert any(
+            "rebound" in reason.lower() or "reclaim" in reason.lower()
+            for reason in result["reasons"]
+        )
+
+    def test_rank_trade_signals_prefers_faster_high_participation_buy(self):
+        signals = [
+            {
+                "ticker": "SLOW.JK",
+                "action": "BUY",
+                "signal_tier": "B",
+                "signal_strength": 0.72,
+                "time_horizon": "14d",
+                "participation_score": 0.25,
+                "setup_type": "support_rebound",
+            },
+            {
+                "ticker": "FAST.JK",
+                "action": "BUY",
+                "signal_tier": "B",
+                "signal_strength": 0.72,
+                "time_horizon": "3d",
+                "participation_score": 0.68,
+                "setup_type": "breakout_continuation",
+            },
+        ]
+        ranked = rank_trade_signals(signals)
+        assert ranked[0]["ticker"] == "FAST.JK"

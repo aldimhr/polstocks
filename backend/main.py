@@ -3121,7 +3121,7 @@ def api_calibration_report(window_days: int = 30, origin: str = "live", min_samp
 
 @app.get("/api/signals/daily-summary")
 def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, Any]:
-    """Return top actionable signals grouped by time horizon (1d/7d/30d)."""
+    """Return top actionable signals grouped by detected time horizon."""
     from backend.trading_signals import rank_trade_signals
     from backend.backtest import compute_accuracy_metrics
 
@@ -3154,17 +3154,22 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
             "take_profit": ts.get("take_profit"),
             "reasons": ts.get("reasons", []),
             "invalidation": ts.get("invalidation", ""),
+            "participation_score": ts.get("participation_score", 0),
+            "setup_type": ts.get("setup_type"),
         })
 
+    horizon_order = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}
+    base_horizons = {"1d", "3d", "7d", "14d", "30d"}
+    present_horizons = {str(sig.get("time_horizon", "7d") or "7d") for sig in all_signals} | base_horizons
+
     # Group by horizon
-    by_horizon: dict[str, list] = {"1d": [], "7d": [], "30d": []}
+    by_horizon: dict[str, list] = {h: [] for h in sorted(present_horizons, key=lambda h: horizon_order.get(h, 9))}
     for sig in all_signals:
-        horizon = sig.get("time_horizon", "7d")
-        if horizon in by_horizon:
-            by_horizon[horizon].append(sig)
+        horizon = str(sig.get("time_horizon", "7d") or "7d")
+        by_horizon.setdefault(horizon, []).append(sig)
 
     # Sort each horizon group and take top N
-    for horizon in by_horizon:
+    for horizon in list(by_horizon.keys()):
         by_horizon[horizon] = rank_trade_signals(by_horizon[horizon])[:limit]
 
     # Calibration context

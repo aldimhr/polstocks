@@ -319,20 +319,44 @@ def detect_breakout_continuation(stock: dict[str, Any]) -> dict[str, Any] | None
         reasons.append(f"Price testing resistance {breakout_level:.0f}")
     reasons.extend(participation["reasons"])
 
-    trigger_complete = bool(participation["score"] >= 0.45 and (near_resistance or pct_b >= 0.8))
+    close_above_resistance = stock.get("close_above_resistance")
+    if close_above_resistance is None:
+        close_above_resistance = bool(breakout_level is not None and price > breakout_level)
+    price_above_sma20 = stock.get("price_above_sma20")
+    price_above_sma50 = stock.get("price_above_sma50")
+    return_1d = stock.get("return_1d")
+    return_3d = stock.get("return_3d")
+    momentum_ok = True
+    if return_1d is not None and float(return_1d) <= 0:
+        momentum_ok = False
+    if return_3d is not None and float(return_3d) < 0:
+        momentum_ok = False
+
+    trigger_complete = bool(
+        participation["score"] >= 0.45
+        and close_above_resistance
+        and (price_above_sma20 is not False)
+        and (price_above_sma50 is not False)
+        and momentum_ok
+    )
     setup_score = 0.55
     if trend == "bullish":
         setup_score += 0.10
         reasons.append("Trend structure is bullish")
     if pct_b >= 0.8:
         setup_score += 0.10
+    if close_above_resistance:
+        setup_score += 0.08
+        reasons.append("Resistance breakout is confirmed on close")
+    else:
+        reasons.append("Needs confirmed close above resistance for BUY")
     setup_score += min(participation["score"], 0.25)
 
     return {
         "setup_type": "breakout_continuation",
         "setup_score": round(min(setup_score, 1.0), 4),
         "trigger_complete": trigger_complete,
-        "preferred_horizon": "1d" if participation["score"] >= 0.60 else "3d",
+        "preferred_horizon": "1d" if participation["score"] >= 0.60 and close_above_resistance else "3d",
         "participation": participation,
         "reasons": reasons,
     }
@@ -369,15 +393,33 @@ def detect_support_rebound(stock: dict[str, Any]) -> dict[str, Any] | None:
     reasons.append(f"Price holding near support ({nearest_distance*100:.1f}% away)")
     reasons.extend(participation["reasons"])
 
+    reclaim_from_support = stock.get("reclaim_from_support")
+    if reclaim_from_support is None:
+        reclaim_from_support = nearest_distance <= 0.035 or pct_b <= 0.2
+    return_1d = stock.get("return_1d")
+    return_3d = stock.get("return_3d")
+    short_term_recovery = True
+    if return_1d is not None and float(return_1d) <= 0:
+        short_term_recovery = False
+    if return_3d is not None and float(return_3d) < -0.5:
+        short_term_recovery = False
+
     setup_score = 0.50 + (0.10 if pct_b < 0.25 else 0.0) + min(participation["score"], 0.15)
-    trigger_complete = nearest_distance <= 0.05 and pct_b <= 0.3
-    reasons.append("Momentum recovery confirmed")
+    trigger_complete = bool(nearest_distance <= 0.05 and pct_b <= 0.3 and reclaim_from_support and short_term_recovery)
+    if reclaim_from_support:
+        reasons.append("Support reclaim is confirmed")
+    else:
+        reasons.append("Needs clear reclaim from support before BUY")
+    if short_term_recovery:
+        reasons.append("Momentum recovery confirmed")
+    else:
+        reasons.append("Momentum recovery still weak")
 
     return {
         "setup_type": "support_rebound",
         "setup_score": round(min(setup_score, 1.0), 4),
         "trigger_complete": trigger_complete,
-        "preferred_horizon": "7d" if participation["score"] >= 0.20 else "14d",
+        "preferred_horizon": "7d" if participation["score"] >= 0.20 and trigger_complete else "14d",
         "participation": participation,
         "reasons": reasons,
     }
@@ -585,16 +627,21 @@ def classify_signal(
 
 _ACTION_ORDER = {"BUY": 0, "SELL": 1, "WATCH": 2, "IGNORE": 3}
 _TIER_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3}
+_HORIZON_ORDER = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}
+_SETUP_ORDER = {"breakout_continuation": 0, "support_rebound": 1}
 
 
 def rank_trade_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Sort signals by action priority (BUY > SELL > WATCH > IGNORE), then tier, then strength."""
+    """Sort signals by action/tier, then execution quality for short-term trades."""
     return sorted(
         signals,
         key=lambda s: (
             _ACTION_ORDER.get(s.get("action", "IGNORE"), 4),
             _TIER_ORDER.get(s.get("signal_tier", "D"), 4),
             -float(s.get("signal_strength", 0) or 0),
+            -float(s.get("participation_score", 0) or 0),
+            _HORIZON_ORDER.get(str(s.get("time_horizon", "30d") or "30d"), 9),
+            _SETUP_ORDER.get(str(s.get("setup_type", "") or ""), 9),
         ),
     )
 
