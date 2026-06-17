@@ -242,6 +242,162 @@ def detect_technical_setup(
     return None
 
 
+def compute_participation_score(stock: dict[str, Any]) -> dict[str, Any]:
+    """Estimate participation quality from volume/traded-value proxies."""
+    reasons: list[str] = []
+    score = 0.0
+
+    vol = stock.get("volume_spike") or {}
+    spike_ratio = float(vol.get("spike_ratio", 0) or 0)
+    if spike_ratio >= 2.0:
+        score += 0.65
+        reasons.append(f"Volume expansion {spike_ratio:.1f}x vs average")
+    elif spike_ratio >= 1.4:
+        score += 0.45
+        reasons.append(f"Volume above average {spike_ratio:.1f}x")
+    elif spike_ratio >= 1.15:
+        score += 0.20
+        reasons.append(f"Participation improving {spike_ratio:.1f}x volume")
+
+    traded_value = float(stock.get("value_traded_estimate", 0) or 0)
+    if traded_value >= 2_000_000_000:
+        score += 0.20
+        reasons.append("High traded-value participation")
+    elif traded_value >= 500_000_000:
+        score += 0.10
+        reasons.append("Healthy traded-value participation")
+
+    score = min(score, 1.0)
+    label = "low"
+    if score >= 0.60:
+        label = "high"
+    elif score >= 0.35:
+        label = "medium"
+
+    return {
+        "score": round(score, 4),
+        "label": label,
+        "spike_ratio": round(spike_ratio, 4),
+        "value_traded_estimate": traded_value,
+        "reasons": reasons,
+    }
+
+
+def detect_breakout_continuation(stock: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect bullish continuation setups near/through resistance."""
+    price = float(stock.get("price", 0) or 0)
+    if price <= 0:
+        return None
+
+    rsi = stock.get("rsi_value")
+    bb = stock.get("bollinger") or {}
+    pct_b = float(bb.get("percent_b", 0) or 0)
+    trend = (stock.get("trend") or {}).get("trend")
+    macd = stock.get("macd") or {}
+    hist = macd.get("histogram") if isinstance(macd, dict) else macd
+    sr = stock.get("support_resistance") or {}
+    resistances = [float(level) for level in sr.get("resistance", []) if level]
+
+    near_resistance = False
+    breakout_level = None
+    for level in resistances:
+        if price >= level * 0.98:
+            near_resistance = True
+            breakout_level = level
+            break
+
+    if hist is None or hist <= 0:
+        return None
+    if rsi is None or not (55 <= float(rsi) <= 75):
+        return None
+    if not near_resistance and pct_b < 0.75:
+        return None
+
+    participation = compute_participation_score(stock)
+    reasons = ["Bullish breakout continuation setup"]
+    if breakout_level is not None:
+        reasons.append(f"Price testing resistance {breakout_level:.0f}")
+    reasons.extend(participation["reasons"])
+
+    trigger_complete = bool(participation["score"] >= 0.45 and (near_resistance or pct_b >= 0.8))
+    setup_score = 0.55
+    if trend == "bullish":
+        setup_score += 0.10
+        reasons.append("Trend structure is bullish")
+    if pct_b >= 0.8:
+        setup_score += 0.10
+    setup_score += min(participation["score"], 0.25)
+
+    return {
+        "setup_type": "breakout_continuation",
+        "setup_score": round(min(setup_score, 1.0), 4),
+        "trigger_complete": trigger_complete,
+        "preferred_horizon": "1d" if participation["score"] >= 0.60 else "3d",
+        "participation": participation,
+        "reasons": reasons,
+    }
+
+
+def detect_support_rebound(stock: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect bullish rebounds stabilising near support."""
+    price = float(stock.get("price", 0) or 0)
+    if price <= 0:
+        return None
+
+    rsi = stock.get("rsi_value")
+    if rsi is None or float(rsi) > 40:
+        return None
+
+    macd = stock.get("macd") or {}
+    hist = macd.get("histogram") if isinstance(macd, dict) else macd
+    if hist is None or hist <= 0:
+        return None
+
+    bb = stock.get("bollinger") or {}
+    pct_b = float(bb.get("percent_b", 0) or 0)
+    sr = stock.get("support_resistance") or {}
+    supports = [float(level) for level in sr.get("support", []) if level]
+    if not supports:
+        return None
+
+    nearest_distance = min(abs(price - level) / price for level in supports)
+    if nearest_distance > 0.05 and pct_b > 0.3:
+        return None
+
+    participation = compute_participation_score(stock)
+    reasons = ["Support rebound setup forming"]
+    reasons.append(f"Price holding near support ({nearest_distance*100:.1f}% away)")
+    reasons.extend(participation["reasons"])
+
+    setup_score = 0.50 + (0.10 if pct_b < 0.25 else 0.0) + min(participation["score"], 0.15)
+    trigger_complete = nearest_distance <= 0.05 and pct_b <= 0.3
+    reasons.append("Momentum recovery confirmed")
+
+    return {
+        "setup_type": "support_rebound",
+        "setup_score": round(min(setup_score, 1.0), 4),
+        "trigger_complete": trigger_complete,
+        "preferred_horizon": "7d" if participation["score"] >= 0.20 else "14d",
+        "participation": participation,
+        "reasons": reasons,
+    }
+
+
+def detect_short_term_setup(
+    stock: dict[str, Any],
+    sector_avg_rsi: dict[str, float] | None = None,
+) -> dict[str, Any] | None:
+    """Return the strongest bullish short-term setup, if any."""
+    candidates = [
+        detect_breakout_continuation(stock),
+        detect_support_rebound(stock),
+    ]
+    candidates = [c for c in candidates if c]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: float(item.get("setup_score", 0) or 0))
+
+
 def classify_signal(
     stock: dict[str, Any],
     sector_avg_rsi: dict[str, float] | None = None,
@@ -272,6 +428,10 @@ def classify_signal(
     signal_strength = round(
         ev_score * 0.55 + tech_score * 0.35 + calibration * 0.10, 4
     )
+    setup = detect_short_term_setup(stock, sector_avg_rsi)
+    participation = compute_participation_score(stock)
+    if setup:
+        signal_strength = round(max(signal_strength, float(setup.get("setup_score", 0) or 0)), 4)
 
     # Step 3b: Context boosts (S/R proximity, Bollinger squeeze)
     sr_boost, sr_reasons = compute_sr_proximity_boost(stock)
@@ -284,7 +444,26 @@ def classify_signal(
     reasons: list[str] = []
     has_conflict = bool(stock.get("source_conflict", False))
 
-    if direction not in ("positive", "negative"):
+    if setup:
+        reasons.extend(setup.get("reasons", []))
+        setup_type = str(setup.get("setup_type", "") or "")
+        trigger_complete = bool(setup.get("trigger_complete", False))
+        part_score = float((setup.get("participation") or {}).get("score", 0) or 0)
+        if setup_type == "breakout_continuation":
+            if trigger_complete and part_score >= 0.45:
+                action = "BUY"
+            else:
+                action = "WATCH"
+                reasons.append("Participation/trigger not strong enough for breakout BUY")
+        elif setup_type == "support_rebound":
+            if trigger_complete:
+                action = "BUY"
+            else:
+                action = "WATCH"
+                reasons.append("Rebound is forming but not fully confirmed")
+        else:
+            action = "WATCH"
+    elif direction not in ("positive", "negative"):
         # No event direction — check standalone technical setups
         tech_setup = detect_technical_setup(stock, sector_avg_rsi)
         if tech_setup:
@@ -297,6 +476,16 @@ def classify_signal(
         else:
             action = "IGNORE"
             reasons.append(f"Direction is {direction}, no event or technical setup")
+    elif direction == "positive":
+        if sr_boost > 0 or squeeze_boost > 0:
+            action = "WATCH"
+            reasons.append("Positive context with early technical location setup")
+        elif ev_score >= 0.20:
+            action = "WATCH"
+            reasons.append("Positive event/news context but no bullish technical trigger")
+        else:
+            action = "IGNORE"
+            reasons.append("Positive event too weak without technical trigger")
     elif signal_strength < 0.30:
         action = "IGNORE"
         reasons.append(f"Signal strength {signal_strength:.2f} below 0.30 minimum")
@@ -318,7 +507,9 @@ def classify_signal(
                 action = "SELL"
 
     # Step 5: Horizon
-    time_horizon = infer_time_horizon(stock, ev, tech)
+    time_horizon = str(setup.get("preferred_horizon", "") or "") if setup else ""
+    if not time_horizon:
+        time_horizon = infer_time_horizon(stock, ev, tech)
 
     # Step 6: Tier
     signal_tier = "D"
@@ -386,6 +577,9 @@ def classify_signal(
         "take_profit": take_profit,
         "reasons": reasons,
         "invalidation": invalidation,
+        "setup_type": setup.get("setup_type") if setup else None,
+        "participation_score": participation.get("score", 0.0),
+        "participation_label": participation.get("label", "low"),
     }
 
 
