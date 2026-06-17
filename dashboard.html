@@ -4522,6 +4522,7 @@
       const data = await apiJson('/api/signals/daily-summary?limit=3&include_watch=true');
       if (!data) return;
       const horizons = data.horizons || {};
+      const sections = data.sections || {};
       const acc = data.accuracy || {};
       const total = data.total_signals || 0;
       const badge = $('actionableBadge');
@@ -4538,18 +4539,18 @@
         return;
       }
 
-      const horizonConfig = [
-        { key: '1d', label: '⚡ 1d', color: 'var(--red)' },
-        { key: '7d', label: '📅 7d', color: 'var(--accent)' },
-        { key: '30d', label: '🗓 30d', color: 'var(--blue)' },
+      const sectionConfig = [
+        { key: 'best_buy_now', label: '🟢 Best Buy Now', empty: 'No confirmed BUY setups', color: 'var(--green)' },
+        { key: 'watch_for_breakout', label: '⚡ Watch for Breakout', empty: 'No breakout setups forming', color: 'var(--accent)' },
+        { key: 'watch_for_rebound', label: '🟡 Watch for Rebound', empty: 'No rebound setups forming', color: 'var(--yellow)' },
       ];
 
-      root.innerHTML = horizonConfig.map(({ key, label, color }) => {
-        const sigs = horizons[key] || [];
-        return `<div style="flex:1;min-width:200px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;">
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:8px;">${label}</div>
+      const cards = sectionConfig.map(({ key, label, empty, color }) => {
+        const sigs = sections[key] || [];
+        return `<div style="flex:1;min-width:220px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:11px;color:${color};text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:8px;">${label}</div>
           ${sigs.length === 0
-            ? '<div style="font-size:12px;color:var(--muted2);">No signals</div>'
+            ? `<div style="font-size:12px;color:var(--muted2);">${empty}</div>`
             : sigs.map(s => {
                 const actionIcon = s.action === 'BUY' ? '🟢' : s.action === 'SELL' ? '🔴' : '🟡';
                 const tierColor = s.signal_tier === 'A' ? 'var(--green)' : s.signal_tier === 'B' ? 'var(--accent)' : 'var(--muted)';
@@ -4557,26 +4558,45 @@
                 const sl = s.stop_loss ? Number(s.stop_loss).toLocaleString() : '—';
                 const tp = s.take_profit ? Number(s.take_profit).toLocaleString() : '—';
                 const strength = Math.round((s.signal_strength || 0) * 100);
-                const barColor = s.action === 'BUY' ? 'var(--green)' : s.action === 'SELL' ? 'var(--red)' : 'var(--accent)';
-                return `<div onclick="openTickerModal('${escapeHtml(s.ticker)}')" style="margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
-                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                const traderScore = Math.round(s.trader_score || 0);
+                const nextTrigger = s.next_trigger || (s.reasons && s.reasons[0]) || '';
+                return `<div onclick="openTickerModal('${escapeHtml(s.ticker)}')" style="margin-bottom:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
                     <span>${actionIcon}</span>
                     <strong style="font-size:13px;">${escapeHtml(s.ticker)}</strong>
-                    <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${tierColor};color:#000;font-weight:600;">${s.signal_tier}</span>
-                    <span style="font-size:10px;color:var(--muted);">str ${(s.signal_strength || 0).toFixed(2)}</span>
+                    <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${tierColor};color:#000;font-weight:600;">${escapeHtml(s.signal_tier || 'D')}</span>
+                    ${s.time_horizon ? `<span style="font-size:10px;color:var(--muted);">${escapeHtml(s.time_horizon)} · ${escapeHtml(s.holding_window || s.time_horizon)}</span>` : ''}
                   </div>
+                  <div style="font-size:11px;color:var(--text);margin-bottom:4px;">${escapeHtml(s.trade_label || label.replace(/^[^ ]+ /, ''))}</div>
                   <div style="margin:3px 0 5px 0;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;">
-                    <div style="width:${strength}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.4s;"></div>
+                    <div style="width:${strength}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s;"></div>
                   </div>
-                  <div style="font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;">
-                    Entry ${entry} · SL ${sl} · TP ${tp}
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;">
+                    <span>Entry ${entry}</span>
+                    <span>SL ${sl}</span>
+                    <span>TP ${tp}</span>
+                    <span>Score ${traderScore}</span>
                   </div>
-                  ${s.reasons && s.reasons.length ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(s.reasons[0])}</div>` : ''}
+                  ${nextTrigger ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;">Next: ${escapeHtml(nextTrigger)}</div>` : ''}
                 </div>`;
               }).join('')
           }
         </div>`;
+      });
+
+      const horizonConfig = [
+        { key: '1d', label: '⚡ 1d' },
+        { key: '3d', label: '🚀 3d' },
+        { key: '7d', label: '📅 7d' },
+        { key: '14d', label: '🟨 14d' },
+        { key: '30d', label: '🗓 30d' },
+      ];
+      const horizonSummary = horizonConfig.map(({ key, label }) => {
+        const count = (horizons[key] || []).length;
+        return `<span style="font-size:10px;padding:2px 6px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);">${label}: ${count}</span>`;
       }).join('');
+
+      root.innerHTML = `${cards.join('')}<div style="flex-basis:100%;display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${horizonSummary}</div>`;
     } catch (e) {
       console.warn('Actionable signals load failed:', e);
     }
@@ -4631,6 +4651,14 @@
           entry_price: sig.entry_price || null,
           stop_loss: sig.stop_loss || null,
           take_profit: sig.take_profit || null,
+          trade_label: sig.trade_label || '',
+          next_trigger: sig.next_trigger || '',
+          holding_window: sig.holding_window || '',
+          execution_checklist: sig.execution_checklist || [],
+          trader_score: sig.trader_score || 0,
+          setup_type: sig.setup_type || '',
+          setup_status: sig.setup_status || '',
+          participation_score: sig.participation_score || 0,
         };
       }
     }

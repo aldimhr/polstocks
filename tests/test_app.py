@@ -3328,6 +3328,15 @@ class TestDailySummaryHorizons:
                             "take_profit": 1060,
                             "reasons": ["breakout confirmed"],
                             "invalidation": "Close below 970",
+                            "setup_type": "breakout_continuation",
+                            "setup_status": "confirmed",
+                            "trade_label": "Best Buy Now",
+                            "next_trigger": "Ready to execute",
+                            "trader_score": 81,
+                            "participation_score": 0.68,
+                            "execution_checklist": [
+                                {"key": "breakout_close", "label": "Close above resistance", "status": "pass"}
+                            ],
                         },
                     },
                     {
@@ -3347,6 +3356,15 @@ class TestDailySummaryHorizons:
                             "take_profit": None,
                             "reasons": ["rebound forming"],
                             "invalidation": "",
+                            "setup_type": "support_rebound",
+                            "setup_status": "forming",
+                            "trade_label": "Watch for Rebound",
+                            "next_trigger": "Need reclaim from support",
+                            "trader_score": 46,
+                            "participation_score": 0.2,
+                            "execution_checklist": [
+                                {"key": "support_reclaim", "label": "Reclaim support", "status": "fail"}
+                            ],
                         },
                     },
                 ]
@@ -3361,6 +3379,10 @@ class TestDailySummaryHorizons:
         assert "14d" in data["horizons"]
         assert data["horizons"]["3d"][0]["ticker"] == "FAST.JK"
         assert data["horizons"]["14d"][0]["ticker"] == "SWING.JK"
+        assert data["sections"]["best_buy_now"][0]["ticker"] == "FAST.JK"
+        assert data["sections"]["watch_for_rebound"][0]["ticker"] == "SWING.JK"
+        assert data["sections"]["best_buy_now"][0]["trade_label"] == "Best Buy Now"
+        assert data["sections"]["watch_for_rebound"][0]["next_trigger"] == "Need reclaim from support"
 
 
 class TestRecordPredictionHorizon:

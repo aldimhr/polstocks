@@ -3155,7 +3155,14 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
             "reasons": ts.get("reasons", []),
             "invalidation": ts.get("invalidation", ""),
             "participation_score": ts.get("participation_score", 0),
+            "participation_label": ts.get("participation_label", "low"),
             "setup_type": ts.get("setup_type"),
+            "setup_status": ts.get("setup_status", "none"),
+            "trade_label": ts.get("trade_label", ""),
+            "next_trigger": ts.get("next_trigger", ""),
+            "holding_window": ts.get("holding_window", ts.get("time_horizon", "7d")),
+            "execution_checklist": ts.get("execution_checklist", []),
+            "trader_score": ts.get("trader_score", 0),
         })
 
     horizon_order = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}
@@ -3172,11 +3179,22 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
     for horizon in list(by_horizon.keys()):
         by_horizon[horizon] = rank_trade_signals(by_horizon[horizon])[:limit]
 
+    section_specs = {
+        "best_buy_now": lambda s: s.get("action") == "BUY",
+        "watch_for_breakout": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "breakout_continuation",
+        "watch_for_rebound": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "support_rebound",
+    }
+    sections = {
+        key: rank_trade_signals([sig for sig in all_signals if predicate(sig)])[:limit]
+        for key, predicate in section_specs.items()
+    }
+
     # Calibration context
     metrics = compute_accuracy_metrics(window_days=30, origin="live")
 
     return {
         "horizons": by_horizon,
+        "sections": sections,
         "total_signals": len(all_signals),
         "accuracy": {
             "hit_rate": metrics.get("hit_rate", 0),

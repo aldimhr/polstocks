@@ -440,6 +440,153 @@ def detect_short_term_setup(
     return max(candidates, key=lambda item: float(item.get("setup_score", 0) or 0))
 
 
+def _infer_breakout_close(stock: dict[str, Any]) -> bool:
+    explicit = stock.get("close_above_resistance")
+    if explicit is not None:
+        return bool(explicit)
+    price = float(stock.get("price", 0) or 0)
+    sr = stock.get("support_resistance") or {}
+    resistances = [float(level) for level in sr.get("resistance", []) if level]
+    return bool(resistances and price > min(resistances))
+
+
+def _infer_support_reclaim(stock: dict[str, Any]) -> bool:
+    explicit = stock.get("reclaim_from_support")
+    if explicit is not None:
+        return bool(explicit)
+    price = float(stock.get("price", 0) or 0)
+    if price <= 0:
+        return False
+    bb = stock.get("bollinger") or {}
+    pct_b = float(bb.get("percent_b", 0) or 0)
+    sr = stock.get("support_resistance") or {}
+    supports = [float(level) for level in sr.get("support", []) if level]
+    if not supports:
+        return pct_b <= 0.2
+    nearest_distance = min(abs(price - level) / price for level in supports)
+    return nearest_distance <= 0.035 or pct_b <= 0.2
+
+
+def _compute_short_term_recovery(stock: dict[str, Any]) -> bool:
+    return_1d = stock.get("return_1d")
+    return_3d = stock.get("return_3d")
+    recovery = True
+    if return_1d is not None and float(return_1d) <= 0:
+        recovery = False
+    if return_3d is not None and float(return_3d) < -0.5:
+        recovery = False
+    return recovery
+
+
+def _build_execution_checklist(
+    stock: dict[str, Any],
+    setup: dict[str, Any] | None,
+    participation: dict[str, Any],
+) -> list[dict[str, str]]:
+    if not setup:
+        return []
+
+    setup_type = str(setup.get("setup_type", "") or "")
+    checklist: list[dict[str, str]] = []
+    part_score = float(participation.get("score", 0) or 0)
+    checklist.append({
+        "key": "participation",
+        "label": "Participation strong enough",
+        "status": "pass" if part_score >= 0.45 else "fail",
+    })
+
+    if setup_type == "breakout_continuation":
+        breakout_close = _infer_breakout_close(stock)
+        momentum_ok = bool((stock.get("return_1d") is None or float(stock.get("return_1d")) > 0) and (stock.get("return_3d") is None or float(stock.get("return_3d")) >= 0))
+        checklist.extend([
+            {
+                "key": "breakout_close",
+                "label": "Close above resistance",
+                "status": "pass" if breakout_close else "fail",
+            },
+            {
+                "key": "trend_alignment",
+                "label": "Price aligned above key moving averages",
+                "status": "pass" if stock.get("price_above_sma20") is not False and stock.get("price_above_sma50") is not False else "fail",
+            },
+            {
+                "key": "momentum_followthrough",
+                "label": "Short-term momentum follow-through",
+                "status": "pass" if momentum_ok else "fail",
+            },
+        ])
+    elif setup_type == "support_rebound":
+        support_reclaim = _infer_support_reclaim(stock)
+        recovery = _compute_short_term_recovery(stock)
+        checklist.extend([
+            {
+                "key": "support_reclaim",
+                "label": "Reclaim support",
+                "status": "pass" if support_reclaim else "fail",
+            },
+            {
+                "key": "momentum_recovery",
+                "label": "Momentum recovery confirmed",
+                "status": "pass" if recovery else "fail",
+            },
+        ])
+    return checklist
+
+
+def _derive_trade_label(action: str, setup_type: str, trigger_complete: bool) -> tuple[str, str]:
+    if action == "BUY" and trigger_complete:
+        return "Best Buy Now", "confirmed"
+    if setup_type == "breakout_continuation":
+        return "Watch for Breakout", "forming"
+    if setup_type == "support_rebound":
+        return "Watch for Rebound", "forming"
+    if action == "WATCH":
+        return "Watchlist Candidate", "forming"
+    return "Low Priority", "none"
+
+
+def _derive_next_trigger(setup_type: str, checklist: list[dict[str, str]], action: str) -> str:
+    if action == "BUY":
+        return "Ready to execute"
+    failed = [item for item in checklist if item.get("status") == "fail"]
+    if setup_type == "breakout_continuation":
+        if any(item.get("key") == "breakout_close" for item in failed):
+            return "Need close above resistance to confirm breakout"
+        if any(item.get("key") == "participation" for item in failed):
+            return "Need stronger participation before breakout entry"
+        return "Need cleaner breakout follow-through"
+    if setup_type == "support_rebound":
+        if any(item.get("key") == "support_reclaim" for item in failed):
+            return "Need reclaim from support before entry"
+        if any(item.get("key") == "momentum_recovery" for item in failed):
+            return "Need momentum recovery confirmation"
+        return "Need stronger rebound confirmation"
+    return "Wait for stronger confirmation"
+
+
+def _humanize_holding_window(time_horizon: str) -> str:
+    return {
+        "1d": "1 day",
+        "3d": "1-3 days",
+        "7d": "3-7 days",
+        "14d": "7-14 days",
+        "30d": "14-30 days",
+    }.get(time_horizon, time_horizon)
+
+
+def _compute_trader_score(
+    action: str,
+    signal_strength: float,
+    participation_score: float,
+    trigger_complete: bool,
+    time_horizon: str,
+) -> int:
+    horizon_bonus = {"1d": 8, "3d": 6, "7d": 4, "14d": 2, "30d": 0}.get(time_horizon, 0)
+    action_bonus = {"BUY": 18, "WATCH": 8, "SELL": 6, "IGNORE": 0}.get(action, 0)
+    score = signal_strength * 55 + participation_score * 20 + action_bonus + horizon_bonus + (8 if trigger_complete else 0)
+    return int(max(0, min(round(score), 99)))
+
+
 def classify_signal(
     stock: dict[str, Any],
     sector_avg_rsi: dict[str, float] | None = None,
@@ -564,6 +711,20 @@ def classify_signal(
     elif action == "WATCH":
         signal_tier = "C"
 
+    setup_type = str(setup.get("setup_type", "") or "") if setup else ""
+    trigger_complete = bool(setup.get("trigger_complete", False)) if setup else False
+    execution_checklist = _build_execution_checklist(stock, setup, participation)
+    trade_label, setup_status = _derive_trade_label(action, setup_type, trigger_complete)
+    next_trigger = _derive_next_trigger(setup_type, execution_checklist, action)
+    holding_window = _humanize_holding_window(time_horizon)
+    trader_score = _compute_trader_score(
+        action,
+        float(signal_strength or 0),
+        float(participation.get("score", 0) or 0),
+        trigger_complete,
+        time_horizon,
+    )
+
     # Step 7: Entry / SL / TP
     entry_price = price
     stop_loss = None
@@ -620,6 +781,12 @@ def classify_signal(
         "reasons": reasons,
         "invalidation": invalidation,
         "setup_type": setup.get("setup_type") if setup else None,
+        "setup_status": setup_status,
+        "trade_label": trade_label,
+        "next_trigger": next_trigger,
+        "holding_window": holding_window,
+        "execution_checklist": execution_checklist,
+        "trader_score": trader_score,
         "participation_score": participation.get("score", 0.0),
         "participation_label": participation.get("label", "low"),
     }

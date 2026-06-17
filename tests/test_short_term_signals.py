@@ -55,6 +55,11 @@ class TestShortTermSignalScorer:
         assert result["time_horizon"] in ("1d", "3d")
         assert result["entry_price"] == 1000
         assert result["stop_loss"] is not None
+        assert result["setup_status"] == "confirmed"
+        assert result["trade_label"] == "Best Buy Now"
+        assert result["next_trigger"] == "Ready to execute"
+        assert result["trader_score"] >= 70
+        assert any(item["status"] == "pass" for item in result["execution_checklist"])
         assert any("breakout" in reason.lower() for reason in result["reasons"])
 
     def test_breakout_without_participation_stays_watch(self):
@@ -127,6 +132,13 @@ class TestShortTermSignalScorer:
         )
         result = classify_signal(stock)
         assert result["action"] == "WATCH"
+        assert result["setup_status"] == "forming"
+        assert result["trade_label"] == "Watch for Breakout"
+        assert "close above resistance" in result["next_trigger"].lower()
+        assert any(
+            item["key"] == "breakout_close" and item["status"] == "fail"
+            for item in result["execution_checklist"]
+        )
         assert any(
             "resistance" in reason.lower() or "trigger" in reason.lower()
             for reason in result["reasons"]
@@ -154,6 +166,13 @@ class TestShortTermSignalScorer:
         result = classify_signal(stock)
         assert result["action"] == "WATCH"
         assert result["time_horizon"] == "14d"
+        assert result["setup_status"] == "forming"
+        assert result["trade_label"] == "Watch for Rebound"
+        assert "reclaim from support" in result["next_trigger"].lower()
+        assert any(
+            item["key"] == "support_reclaim" and item["status"] == "fail"
+            for item in result["execution_checklist"]
+        )
         assert any(
             "rebound" in reason.lower() or "reclaim" in reason.lower()
             for reason in result["reasons"]
