@@ -3376,6 +3376,41 @@ class TestDailySummaryHorizons:
                         },
                     },
                     {
+                        "ticker": "STRETCH.JK",
+                        "name": "Stretch",
+                        "price": 1025,
+                        "trading_signal": {
+                            "action": "BUY",
+                            "time_horizon": "3d",
+                            "signal_tier": "A",
+                            "signal_strength": 0.8,
+                            "event_score": 0.35,
+                            "tech_score": 0.68,
+                            "tech_confirmation_count": 4,
+                            "entry_price": 1025,
+                            "stop_loss": 965,
+                            "take_profit": 1085,
+                            "reasons": ["breakout already extended from trigger"],
+                            "invalidation": "Close below 965",
+                            "setup_type": "breakout_continuation",
+                            "setup_status": "confirmed",
+                            "trade_label": "Best Buy Now",
+                            "signal_state": "late_entry",
+                            "state_label": "Late Entry",
+                            "next_trigger": "Wait for pullback closer to breakout before entry",
+                            "transition_trigger_price": 980,
+                            "trader_score": 79,
+                            "participation_score": 0.66,
+                            "rr_ratio": 1.0,
+                            "risk_reward_label": "poor",
+                            "shortlist_eligible": False,
+                            "alert_ready": False,
+                            "execution_checklist": [
+                                {"key": "breakout_close", "label": "Close above resistance", "status": "pass"}
+                            ],
+                        },
+                    },
+                    {
                         "ticker": "LOWRR.JK",
                         "name": "Low RR",
                         "price": 1100,
@@ -3411,16 +3446,17 @@ class TestDailySummaryHorizons:
             }
 
         monkeypatch.setattr(appmod, "build_refresh_payload", fake_payload)
-        monkeypatch.setattr(appmod, "get_watchlist", lambda: ["FAST.JK", "SWING.JK", "LOWRR.JK"])
+        monkeypatch.setattr(appmod, "get_watchlist", lambda: ["FAST.JK", "SWING.JK", "STRETCH.JK", "LOWRR.JK"])
         monkeypatch.setattr(
             appmod,
             "_load_previous_signal_snapshot_map",
             lambda: {
                 "FAST.JK": {"action": "WATCH", "signal_tier": "C", "time_horizon": "7d", "signal_strength": 0.48},
                 "SWING.JK": {"action": "WATCH", "signal_tier": "C", "time_horizon": "14d", "signal_strength": 0.22},
+                "STRETCH.JK": {"action": "BUY", "signal_tier": "A", "time_horizon": "3d", "signal_strength": 0.8, "signal_state": "ready_to_buy"},
             },
         )
-        response = client.get("/api/signals/daily-summary")
+        response = client.get("/api/signals/daily-summary?limit=4")
         assert response.status_code == 200
         data = response.json()
         assert "3d" in data["horizons"]
@@ -3434,15 +3470,19 @@ class TestDailySummaryHorizons:
         assert data["sections"]["best_buy_now"][0]["shortlist_eligible"] is True
         assert data["sections"]["best_buy_now"][0]["signal_state"] == "ready_to_buy"
         assert data["sections"]["watch_for_rebound"][0]["signal_state"] == "waiting_reclaim"
+        assert all(sig["ticker"] != "STRETCH.JK" for sig in data["sections"]["best_buy_now"])
         assert len(data["sections"]["best_buy_now"]) == 1
         assert data["alert_candidates"][0]["ticker"] == "FAST.JK"
         assert any(change["ticker"] == "FAST.JK" and change["change_type"] == "upgraded_to_buy" for change in data["changes"])
         assert any(change["ticker"] == "SWING.JK" and change["change_type"] == "watch_strengthening" for change in data["changes"])
+        assert any(change["ticker"] == "STRETCH.JK" and change["change_type"] == "late_entry_risk" for change in data["changes"])
         assert "digest" in data
         assert data["digest"]["headline"] == "PolStock Daily Short Signals"
         assert data["digest"]["top_buy_now"][0]["ticker"] == "FAST.JK"
         assert data["digest"]["watchlist_focus"][0]["signal_state"] == "waiting_reclaim"
+        assert data["digest"]["degraded_entries"][0]["ticker"] == "STRETCH.JK"
         assert any("FAST.JK" in line for line in data["digest"]["summary_lines"])
+        assert any("STRETCH.JK" in line for line in data["digest"]["summary_lines"])
 
 
 class TestRecordPredictionHorizon:

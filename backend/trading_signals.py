@@ -697,6 +697,99 @@ def _is_alert_ready(
     return False
 
 
+def _horizon_max_days(time_horizon: str) -> int:
+    return {"1d": 1, "3d": 3, "7d": 7, "14d": 14, "30d": 30}.get(str(time_horizon or "").lower(), 0)
+
+
+def _derive_lifecycle_override(
+    stock: dict[str, Any],
+    action: str,
+    setup_type: str,
+    time_horizon: str,
+    entry_price: float | None,
+    trigger_price: float | None,
+    rr_ratio: float | None,
+) -> dict[str, Any] | None:
+    invalidation_reason = str(stock.get("invalidation_reason", "") or "").strip()
+    if bool(stock.get("setup_invalidated")):
+        return {
+            "signal_state": "invalidated",
+            "state_label": "Invalidated",
+            "next_trigger": invalidation_reason or "Setup invalidated — wait for fresh confirmation",
+            "reason": invalidation_reason or "Setup invalidated — previous trigger no longer valid",
+            "block_shortlist": True,
+            "block_alert": True,
+        }
+
+    setup_age_days = float(stock.get("setup_age_days", 0) or 0)
+    max_days = _horizon_max_days(time_horizon)
+    if max_days and setup_age_days > max_days:
+        return {
+            "signal_state": "expired",
+            "state_label": "Expired",
+            "next_trigger": f"Setup expired after {int(setup_age_days)} days — wait for a fresh setup",
+            "reason": f"Setup aged beyond the {time_horizon} holding window",
+            "block_shortlist": True,
+            "block_alert": True,
+        }
+
+    if action != "BUY" or not entry_price:
+        return None
+
+    if rr_ratio is not None and rr_ratio < 1.2:
+        return {
+            "signal_state": "avoid_chasing",
+            "state_label": "Avoid Chasing",
+            "next_trigger": "Wait for better reward/risk or a pullback entry",
+            "reason": "Reward/risk already degraded — avoid chasing the move",
+            "block_shortlist": True,
+            "block_alert": True,
+        }
+
+    if trigger_price and setup_type in {"breakout_continuation", "support_rebound"}:
+        extension_pct = ((float(entry_price) - float(trigger_price)) / float(trigger_price)) * 100.0
+        if setup_type == "breakout_continuation":
+            if extension_pct >= 4.5:
+                return {
+                    "signal_state": "avoid_chasing",
+                    "state_label": "Avoid Chasing",
+                    "next_trigger": "Wait for pullback closer to breakout before entry",
+                    "reason": "Breakout is too extended above trigger price",
+                    "block_shortlist": True,
+                    "block_alert": True,
+                }
+            if extension_pct >= 2.5:
+                return {
+                    "signal_state": "late_entry",
+                    "state_label": "Late Entry",
+                    "next_trigger": "Entry stretched from breakout — wait for pullback",
+                    "reason": "Breakout already moved too far from the trigger",
+                    "block_shortlist": True,
+                    "block_alert": True,
+                }
+        if setup_type == "support_rebound":
+            if extension_pct >= 6.0:
+                return {
+                    "signal_state": "avoid_chasing",
+                    "state_label": "Avoid Chasing",
+                    "next_trigger": "Bounce already extended — wait for pullback toward support",
+                    "reason": "Rebound already moved too far from support",
+                    "block_shortlist": True,
+                    "block_alert": True,
+                }
+            if extension_pct >= 3.0:
+                return {
+                    "signal_state": "late_entry",
+                    "state_label": "Late Entry",
+                    "next_trigger": "Rebound stretched from support — wait for pullback",
+                    "reason": "Rebound already moved away from support entry zone",
+                    "block_shortlist": True,
+                    "block_alert": True,
+                }
+
+    return None
+
+
 def classify_signal(
     stock: dict[str, Any],
     sector_avg_rsi: dict[str, float] | None = None,
@@ -865,6 +958,27 @@ def classify_signal(
         has_conflict,
     )
     alert_ready = _is_alert_ready(action, shortlist_eligible, setup_type, trader_score)
+
+    lifecycle_override = _derive_lifecycle_override(
+        stock,
+        action,
+        setup_type,
+        time_horizon,
+        entry_price,
+        transition_trigger_price,
+        risk_reward.get("rr_ratio"),
+    )
+    if lifecycle_override:
+        signal_state = lifecycle_override["signal_state"]
+        state_label = lifecycle_override["state_label"]
+        next_trigger = lifecycle_override["next_trigger"]
+        if lifecycle_override.get("block_shortlist"):
+            shortlist_eligible = False
+        if lifecycle_override.get("block_alert"):
+            alert_ready = False
+        lifecycle_reason = lifecycle_override.get("reason")
+        if lifecycle_reason and lifecycle_reason not in reasons:
+            reasons.append(lifecycle_reason)
 
     if confirm_count > 0 and not reasons:
         reasons.extend(tech["details"])

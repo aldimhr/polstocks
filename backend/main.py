@@ -3170,7 +3170,27 @@ def _summarize_signal_change(current: dict[str, Any], previous: dict[str, Any] |
     curr_strength = float(current.get("signal_strength", 0) or 0)
     prev_tier = str(previous.get("signal_tier", "D") or "D")
     curr_tier = str(current.get("signal_tier", "D") or "D")
+    prev_state = str(previous.get("signal_state", "") or "")
+    curr_state = str(current.get("signal_state", "") or "")
 
+    if curr_state == "invalidated" and prev_state != "invalidated":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "invalidated",
+            "summary": f"{current.get('trade_label', 'Setup')} invalidated",
+        }
+    if curr_state == "expired" and prev_state != "expired":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "expired_setup",
+            "summary": f"{current.get('trade_label', 'Setup')} expired — wait for refresh",
+        }
+    if curr_state in {"late_entry", "avoid_chasing"} and prev_state not in {"late_entry", "avoid_chasing"}:
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "late_entry_risk",
+            "summary": f"Entry degraded to {current.get('state_label', 'Late Entry')}",
+        }
     if prev_action != "BUY" and curr_action == "BUY":
         return {
             "ticker": current.get("ticker", ""),
@@ -3196,11 +3216,16 @@ def _build_daily_digest(
     sections: dict[str, list[dict[str, Any]]],
     alert_candidates: list[dict[str, Any]],
     changes: list[dict[str, Any]],
+    all_signals: list[dict[str, Any]],
 ) -> dict[str, Any]:
     summary_lines: list[str] = []
     top_buy = sections.get("best_buy_now", [])
     breakout_watch = sections.get("watch_for_breakout", [])
     rebound_watch = sections.get("watch_for_rebound", [])
+    degraded_entries = [
+        sig for sig in all_signals
+        if str(sig.get("signal_state", "") or "") in {"late_entry", "avoid_chasing"}
+    ]
     watchlist_focus = breakout_watch + rebound_watch
 
     if top_buy:
@@ -3218,6 +3243,11 @@ def _build_daily_digest(
         summary_lines.append(
             f"Rebound watch: {lead.get('ticker')} → {lead.get('next_trigger')}"
         )
+    if degraded_entries:
+        lead = degraded_entries[0]
+        summary_lines.append(
+            f"Avoid chasing: {lead.get('ticker')} → {lead.get('next_trigger')}"
+        )
     if changes:
         summary_lines.append(f"Changed today: {changes[0].get('summary', '')}")
 
@@ -3227,6 +3257,7 @@ def _build_daily_digest(
         "breakout_watch": breakout_watch,
         "rebound_watch": rebound_watch,
         "watchlist_focus": watchlist_focus,
+        "degraded_entries": degraded_entries,
         "alert_candidates": alert_candidates,
         "changes": changes,
         "summary_lines": summary_lines,
@@ -3324,8 +3355,8 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
 
     section_specs = {
         "best_buy_now": lambda s: s.get("action") == "BUY" and s.get("shortlist_eligible") is True,
-        "watch_for_breakout": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "breakout_continuation" and float(s.get("trader_score", 0) or 0) >= 60,
-        "watch_for_rebound": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "support_rebound" and float(s.get("trader_score", 0) or 0) >= 55,
+        "watch_for_breakout": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "breakout_continuation" and str(s.get("signal_state", "")) not in {"invalidated", "expired"} and float(s.get("trader_score", 0) or 0) >= 60,
+        "watch_for_rebound": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "support_rebound" and str(s.get("signal_state", "")) not in {"invalidated", "expired"} and float(s.get("trader_score", 0) or 0) >= 55,
     }
     sections = {
         key: rank_trade_signals([sig for sig in all_signals if predicate(sig)])[:limit]
@@ -3349,7 +3380,7 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
         "sections": sections,
         "alert_candidates": alert_candidates,
         "changes": changes,
-        "digest": _build_daily_digest(sections, alert_candidates, changes),
+        "digest": _build_daily_digest(sections, alert_candidates, changes, all_signals),
         "total_signals": len(all_signals),
         "accuracy": {
             "hit_rate": metrics.get("hit_rate", 0),

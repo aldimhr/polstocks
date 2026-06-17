@@ -193,6 +193,53 @@ class TestShortTermSignalScorer:
             for reason in result["reasons"]
         )
 
+    def test_buy_setup_becomes_late_entry_when_breakout_is_too_extended(self):
+        stock = self._base_stock(
+            price=1006,
+            support_resistance={"support": [940], "resistance": [980]},
+            distance_to_resistance_pct=-0.026,
+        )
+        result = classify_signal(stock)
+        assert result["action"] == "BUY"
+        assert result["signal_state"] == "late_entry"
+        assert result["state_label"] == "Late Entry"
+        assert "pullback" in result["next_trigger"].lower()
+        assert result["shortlist_eligible"] is False
+        assert result["alert_ready"] is False
+
+    def test_watch_setup_can_be_marked_invalidated(self):
+        stock = self._base_stock(
+            rsi_value=34.0,
+            macd={"histogram": 0.2},
+            bollinger={"percent_b": 0.16, "squeeze": False, "bandwidth": 0.05},
+            volume_spike={"is_spike": True, "spike_ratio": 1.3},
+            support_resistance={"support": [990], "resistance": [1080]},
+            reclaim_from_support=False,
+            setup_invalidated=True,
+            invalidation_reason="Support lost on failed rebound",
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "invalidated"
+        assert result["state_label"] == "Invalidated"
+        assert "support lost" in result["next_trigger"].lower()
+        assert result["alert_ready"] is False
+
+    def test_watch_setup_can_expire_after_horizon_window(self):
+        stock = self._base_stock(
+            rsi_value=34.0,
+            macd={"histogram": 0.2},
+            bollinger={"percent_b": 0.16, "squeeze": False, "bandwidth": 0.05},
+            volume_spike={"is_spike": True, "spike_ratio": 1.3},
+            support_resistance={"support": [990], "resistance": [1080]},
+            reclaim_from_support=False,
+            setup_age_days=21,
+        )
+        result = classify_signal(stock)
+        assert result["signal_state"] == "expired"
+        assert result["state_label"] == "Expired"
+        assert "expired" in result["next_trigger"].lower()
+        assert result["alert_ready"] is False
+
     def test_rank_trade_signals_prefers_rr_shortlist_buy(self):
         signals = [
             {
