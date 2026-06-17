@@ -59,6 +59,10 @@ class TestShortTermSignalScorer:
         assert result["trade_label"] == "Best Buy Now"
         assert result["next_trigger"] == "Ready to execute"
         assert result["trader_score"] >= 70
+        assert result["rr_ratio"] >= 1.9
+        assert result["risk_reward_label"] == "good"
+        assert result["shortlist_eligible"] is True
+        assert result["alert_ready"] is True
         assert any(item["status"] == "pass" for item in result["execution_checklist"])
         assert any("breakout" in reason.lower() for reason in result["reasons"])
 
@@ -178,26 +182,33 @@ class TestShortTermSignalScorer:
             for reason in result["reasons"]
         )
 
-    def test_rank_trade_signals_prefers_faster_high_participation_buy(self):
+    def test_rank_trade_signals_prefers_rr_shortlist_buy(self):
         signals = [
             {
-                "ticker": "SLOW.JK",
-                "action": "BUY",
-                "signal_tier": "B",
-                "signal_strength": 0.72,
-                "time_horizon": "14d",
-                "participation_score": 0.25,
-                "setup_type": "support_rebound",
-            },
-            {
-                "ticker": "FAST.JK",
+                "ticker": "SAFE.JK",
                 "action": "BUY",
                 "signal_tier": "B",
                 "signal_strength": 0.72,
                 "time_horizon": "3d",
                 "participation_score": 0.68,
                 "setup_type": "breakout_continuation",
+                "trader_score": 84,
+                "rr_ratio": 2.0,
+                "shortlist_eligible": True,
+            },
+            {
+                "ticker": "WEAKRR.JK",
+                "action": "BUY",
+                "signal_tier": "A",
+                "signal_strength": 0.79,
+                "time_horizon": "3d",
+                "participation_score": 0.70,
+                "setup_type": "breakout_continuation",
+                "trader_score": 88,
+                "rr_ratio": 1.1,
+                "shortlist_eligible": False,
             },
         ]
         ranked = rank_trade_signals(signals)
-        assert ranked[0]["ticker"] == "FAST.JK"
+        assert ranked[0]["ticker"] == "SAFE.JK"
+

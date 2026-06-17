@@ -3334,6 +3334,10 @@ class TestDailySummaryHorizons:
                             "next_trigger": "Ready to execute",
                             "trader_score": 81,
                             "participation_score": 0.68,
+                            "rr_ratio": 2.0,
+                            "risk_reward_label": "good",
+                            "shortlist_eligible": True,
+                            "alert_ready": True,
                             "execution_checklist": [
                                 {"key": "breakout_close", "label": "Close above resistance", "status": "pass"}
                             ],
@@ -3360,10 +3364,46 @@ class TestDailySummaryHorizons:
                             "setup_status": "forming",
                             "trade_label": "Watch for Rebound",
                             "next_trigger": "Need reclaim from support",
-                            "trader_score": 46,
+                            "trader_score": 66,
                             "participation_score": 0.2,
+                            "rr_ratio": None,
+                            "risk_reward_label": "developing",
+                            "shortlist_eligible": False,
+                            "alert_ready": True,
                             "execution_checklist": [
                                 {"key": "support_reclaim", "label": "Reclaim support", "status": "fail"}
+                            ],
+                        },
+                    },
+                    {
+                        "ticker": "LOWRR.JK",
+                        "name": "Low RR",
+                        "price": 1100,
+                        "trading_signal": {
+                            "action": "BUY",
+                            "time_horizon": "7d",
+                            "signal_tier": "A",
+                            "signal_strength": 0.83,
+                            "event_score": 0.4,
+                            "tech_score": 0.7,
+                            "tech_confirmation_count": 4,
+                            "entry_price": 1100,
+                            "stop_loss": 1088,
+                            "take_profit": 1110,
+                            "reasons": ["too close to resistance"],
+                            "invalidation": "Close below 1088",
+                            "setup_type": "breakout_continuation",
+                            "setup_status": "confirmed",
+                            "trade_label": "Best Buy Now",
+                            "next_trigger": "Ready to execute",
+                            "trader_score": 90,
+                            "participation_score": 0.75,
+                            "rr_ratio": 0.8,
+                            "risk_reward_label": "poor",
+                            "shortlist_eligible": False,
+                            "alert_ready": False,
+                            "execution_checklist": [
+                                {"key": "breakout_close", "label": "Close above resistance", "status": "pass"}
                             ],
                         },
                     },
@@ -3371,7 +3411,15 @@ class TestDailySummaryHorizons:
             }
 
         monkeypatch.setattr(appmod, "build_refresh_payload", fake_payload)
-        monkeypatch.setattr(appmod, "get_watchlist", lambda: ["FAST.JK", "SWING.JK"])
+        monkeypatch.setattr(appmod, "get_watchlist", lambda: ["FAST.JK", "SWING.JK", "LOWRR.JK"])
+        monkeypatch.setattr(
+            appmod,
+            "_load_previous_signal_snapshot_map",
+            lambda: {
+                "FAST.JK": {"action": "WATCH", "signal_tier": "C", "time_horizon": "7d", "signal_strength": 0.48},
+                "SWING.JK": {"action": "WATCH", "signal_tier": "C", "time_horizon": "14d", "signal_strength": 0.22},
+            },
+        )
         response = client.get("/api/signals/daily-summary")
         assert response.status_code == 200
         data = response.json()
@@ -3383,6 +3431,11 @@ class TestDailySummaryHorizons:
         assert data["sections"]["watch_for_rebound"][0]["ticker"] == "SWING.JK"
         assert data["sections"]["best_buy_now"][0]["trade_label"] == "Best Buy Now"
         assert data["sections"]["watch_for_rebound"][0]["next_trigger"] == "Need reclaim from support"
+        assert data["sections"]["best_buy_now"][0]["shortlist_eligible"] is True
+        assert len(data["sections"]["best_buy_now"]) == 1
+        assert data["alert_candidates"][0]["ticker"] == "FAST.JK"
+        assert any(change["ticker"] == "FAST.JK" and change["change_type"] == "upgraded_to_buy" for change in data["changes"])
+        assert any(change["ticker"] == "SWING.JK" and change["change_type"] == "watch_strengthening" for change in data["changes"])
 
 
 class TestRecordPredictionHorizon:

@@ -587,6 +587,82 @@ def _compute_trader_score(
     return int(max(0, min(round(score), 99)))
 
 
+def _compute_risk_reward_metrics(
+    action: str,
+    entry_price: float | None,
+    stop_loss: float | None,
+    take_profit: float | None,
+) -> dict[str, float | None | str]:
+    if action not in {"BUY", "SELL"} or not entry_price or stop_loss is None or take_profit is None:
+        return {
+            "risk_amount": None,
+            "reward_amount": None,
+            "risk_pct": None,
+            "reward_pct": None,
+            "rr_ratio": None,
+            "risk_reward_label": "developing",
+        }
+
+    risk_amount = abs(float(entry_price) - float(stop_loss))
+    reward_amount = abs(float(take_profit) - float(entry_price))
+    risk_pct = (risk_amount / float(entry_price) * 100.0) if entry_price else None
+    reward_pct = (reward_amount / float(entry_price) * 100.0) if entry_price else None
+    rr_ratio = (reward_amount / risk_amount) if risk_amount > 0 else None
+
+    label = "developing"
+    if rr_ratio is not None:
+        if rr_ratio >= 1.8:
+            label = "good"
+        elif rr_ratio >= 1.2:
+            label = "acceptable"
+        else:
+            label = "poor"
+
+    return {
+        "risk_amount": round(risk_amount, 4),
+        "reward_amount": round(reward_amount, 4),
+        "risk_pct": round(risk_pct, 4) if risk_pct is not None else None,
+        "reward_pct": round(reward_pct, 4) if reward_pct is not None else None,
+        "rr_ratio": round(rr_ratio, 4) if rr_ratio is not None else None,
+        "risk_reward_label": label,
+    }
+
+
+def _is_shortlist_eligible(
+    action: str,
+    signal_tier: str,
+    trigger_complete: bool,
+    participation_score: float,
+    rr_ratio: float | None,
+    trader_score: int,
+    has_conflict: bool,
+) -> bool:
+    if action != "BUY":
+        return False
+    if signal_tier not in {"A", "B"}:
+        return False
+    if not trigger_complete or has_conflict:
+        return False
+    if participation_score < 0.45:
+        return False
+    if rr_ratio is None or rr_ratio < 1.8:
+        return False
+    return trader_score >= 75
+
+
+def _is_alert_ready(
+    action: str,
+    shortlist_eligible: bool,
+    setup_type: str,
+    trader_score: int,
+) -> bool:
+    if shortlist_eligible:
+        return True
+    if action == "WATCH" and setup_type in {"breakout_continuation", "support_rebound"} and trader_score >= 60:
+        return True
+    return False
+
+
 def classify_signal(
     stock: dict[str, Any],
     sector_avg_rsi: dict[str, float] | None = None,
@@ -701,8 +777,15 @@ def classify_signal(
         time_horizon = infer_time_horizon(stock, ev, tech)
 
     # Step 6: Tier
+    setup_type = str(setup.get("setup_type", "") or "") if setup else ""
+    trigger_complete = bool(setup.get("trigger_complete", False)) if setup else False
     signal_tier = "D"
-    if action == "BUY" and signal_strength >= 0.70 and confirm_count >= 3 and not has_conflict:
+    part_score_for_tier = float(participation.get("score", 0) or 0)
+    if action == "BUY" and trigger_complete and signal_strength >= 0.75 and part_score_for_tier >= 0.60 and not has_conflict:
+        signal_tier = "A"
+    elif action == "BUY" and trigger_complete and signal_strength >= 0.60 and part_score_for_tier >= 0.45 and not has_conflict:
+        signal_tier = "B"
+    elif action == "BUY" and signal_strength >= 0.70 and confirm_count >= 3 and not has_conflict:
         signal_tier = "A"
     elif action == "BUY" and signal_strength >= 0.60 and confirm_count >= 2 and not has_conflict:
         signal_tier = "B"
@@ -711,8 +794,6 @@ def classify_signal(
     elif action == "WATCH":
         signal_tier = "C"
 
-    setup_type = str(setup.get("setup_type", "") or "") if setup else ""
-    trigger_complete = bool(setup.get("trigger_complete", False)) if setup else False
     execution_checklist = _build_execution_checklist(stock, setup, participation)
     trade_label, setup_status = _derive_trade_label(action, setup_type, trigger_complete)
     next_trigger = _derive_next_trigger(setup_type, execution_checklist, action)
@@ -737,6 +818,18 @@ def classify_signal(
         take_profit = round(price - 3.0 * atr, 2)
 
     # Step 8: Reasons enrichment
+    risk_reward = _compute_risk_reward_metrics(action, entry_price, stop_loss, take_profit)
+    shortlist_eligible = _is_shortlist_eligible(
+        action,
+        signal_tier,
+        trigger_complete,
+        float(participation.get("score", 0) or 0),
+        risk_reward.get("rr_ratio"),
+        trader_score,
+        has_conflict,
+    )
+    alert_ready = _is_alert_ready(action, shortlist_eligible, setup_type, trader_score)
+
     if confirm_count > 0 and not reasons:
         reasons.extend(tech["details"])
     elif confirm_count > 0:
@@ -787,6 +880,14 @@ def classify_signal(
         "holding_window": holding_window,
         "execution_checklist": execution_checklist,
         "trader_score": trader_score,
+        "risk_amount": risk_reward.get("risk_amount"),
+        "reward_amount": risk_reward.get("reward_amount"),
+        "risk_pct": risk_reward.get("risk_pct"),
+        "reward_pct": risk_reward.get("reward_pct"),
+        "rr_ratio": risk_reward.get("rr_ratio"),
+        "risk_reward_label": risk_reward.get("risk_reward_label"),
+        "shortlist_eligible": shortlist_eligible,
+        "alert_ready": alert_ready,
         "participation_score": participation.get("score", 0.0),
         "participation_label": participation.get("label", "low"),
     }
@@ -804,7 +905,10 @@ def rank_trade_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
         signals,
         key=lambda s: (
             _ACTION_ORDER.get(s.get("action", "IGNORE"), 4),
+            -(1 if s.get("shortlist_eligible") else 0),
             _TIER_ORDER.get(s.get("signal_tier", "D"), 4),
+            -float(s.get("trader_score", 0) or 0),
+            -float(s.get("rr_ratio", 0) or 0),
             -float(s.get("signal_strength", 0) or 0),
             -float(s.get("participation_score", 0) or 0),
             _HORIZON_ORDER.get(str(s.get("time_horizon", "30d") or "30d"), 9),

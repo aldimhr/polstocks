@@ -3119,6 +3119,79 @@ def api_calibration_report(window_days: int = 30, origin: str = "live", min_samp
     }
 
 
+def _load_previous_signal_snapshot_map() -> dict[str, dict[str, Any]]:
+    """Load the most recent pre-today snapshot per ticker for daily change detection."""
+    import sqlite3 as _sqlite3
+
+    snapshot_map: dict[str, dict[str, Any]] = {}
+    try:
+        _conn = _sqlite3.connect(str(BACKEND_DB_PATH), timeout=5)
+        _conn.row_factory = _sqlite3.Row
+        _today = now_wib().strftime("%Y-%m-%d")
+        rows = _conn.execute(
+            """
+            SELECT s1.ticker, s1.action, s1.time_horizon, s1.signal_tier, s1.signal_strength, s1.snapshot_date
+            FROM daily_signal_snapshots s1
+            JOIN (
+                SELECT ticker, MAX(snapshot_date) AS snapshot_date
+                FROM daily_signal_snapshots
+                WHERE snapshot_date < ?
+                GROUP BY ticker
+            ) latest
+              ON latest.ticker = s1.ticker AND latest.snapshot_date = s1.snapshot_date
+            """,
+            (_today,),
+        ).fetchall()
+        for row in rows:
+            snapshot_map[row["ticker"]] = {
+                "action": row["action"],
+                "time_horizon": row["time_horizon"],
+                "signal_tier": row["signal_tier"],
+                "signal_strength": row["signal_strength"],
+                "snapshot_date": row["snapshot_date"],
+            }
+        _conn.close()
+    except Exception:
+        return {}
+    return snapshot_map
+
+
+def _summarize_signal_change(current: dict[str, Any], previous: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not previous:
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "new_signal",
+            "summary": f"New {current.get('action', 'WATCH')} setup surfaced",
+        }
+
+    prev_action = str(previous.get("action", "IGNORE") or "IGNORE")
+    curr_action = str(current.get("action", "IGNORE") or "IGNORE")
+    prev_strength = float(previous.get("signal_strength", 0) or 0)
+    curr_strength = float(current.get("signal_strength", 0) or 0)
+    prev_tier = str(previous.get("signal_tier", "D") or "D")
+    curr_tier = str(current.get("signal_tier", "D") or "D")
+
+    if prev_action != "BUY" and curr_action == "BUY":
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "upgraded_to_buy",
+            "summary": f"{prev_action.title()} → BUY with {current.get('trade_label', 'confirmed trigger')}",
+        }
+    if curr_action == "WATCH" and curr_strength - prev_strength >= 0.08:
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "watch_strengthening",
+            "summary": f"WATCH strengthened by {round(curr_strength - prev_strength, 2)}",
+        }
+    if prev_tier != curr_tier and curr_tier in {"A", "B"}:
+        return {
+            "ticker": current.get("ticker", ""),
+            "change_type": "tier_upgrade",
+            "summary": f"Tier upgraded {prev_tier} → {curr_tier}",
+        }
+    return None
+
+
 @app.get("/api/signals/daily-summary")
 def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, Any]:
     """Return top actionable signals grouped by detected time horizon."""
@@ -3163,6 +3236,14 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
             "holding_window": ts.get("holding_window", ts.get("time_horizon", "7d")),
             "execution_checklist": ts.get("execution_checklist", []),
             "trader_score": ts.get("trader_score", 0),
+            "risk_amount": ts.get("risk_amount"),
+            "reward_amount": ts.get("reward_amount"),
+            "risk_pct": ts.get("risk_pct"),
+            "reward_pct": ts.get("reward_pct"),
+            "rr_ratio": ts.get("rr_ratio"),
+            "risk_reward_label": ts.get("risk_reward_label", "developing"),
+            "shortlist_eligible": ts.get("shortlist_eligible", False),
+            "alert_ready": ts.get("alert_ready", False),
         })
 
     horizon_order = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}
@@ -3180,14 +3261,23 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
         by_horizon[horizon] = rank_trade_signals(by_horizon[horizon])[:limit]
 
     section_specs = {
-        "best_buy_now": lambda s: s.get("action") == "BUY",
-        "watch_for_breakout": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "breakout_continuation",
-        "watch_for_rebound": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "support_rebound",
+        "best_buy_now": lambda s: s.get("action") == "BUY" and s.get("shortlist_eligible") is True,
+        "watch_for_breakout": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "breakout_continuation" and float(s.get("trader_score", 0) or 0) >= 60,
+        "watch_for_rebound": lambda s: s.get("action") == "WATCH" and s.get("setup_type") == "support_rebound" and float(s.get("trader_score", 0) or 0) >= 55,
     }
     sections = {
         key: rank_trade_signals([sig for sig in all_signals if predicate(sig)])[:limit]
         for key, predicate in section_specs.items()
     }
+    alert_candidates = rank_trade_signals([sig for sig in all_signals if sig.get("alert_ready")])[:limit]
+
+    previous_snapshots = _load_previous_signal_snapshot_map()
+    changes = []
+    for sig in rank_trade_signals(all_signals):
+        change = _summarize_signal_change(sig, previous_snapshots.get(sig.get("ticker", "")))
+        if change:
+            changes.append(change)
+    changes = changes[:limit]
 
     # Calibration context
     metrics = compute_accuracy_metrics(window_days=30, origin="live")
@@ -3195,6 +3285,8 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
     return {
         "horizons": by_horizon,
         "sections": sections,
+        "alert_candidates": alert_candidates,
+        "changes": changes,
         "total_signals": len(all_signals),
         "accuracy": {
             "hit_rate": metrics.get("hit_rate", 0),
