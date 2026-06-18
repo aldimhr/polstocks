@@ -842,8 +842,9 @@ def test_dashboard_signal_merge_surfaces_lifecycle_fields():
         'action_guidance: sig.action_guidance || existing.action_guidance || \'\'',
         'partial_profit_zone: sig.partial_profit_zone || existing.partial_profit_zone || []',
         'trailing_stop_level: sig.trailing_stop_level ?? existing.trailing_stop_level ?? null',
-        'breakeven_ready: sig.breakeven_ready ?? existing.breakeven_ready ?? null',
-        'Guidance: ',
+        'entry_quality: sig.entry_quality || existing.entry_quality || \'\'',
+        'management_state: sig.management_state || existing.management_state || \'\'',
+        'setup_age_days: sig.setup_age_days ?? existing.setup_age_days ?? 0',
     ]:
         assert snippet in dashboard_html
 
@@ -3550,6 +3551,9 @@ class TestDailySummaryHorizons:
                             "action_guidance": "Manage initial risk now — avoid adding if price gets extended from the trigger",
                             "partial_profit_zone": [1040, 1060],
                             "trailing_stop_level": 980,
+                            "entry_quality": "acceptable",
+                            "management_state": "fresh_entry",
+                            "setup_age_days": 0,
                         },
                     },
                     {
@@ -3584,6 +3588,9 @@ class TestDailySummaryHorizons:
                             "action_guidance": "Hold while price stays above the trailing stop — trail risk, do not treat this as a fresh entry",
                             "partial_profit_zone": [1040, 1060],
                             "trailing_stop_level": 980,
+                            "entry_quality": "acceptable",
+                            "management_state": "hold",
+                            "setup_age_days": 2,
                         },
                     },
                     {
@@ -3618,6 +3625,9 @@ class TestDailySummaryHorizons:
                             "action_guidance": "Scale out or lock gains now — raise the stop on any remaining size",
                             "partial_profit_zone": [1040, 1060],
                             "trailing_stop_level": 1040,
+                            "entry_quality": "stretched",
+                            "management_state": "reduce",
+                            "setup_age_days": 2,
                         },
                     },
                 ]
@@ -3642,12 +3652,21 @@ class TestDailySummaryHorizons:
         assert data["digest"]["manage_open_trades"][0]["ticker"] == "LIVE.JK"
         assert data["digest"]["exit_updates"][0]["ticker"] == "TPROF.JK"
         assert data["digest"]["triggered_today"][0]["action_guidance"] == "Manage initial risk now — avoid adding if price gets extended from the trigger"
+        assert data["digest"]["triggered_today"][0]["entry_quality"] == "acceptable"
+        assert data["digest"]["triggered_today"][0]["management_state"] == "fresh_entry"
         assert data["digest"]["manage_open_trades"][0]["trailing_stop_level"] == 980
+        assert data["digest"]["manage_open_trades"][0]["management_state"] == "hold"
         assert data["digest"]["exit_updates"][0]["partial_profit_zone"] == [1040, 1060]
+        assert data["digest"]["exit_updates"][0]["management_state"] == "reduce"
         assert any(change["ticker"] == "TRIG.JK" and change["change_type"] == "triggered_today" for change in data["changes"])
         assert any(change["ticker"] == "TPROF.JK" and change["change_type"] == "take_profit_hit" for change in data["changes"])
         assert any("TRIG.JK" in line for line in data["digest"]["summary_lines"])
+        assert any("LIVE.JK" in line for line in data["digest"]["summary_lines"])
         assert any("TPROF.JK" in line for line in data["digest"]["summary_lines"])
+        trig_idx = next(i for i, line in enumerate(data["digest"]["summary_lines"]) if "TRIG.JK" in line)
+        live_idx = next(i for i, line in enumerate(data["digest"]["summary_lines"]) if "LIVE.JK" in line)
+        tp_idx = next(i for i, line in enumerate(data["digest"]["summary_lines"]) if "TPROF.JK" in line)
+        assert trig_idx < live_idx < tp_idx
 
 
 class TestRecordPredictionHorizon:

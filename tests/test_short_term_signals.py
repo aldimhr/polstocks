@@ -260,6 +260,8 @@ class TestShortTermSignalScorer:
         assert result["partial_profit_zone"] == [1020.0, 1040.0]
         assert result["trailing_stop_level"] == 980.0
         assert result["breakeven_ready"] is False
+        assert result["entry_quality"] == "acceptable"
+        assert result["management_state"] == "fresh_entry"
 
     def test_buy_setup_can_be_marked_active_trade(self):
         stock = self._base_stock(
@@ -276,6 +278,8 @@ class TestShortTermSignalScorer:
         assert result["partial_profit_zone"] == [1020.0, 1040.0]
         assert result["trailing_stop_level"] == 980.0
         assert result["breakeven_ready"] is True
+        assert result["entry_quality"] == "acceptable"
+        assert result["management_state"] == "hold"
 
     def test_buy_setup_can_be_marked_take_profit_hit(self):
         stock = self._base_stock(
@@ -292,6 +296,8 @@ class TestShortTermSignalScorer:
         assert result["partial_profit_zone"] == [1020.0, 1040.0]
         assert result["trailing_stop_level"] == 1020.0
         assert result["breakeven_ready"] is True
+        assert result["entry_quality"] == "stretched"
+        assert result["management_state"] == "reduce"
 
     def test_buy_setup_can_be_marked_stop_loss_hit(self):
         stock = self._base_stock(
@@ -308,6 +314,8 @@ class TestShortTermSignalScorer:
         assert result["partial_profit_zone"] == [1020.0, 1040.0]
         assert result["trailing_stop_level"] == 920.0
         assert result["breakeven_ready"] is False
+        assert result["entry_quality"] == "ideal"
+        assert result["management_state"] == "exit"
 
     def test_buy_setup_can_be_marked_failed_breakout(self):
         stock = self._base_stock(
@@ -325,6 +333,8 @@ class TestShortTermSignalScorer:
         assert result["partial_profit_zone"] == [1020.0, 1040.0]
         assert result["trailing_stop_level"] == 920.0
         assert result["breakeven_ready"] is False
+        assert result["entry_quality"] == "ideal"
+        assert result["management_state"] == "exit"
 
     def test_rank_trade_signals_prefers_rr_shortlist_buy(self):
         signals = [
@@ -355,4 +365,76 @@ class TestShortTermSignalScorer:
         ]
         ranked = rank_trade_signals(signals)
         assert ranked[0]["ticker"] == "SAFE.JK"
+
+    def test_rank_trade_signals_prefers_fresh_entry_over_stretched_setup(self):
+        signals = [
+            {
+                "ticker": "STRETCHED.JK",
+                "action": "BUY",
+                "signal_tier": "A",
+                "signal_strength": 0.86,
+                "time_horizon": "3d",
+                "participation_score": 0.72,
+                "setup_type": "breakout_continuation",
+                "trader_score": 90,
+                "rr_ratio": 2.1,
+                "shortlist_eligible": True,
+                "entry_quality": "stretched",
+                "management_state": "fresh_entry",
+                "setup_age_days": 0,
+            },
+            {
+                "ticker": "FRESH.JK",
+                "action": "BUY",
+                "signal_tier": "B",
+                "signal_strength": 0.79,
+                "time_horizon": "3d",
+                "participation_score": 0.68,
+                "setup_type": "breakout_continuation",
+                "trader_score": 84,
+                "rr_ratio": 2.0,
+                "shortlist_eligible": True,
+                "entry_quality": "ideal",
+                "management_state": "fresh_entry",
+                "setup_age_days": 0,
+            },
+        ]
+        ranked = rank_trade_signals(signals)
+        assert ranked[0]["ticker"] == "FRESH.JK"
+
+    def test_rank_trade_signals_penalizes_stale_watch_setup(self):
+        signals = [
+            {
+                "ticker": "STALE.JK",
+                "action": "WATCH",
+                "signal_tier": "A",
+                "signal_strength": 0.90,
+                "time_horizon": "3d",
+                "participation_score": 0.72,
+                "setup_type": "breakout_continuation",
+                "trader_score": 87,
+                "rr_ratio": None,
+                "shortlist_eligible": False,
+                "entry_quality": "acceptable",
+                "management_state": "watch",
+                "setup_age_days": 5,
+            },
+            {
+                "ticker": "FRESHWATCH.JK",
+                "action": "WATCH",
+                "signal_tier": "B",
+                "signal_strength": 0.74,
+                "time_horizon": "3d",
+                "participation_score": 0.64,
+                "setup_type": "support_rebound",
+                "trader_score": 75,
+                "rr_ratio": None,
+                "shortlist_eligible": False,
+                "entry_quality": "ideal",
+                "management_state": "watch",
+                "setup_age_days": 0,
+            },
+        ]
+        ranked = rank_trade_signals(signals)
+        assert ranked[0]["ticker"] == "FRESHWATCH.JK"
 

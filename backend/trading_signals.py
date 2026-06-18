@@ -843,6 +843,57 @@ def _derive_lifecycle_override(
     return None
 
 
+def _derive_entry_quality(
+    action: str,
+    signal_state: str,
+    current_price: float | None,
+    entry_price: float | None,
+    trigger_price: float | None,
+    position_entry_price: float | None,
+) -> str:
+    price = float(current_price or 0) if current_price is not None else 0.0
+    entry = float(entry_price or 0) if entry_price is not None else 0.0
+    trigger = float(trigger_price or 0) if trigger_price is not None else 0.0
+    managed_entry = float(position_entry_price or 0) if position_entry_price is not None else 0.0
+
+    reference = managed_entry if managed_entry > 0 and signal_state in {"triggered_today", "active_trade", "tp_hit", "sl_hit", "failed_breakout"} else (trigger if trigger > 0 else entry)
+    if reference <= 0 or price <= 0:
+        return "acceptable"
+
+    extension_pct = ((price - reference) / reference) * 100.0
+    if signal_state in {"tp_hit", "late_entry", "avoid_chasing"}:
+        return "stretched"
+    if signal_state in {"sl_hit", "invalidated", "expired"}:
+        return "ideal" if price <= reference else "acceptable"
+    if action == "WATCH":
+        if extension_pct <= 0.5:
+            return "ideal"
+        if extension_pct <= 2.0:
+            return "acceptable"
+        return "stretched"
+    if extension_pct <= 0:
+        return "ideal"
+    if extension_pct <= 2.5:
+        return "acceptable"
+    return "stretched"
+
+
+def _derive_management_state(action: str, signal_state: str) -> str:
+    if signal_state in {"triggered_today", "ready_to_buy", "ready_to_sell"}:
+        return "fresh_entry"
+    if signal_state == "active_trade":
+        return "hold"
+    if signal_state == "tp_hit":
+        return "reduce"
+    if signal_state in {"sl_hit", "failed_breakout", "invalidated", "expired"}:
+        return "exit"
+    if action == "WATCH":
+        return "watch"
+    if signal_state in {"late_entry", "avoid_chasing", "waiting_breakout", "waiting_reclaim", "forming_watch"}:
+        return "wait"
+    return "watch"
+
+
 def _build_trade_management_plan(
     action: str,
     signal_state: str,
@@ -1155,6 +1206,15 @@ def classify_signal(
         transition_trigger_price,
         stock.get("position_entry_price"),
     )
+    entry_quality = _derive_entry_quality(
+        action,
+        signal_state,
+        price,
+        entry_price,
+        transition_trigger_price,
+        stock.get("position_entry_price"),
+    )
+    management_state = _derive_management_state(action, signal_state)
 
     # Determine signal type
     if ev_score > 0 and tech_score > 0:
@@ -1201,6 +1261,9 @@ def classify_signal(
         "trailing_stop_level": management_plan.get("trailing_stop_level"),
         "breakeven_ready": management_plan.get("breakeven_ready"),
         "management_notes": management_plan.get("management_notes", []),
+        "entry_quality": entry_quality,
+        "management_state": management_state,
+        "setup_age_days": float(stock.get("setup_age_days", 0) or 0),
         "participation_score": participation.get("score", 0.0),
         "participation_label": participation.get("label", "low"),
     }
@@ -1210,6 +1273,20 @@ _ACTION_ORDER = {"BUY": 0, "SELL": 1, "WATCH": 2, "IGNORE": 3}
 _TIER_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3}
 _HORIZON_ORDER = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}
 _SETUP_ORDER = {"breakout_continuation": 0, "support_rebound": 1}
+_ENTRY_QUALITY_ORDER = {"ideal": 0, "acceptable": 1, "stretched": 2}
+_MANAGEMENT_STATE_ORDER = {"fresh_entry": 0, "hold": 1, "reduce": 2, "exit": 3, "watch": 4, "wait": 5}
+
+
+def _freshness_score(signal: dict[str, Any]) -> float:
+    setup_age_days = float(signal.get("setup_age_days", 0) or 0)
+    horizon = str(signal.get("time_horizon", "7d") or "7d")
+    max_days = float(_horizon_max_days(horizon) or 0)
+    if setup_age_days <= 0 or max_days <= 0:
+        return 1.0
+    freshness = max(0.0, 1.0 - min(setup_age_days / max_days, 1.0))
+    if signal.get("action") == "WATCH":
+        freshness *= 1.2
+    return round(freshness, 4)
 
 
 def rank_trade_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1219,6 +1296,9 @@ def rank_trade_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key=lambda s: (
             _ACTION_ORDER.get(s.get("action", "IGNORE"), 4),
             -(1 if s.get("shortlist_eligible") else 0),
+            _MANAGEMENT_STATE_ORDER.get(str(s.get("management_state", "watch") or "watch"), 9),
+            _ENTRY_QUALITY_ORDER.get(str(s.get("entry_quality", "acceptable") or "acceptable"), 9),
+            -_freshness_score(s),
             _TIER_ORDER.get(s.get("signal_tier", "D"), 4),
             -float(s.get("trader_score", 0) or 0),
             -float(s.get("rr_ratio", 0) or 0),

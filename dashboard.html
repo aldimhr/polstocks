@@ -3836,6 +3836,8 @@
         : '';
       const trailLabel = sig.trailing_stop_level != null ? `Trail ${formatPrice(sig.trailing_stop_level)}` : '';
       const breakevenLabel = sig.breakeven_ready === true ? 'Breakeven ready' : sig.breakeven_ready === false ? 'Breakeven not ready' : '';
+      const entryQualityLabel = sig.entry_quality ? `Entry ${sig.entry_quality}` : '';
+      const managementStateLabel = sig.management_state ? `State ${sig.management_state}` : '';
       signalHtml = `
         <div style="margin:12px 0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -3861,6 +3863,8 @@
             ${partialZone ? `<span class="signal-lifecycle-badge forming">${escapeHtml(partialZone)}</span>` : ''}
             ${trailLabel ? `<span class="signal-lifecycle-badge watch">${escapeHtml(trailLabel)}</span>` : ''}
             ${breakevenLabel ? `<span class="signal-lifecycle-badge ${sig.breakeven_ready ? 'ready' : 'forming'}">${escapeHtml(breakevenLabel)}</span>` : ''}
+            ${entryQualityLabel ? `<span class="signal-lifecycle-badge forming">${escapeHtml(entryQualityLabel)}</span>` : ''}
+            ${managementStateLabel ? `<span class="signal-lifecycle-badge watch">${escapeHtml(managementStateLabel)}</span>` : ''}
           </div>
           ${sig.next_trigger ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Next: ${escapeHtml(sig.next_trigger)}</div>` : ''}
           ${sig.action_guidance ? `<div style="font-size:10px;color:var(--text);margin-bottom:6px;">Guidance: ${escapeHtml(sig.action_guidance)}</div>` : ''}
@@ -4675,6 +4679,8 @@
       ? `${formatPrice(signal.partial_profit_zone[0])}-${formatPrice(signal.partial_profit_zone[1])}`
       : '';
     const trailLabel = signal.trailing_stop_level != null ? formatPrice(signal.trailing_stop_level) : '';
+    const entryQuality = signal.entry_quality || '';
+    const managementState = signal.management_state || '';
     return `<div onclick="openTickerModal('${escapeHtml(signal.ticker)}')" style="margin-bottom:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
         <span>${actionIcon}</span>
@@ -4695,6 +4701,7 @@
         ${trailLabel ? `<span>Trail ${trailLabel}</span>` : ''}
       </div>
       ${partialZone ? `<div style="font-size:10px;color:var(--muted2);margin-top:4px;">Partial zone: ${escapeHtml(partialZone)}</div>` : ''}
+      ${(entryQuality || managementState) ? `<div style="font-size:10px;color:var(--muted2);margin-top:4px;">${entryQuality ? `Entry quality: ${escapeHtml(entryQuality)}` : ''}${entryQuality && managementState ? ' · ' : ''}${managementState ? `Management: ${escapeHtml(managementState)}` : ''}</div>` : ''}
       ${nextTrigger ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;">Next: ${escapeHtml(nextTrigger)}</div>` : ''}
       ${guidance ? `<div style="font-size:10px;color:var(--text);margin-top:4px;">Guidance: ${escapeHtml(guidance)}</div>` : ''}
     </div>`;
@@ -4713,6 +4720,7 @@
               </div>
               <div style="font-size:10px;color:var(--muted2);">${escapeHtml(signal.next_trigger || signal.summary || emptyText)}</div>
               ${signal.action_guidance ? `<div style="font-size:10px;color:var(--text);margin-top:4px;">${escapeHtml(signal.action_guidance)}</div>` : ''}
+              ${(signal.entry_quality || signal.management_state) ? `<div style="font-size:10px;color:var(--muted2);margin-top:4px;">${signal.entry_quality ? `Entry quality: ${escapeHtml(signal.entry_quality)}` : ''}${signal.entry_quality && signal.management_state ? ' · ' : ''}${signal.management_state ? `Management: ${escapeHtml(signal.management_state)}` : ''}</div>` : ''}
             </div>`).join('')}</div>`
         : `<div style="font-size:12px;color:var(--muted2);">${emptyText}</div>`}
     </div>`;
@@ -4864,6 +4872,9 @@
         trailing_stop_level: sig.trailing_stop_level ?? existing.trailing_stop_level ?? null,
         breakeven_ready: sig.breakeven_ready ?? existing.breakeven_ready ?? null,
         management_notes: sig.management_notes || existing.management_notes || [],
+        entry_quality: sig.entry_quality || existing.entry_quality || '',
+        management_state: sig.management_state || existing.management_state || '',
+        setup_age_days: sig.setup_age_days ?? existing.setup_age_days ?? 0,
         reasons: sig.reasons || existing.reasons || [],
       };
     }

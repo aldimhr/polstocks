@@ -3402,6 +3402,9 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
             "trailing_stop_level": ts.get("trailing_stop_level"),
             "breakeven_ready": ts.get("breakeven_ready"),
             "management_notes": ts.get("management_notes", []),
+            "entry_quality": ts.get("entry_quality", "acceptable"),
+            "management_state": ts.get("management_state", "watch"),
+            "setup_age_days": ts.get("setup_age_days", 0),
         })
 
     horizon_order = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}
