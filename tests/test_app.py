@@ -781,8 +781,9 @@ def test_dashboard_contains_runtime_hooks():
         'renderSignalStateBadge(',
         'renderSignalDigestSection(',
         'renderActionableSignalCard(',
-        'signal-lifecycle-badge',
-        'signal-digest-grid',
+        'const ts = stock.trading_signal || stock.trade_signal || {};',
+        'filterStocksList(',
+
         'Triggered Today',
         'Manage Open Trades',
         'Exit / Failure',

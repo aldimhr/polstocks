@@ -4361,6 +4361,7 @@
     const validationMeta = validationParts.length ? validationParts.join(' · ') : '';
     const knowledgeMeta = stock.knowledge_summary || stock.rationale || '';
     const pinIcon = stock.in_portfolio ? '💼' : stock.pinned ? '📌' : '';
+    const ts = stock.trading_signal || stock.trade_signal || {};
     const signalMini = renderSignalMini(stock);
     const signalTrigger = ts?.next_trigger ? `<div class="stock-row-meta">${escapeHtml(ts.next_trigger)}</div>` : '';
     const sectorLabel = stock.sector || stock.industry || 'Unknown sector';
