@@ -3830,6 +3830,12 @@
       const rrLabel = Number.isFinite(Number(sig.rr_ratio)) ? `${Number(sig.rr_ratio).toFixed(1)}x ${escapeHtml(sig.risk_reward_label || '')}`.trim() : '—';
       const triggerLabel = sig.transition_trigger_price ? `Trigger ${formatPrice(sig.transition_trigger_price)}` : '';
       const checklist = Array.isArray(sig.execution_checklist) ? sig.execution_checklist : [];
+      const managementNotes = Array.isArray(sig.management_notes) ? sig.management_notes : [];
+      const partialZone = Array.isArray(sig.partial_profit_zone) && sig.partial_profit_zone.length === 2
+        ? `Partial ${formatPrice(sig.partial_profit_zone[0])}-${formatPrice(sig.partial_profit_zone[1])}`
+        : '';
+      const trailLabel = sig.trailing_stop_level != null ? `Trail ${formatPrice(sig.trailing_stop_level)}` : '';
+      const breakevenLabel = sig.breakeven_ready === true ? 'Breakeven ready' : sig.breakeven_ready === false ? 'Breakeven not ready' : '';
       signalHtml = `
         <div style="margin:12px 0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -3852,10 +3858,15 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
             ${sig.shortlist_eligible === true ? '<span class="signal-lifecycle-badge ready">Shortlist-ready</span>' : ''}
             ${sig.alert_ready === true ? '<span class="signal-lifecycle-badge triggered">Alert-ready</span>' : ''}
+            ${partialZone ? `<span class="signal-lifecycle-badge forming">${escapeHtml(partialZone)}</span>` : ''}
+            ${trailLabel ? `<span class="signal-lifecycle-badge watch">${escapeHtml(trailLabel)}</span>` : ''}
+            ${breakevenLabel ? `<span class="signal-lifecycle-badge ${sig.breakeven_ready ? 'ready' : 'forming'}">${escapeHtml(breakevenLabel)}</span>` : ''}
           </div>
           ${sig.next_trigger ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Next: ${escapeHtml(sig.next_trigger)}</div>` : ''}
+          ${sig.action_guidance ? `<div style="font-size:10px;color:var(--text);margin-bottom:6px;">Guidance: ${escapeHtml(sig.action_guidance)}</div>` : ''}
           ${sig.invalidation ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">⚠️ ${escapeHtml(sig.invalidation)}</div>` : ''}
           ${checklist.length ? `<div style="font-size:10px;color:var(--muted2);line-height:1.5;margin-bottom:6px;">${checklist.slice(0, 4).map(item => `${item.passed ? '✅' : '•'} ${escapeHtml(item.label || item.reason || '')}`).join('<br>')}</div>` : ''}
+          ${managementNotes.length ? `<div style="font-size:10px;color:var(--muted2);line-height:1.5;margin-bottom:6px;">${managementNotes.slice(0, 3).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
           ${reasons.length ? `<div style="font-size:10px;color:var(--muted2);line-height:1.5;">${reasons.slice(0, 5).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
         </div>`;
     }
@@ -4657,8 +4668,13 @@
     const strength = Math.round((signal.signal_strength || 0) * 100);
     const traderScore = Math.round(signal.trader_score || 0);
     const nextTrigger = signal.next_trigger || (signal.reasons && signal.reasons[0]) || '';
+    const guidance = signal.action_guidance || '';
     const stateMeta = renderSignalStateMeta(signal);
     const lifecycleBadge = renderSignalStateBadge(signal);
+    const partialZone = Array.isArray(signal.partial_profit_zone) && signal.partial_profit_zone.length === 2
+      ? `${formatPrice(signal.partial_profit_zone[0])}-${formatPrice(signal.partial_profit_zone[1])}`
+      : '';
+    const trailLabel = signal.trailing_stop_level != null ? formatPrice(signal.trailing_stop_level) : '';
     return `<div onclick="openTickerModal('${escapeHtml(signal.ticker)}')" style="margin-bottom:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
         <span>${actionIcon}</span>
@@ -4676,8 +4692,11 @@
         <span>SL ${sl}</span>
         <span>TP ${tp}</span>
         <span>Score ${traderScore}</span>
+        ${trailLabel ? `<span>Trail ${trailLabel}</span>` : ''}
       </div>
+      ${partialZone ? `<div style="font-size:10px;color:var(--muted2);margin-top:4px;">Partial zone: ${escapeHtml(partialZone)}</div>` : ''}
       ${nextTrigger ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;">Next: ${escapeHtml(nextTrigger)}</div>` : ''}
+      ${guidance ? `<div style="font-size:10px;color:var(--text);margin-top:4px;">Guidance: ${escapeHtml(guidance)}</div>` : ''}
     </div>`;
   }
 
@@ -4693,6 +4712,7 @@
                 ${renderSignalStateBadge(signal)}
               </div>
               <div style="font-size:10px;color:var(--muted2);">${escapeHtml(signal.next_trigger || signal.summary || emptyText)}</div>
+              ${signal.action_guidance ? `<div style="font-size:10px;color:var(--text);margin-top:4px;">${escapeHtml(signal.action_guidance)}</div>` : ''}
             </div>`).join('')}</div>`
         : `<div style="font-size:12px;color:var(--muted2);">${emptyText}</div>`}
     </div>`;
@@ -4839,6 +4859,11 @@
         shortlist_eligible: sig.shortlist_eligible ?? existing.shortlist_eligible ?? false,
         alert_ready: sig.alert_ready ?? existing.alert_ready ?? false,
         transition_trigger_price: sig.transition_trigger_price ?? existing.transition_trigger_price ?? null,
+        action_guidance: sig.action_guidance || existing.action_guidance || '',
+        partial_profit_zone: sig.partial_profit_zone || existing.partial_profit_zone || [],
+        trailing_stop_level: sig.trailing_stop_level ?? existing.trailing_stop_level ?? null,
+        breakeven_ready: sig.breakeven_ready ?? existing.breakeven_ready ?? null,
+        management_notes: sig.management_notes || existing.management_notes || [],
         reasons: sig.reasons || existing.reasons || [],
       };
     }

@@ -839,6 +839,11 @@ def test_dashboard_signal_merge_surfaces_lifecycle_fields():
         'shortlist_eligible: sig.shortlist_eligible ?? existing.shortlist_eligible ?? false',
         'alert_ready: sig.alert_ready ?? existing.alert_ready ?? false',
         'transition_trigger_price: sig.transition_trigger_price ?? existing.transition_trigger_price ?? null',
+        'action_guidance: sig.action_guidance || existing.action_guidance || \'\'',
+        'partial_profit_zone: sig.partial_profit_zone || existing.partial_profit_zone || []',
+        'trailing_stop_level: sig.trailing_stop_level ?? existing.trailing_stop_level ?? null',
+        'breakeven_ready: sig.breakeven_ready ?? existing.breakeven_ready ?? null',
+        'Guidance: ',
     ]:
         assert snippet in dashboard_html
 
@@ -3542,6 +3547,9 @@ class TestDailySummaryHorizons:
                             "risk_reward_label": "good",
                             "shortlist_eligible": False,
                             "alert_ready": True,
+                            "action_guidance": "Manage initial risk now — avoid adding if price gets extended from the trigger",
+                            "partial_profit_zone": [1040, 1060],
+                            "trailing_stop_level": 980,
                         },
                     },
                     {
@@ -3573,6 +3581,9 @@ class TestDailySummaryHorizons:
                             "risk_reward_label": "good",
                             "shortlist_eligible": False,
                             "alert_ready": False,
+                            "action_guidance": "Hold while price stays above the trailing stop — trail risk, do not treat this as a fresh entry",
+                            "partial_profit_zone": [1040, 1060],
+                            "trailing_stop_level": 980,
                         },
                     },
                     {
@@ -3604,6 +3615,9 @@ class TestDailySummaryHorizons:
                             "risk_reward_label": "good",
                             "shortlist_eligible": False,
                             "alert_ready": True,
+                            "action_guidance": "Scale out or lock gains now — raise the stop on any remaining size",
+                            "partial_profit_zone": [1040, 1060],
+                            "trailing_stop_level": 1040,
                         },
                     },
                 ]
@@ -3627,6 +3641,9 @@ class TestDailySummaryHorizons:
         assert data["digest"]["triggered_today"][0]["ticker"] == "TRIG.JK"
         assert data["digest"]["manage_open_trades"][0]["ticker"] == "LIVE.JK"
         assert data["digest"]["exit_updates"][0]["ticker"] == "TPROF.JK"
+        assert data["digest"]["triggered_today"][0]["action_guidance"] == "Manage initial risk now — avoid adding if price gets extended from the trigger"
+        assert data["digest"]["manage_open_trades"][0]["trailing_stop_level"] == 980
+        assert data["digest"]["exit_updates"][0]["partial_profit_zone"] == [1040, 1060]
         assert any(change["ticker"] == "TRIG.JK" and change["change_type"] == "triggered_today" for change in data["changes"])
         assert any(change["ticker"] == "TPROF.JK" and change["change_type"] == "take_profit_hit" for change in data["changes"])
         assert any("TRIG.JK" in line for line in data["digest"]["summary_lines"])

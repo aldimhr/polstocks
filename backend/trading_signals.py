@@ -843,6 +843,91 @@ def _derive_lifecycle_override(
     return None
 
 
+def _build_trade_management_plan(
+    action: str,
+    signal_state: str,
+    entry_price: float | None,
+    stop_loss: float | None,
+    take_profit: float | None,
+    current_price: float | None,
+    atr: float | None,
+    transition_trigger_price: float | None,
+    position_entry_price: float | None,
+) -> dict[str, Any]:
+    entry = float(entry_price or 0) if entry_price is not None else 0.0
+    stop = float(stop_loss or 0) if stop_loss is not None else 0.0
+    target = float(take_profit or 0) if take_profit is not None else 0.0
+    live = float(current_price or 0) if current_price is not None else 0.0
+    atr_value = float(atr or 0) if atr is not None else 0.0
+    managed_entry = float(position_entry_price or 0) if position_entry_price is not None else 0.0
+    plan_entry = managed_entry if managed_entry > 0 and signal_state in {"triggered_today", "active_trade", "tp_hit", "sl_hit", "failed_breakout"} else entry
+
+    partial_profit_zone = None
+    if plan_entry > 0 and atr_value > 0 and (action == "BUY" or signal_state in {"triggered_today", "active_trade", "tp_hit", "sl_hit", "failed_breakout"}):
+        partial_profit_zone = [round(plan_entry + 1.0 * atr_value, 2), round(plan_entry + 1.5 * atr_value, 2)]
+    elif action == "SELL" and plan_entry > 0 and atr_value > 0:
+        partial_profit_zone = [round(plan_entry - 1.0 * atr_value, 2), round(plan_entry - 1.5 * atr_value, 2)]
+
+    breakeven_ready = bool(
+        action == "BUY"
+        and entry > 0
+        and atr_value > 0
+        and (
+            signal_state in {"active_trade", "tp_hit"}
+            or live >= entry + atr_value
+        )
+    )
+
+    trailing_stop_level = stop_loss
+    trigger = float(transition_trigger_price or 0) if transition_trigger_price is not None else 0.0
+    if (action == "BUY" and entry > 0) or signal_state in {"triggered_today", "active_trade", "tp_hit", "sl_hit", "failed_breakout"}:
+        managed_stop = round(managed_entry - 1.5 * atr_value, 2) if managed_entry > 0 and atr_value > 0 else None
+        if signal_state == "tp_hit" and partial_profit_zone:
+            trailing_stop_level = partial_profit_zone[0]
+        elif signal_state in {"failed_breakout", "sl_hit"}:
+            trailing_stop_level = managed_stop if managed_stop is not None else (round(stop, 2) if stop else stop_loss)
+        elif signal_state in {"ready_to_buy", "triggered_today", "active_trade"}:
+            trailing_stop_level = round(trigger, 2) if trigger > 0 else (round(managed_entry, 2) if managed_entry > 0 else round(entry, 2))
+
+    guidance_map = {
+        "ready_to_buy": "Buy zone is valid now — execute only while price holds above the stop plan",
+        "triggered_today": "Manage initial risk now — avoid adding if price gets extended from the trigger",
+        "active_trade": "Hold while price stays above the trailing stop — trail risk, do not treat this as a fresh entry",
+        "tp_hit": "Scale out or lock gains now — raise the stop on any remaining size",
+        "sl_hit": "Exit the trade and wait for a fresh setup — do not average down",
+        "failed_breakout": "Cut risk quickly — failed breakouts should not stay full size",
+        "late_entry": "Do not chase here — wait for price to reset closer to support or breakout level",
+        "avoid_chasing": "Skip the stretched entry and wait for reward/risk to improve",
+        "waiting_breakout": "Wait for a confirmed close above resistance before entering",
+        "waiting_reclaim": "Wait for support reclaim confirmation before entering",
+        "invalidated": "Stand aside until a new setup forms",
+        "expired": "Let the old setup go and wait for a fresh trigger",
+    }
+    action_guidance = guidance_map.get(signal_state, "Manage the setup using the stop, target, and state context")
+
+    management_notes: list[str] = []
+    if action_guidance:
+        management_notes.append(action_guidance)
+    if partial_profit_zone:
+        management_notes.append(
+            f"Partial profit zone {partial_profit_zone[0]:.0f}-{partial_profit_zone[1]:.0f}"
+        )
+    if trailing_stop_level is not None:
+        try:
+            management_notes.append(f"Trail stop reference {float(trailing_stop_level):.0f}")
+        except (TypeError, ValueError):
+            pass
+    management_notes.append(f"Breakeven ready: {'yes' if breakeven_ready else 'no'}")
+
+    return {
+        "action_guidance": action_guidance,
+        "partial_profit_zone": partial_profit_zone,
+        "trailing_stop_level": trailing_stop_level,
+        "breakeven_ready": breakeven_ready,
+        "management_notes": management_notes,
+    }
+
+
 def classify_signal(
     stock: dict[str, Any],
     sector_avg_rsi: dict[str, float] | None = None,
@@ -989,7 +1074,7 @@ def classify_signal(
     )
 
     # Step 7: Entry / SL / TP
-    entry_price = float(stock.get("position_entry_price", price) or 0) if price > 0 else 0
+    entry_price = float(price or 0) if price > 0 else 0
     stop_loss = None
     take_profit = None
     has_position_context = stock.get("position_entry_price") is not None
@@ -1059,6 +1144,18 @@ def classify_signal(
     elif action == "SELL":
         invalidation = f"Close above {stop_loss} or direction reversal"
 
+    management_plan = _build_trade_management_plan(
+        action,
+        signal_state,
+        entry_price,
+        stop_loss,
+        take_profit,
+        price,
+        atr,
+        transition_trigger_price,
+        stock.get("position_entry_price"),
+    )
+
     # Determine signal type
     if ev_score > 0 and tech_score > 0:
         signal_type = "composite"
@@ -1099,6 +1196,11 @@ def classify_signal(
         "risk_reward_label": risk_reward.get("risk_reward_label"),
         "shortlist_eligible": shortlist_eligible,
         "alert_ready": alert_ready,
+        "action_guidance": management_plan.get("action_guidance"),
+        "partial_profit_zone": management_plan.get("partial_profit_zone"),
+        "trailing_stop_level": management_plan.get("trailing_stop_level"),
+        "breakeven_ready": management_plan.get("breakeven_ready"),
+        "management_notes": management_plan.get("management_notes", []),
         "participation_score": participation.get("score", 0.0),
         "participation_label": participation.get("label", "low"),
     }

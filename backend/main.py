@@ -3397,6 +3397,11 @@ def api_daily_summary(limit: int = 3, include_watch: bool = True) -> dict[str, A
             "risk_reward_label": ts.get("risk_reward_label", "developing"),
             "shortlist_eligible": ts.get("shortlist_eligible", False),
             "alert_ready": ts.get("alert_ready", False),
+            "action_guidance": ts.get("action_guidance", ""),
+            "partial_profit_zone": ts.get("partial_profit_zone", []),
+            "trailing_stop_level": ts.get("trailing_stop_level"),
+            "breakeven_ready": ts.get("breakeven_ready"),
+            "management_notes": ts.get("management_notes", []),
         })
 
     horizon_order = {"1d": 0, "3d": 1, "7d": 2, "14d": 3, "30d": 4}

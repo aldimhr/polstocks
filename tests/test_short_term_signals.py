@@ -66,6 +66,11 @@ class TestShortTermSignalScorer:
         assert result["risk_reward_label"] == "good"
         assert result["shortlist_eligible"] is True
         assert result["alert_ready"] is True
+        assert result["action_guidance"] == "Buy zone is valid now — execute only while price holds above the stop plan"
+        assert result["partial_profit_zone"] == [1040.0, 1060.0]
+        assert result["trailing_stop_level"] == 980.0
+        assert result["breakeven_ready"] is False
+        assert any("buy zone" in note.lower() for note in result["management_notes"])
         assert any(item["status"] == "pass" for item in result["execution_checklist"])
         assert any("breakout" in reason.lower() for reason in result["reasons"])
 
@@ -251,6 +256,10 @@ class TestShortTermSignalScorer:
         assert "triggered today" in result["next_trigger"].lower()
         assert result["shortlist_eligible"] is False
         assert result["alert_ready"] is True
+        assert result["action_guidance"] == "Manage initial risk now — avoid adding if price gets extended from the trigger"
+        assert result["partial_profit_zone"] == [1020.0, 1040.0]
+        assert result["trailing_stop_level"] == 980.0
+        assert result["breakeven_ready"] is False
 
     def test_buy_setup_can_be_marked_active_trade(self):
         stock = self._base_stock(
@@ -263,6 +272,10 @@ class TestShortTermSignalScorer:
         assert "manage open trade" in result["next_trigger"].lower()
         assert result["shortlist_eligible"] is False
         assert result["alert_ready"] is False
+        assert result["action_guidance"] == "Hold while price stays above the trailing stop — trail risk, do not treat this as a fresh entry"
+        assert result["partial_profit_zone"] == [1020.0, 1040.0]
+        assert result["trailing_stop_level"] == 980.0
+        assert result["breakeven_ready"] is True
 
     def test_buy_setup_can_be_marked_take_profit_hit(self):
         stock = self._base_stock(
@@ -275,6 +288,10 @@ class TestShortTermSignalScorer:
         assert result["state_label"] == "Take Profit Hit"
         assert "take profit" in result["next_trigger"].lower()
         assert result["alert_ready"] is True
+        assert result["action_guidance"] == "Scale out or lock gains now — raise the stop on any remaining size"
+        assert result["partial_profit_zone"] == [1020.0, 1040.0]
+        assert result["trailing_stop_level"] == 1020.0
+        assert result["breakeven_ready"] is True
 
     def test_buy_setup_can_be_marked_stop_loss_hit(self):
         stock = self._base_stock(
@@ -287,6 +304,10 @@ class TestShortTermSignalScorer:
         assert result["state_label"] == "Stop Loss Hit"
         assert "stop loss" in result["next_trigger"].lower()
         assert result["alert_ready"] is True
+        assert result["action_guidance"] == "Exit the trade and wait for a fresh setup — do not average down"
+        assert result["partial_profit_zone"] == [1020.0, 1040.0]
+        assert result["trailing_stop_level"] == 920.0
+        assert result["breakeven_ready"] is False
 
     def test_buy_setup_can_be_marked_failed_breakout(self):
         stock = self._base_stock(
@@ -300,6 +321,10 @@ class TestShortTermSignalScorer:
         assert result["state_label"] == "Failed Breakout"
         assert "failed breakout" in result["next_trigger"].lower()
         assert result["alert_ready"] is True
+        assert result["action_guidance"] == "Cut risk quickly — failed breakouts should not stay full size"
+        assert result["partial_profit_zone"] == [1020.0, 1040.0]
+        assert result["trailing_stop_level"] == 920.0
+        assert result["breakeven_ready"] is False
 
     def test_rank_trade_signals_prefers_rr_shortlist_buy(self):
         signals = [
